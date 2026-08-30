@@ -23,7 +23,31 @@ async function main() {
   const repo = 'bubbadk/IRIS';
   const tag = 'v0.1.0-alpha';
 
-  console.log(`Checking existing releases for ${repo}...`);
+  // 1. Prepare asset files
+  const debSrc = path.resolve('apps/desktop/src-tauri/target/release/bundle/deb/IRIS_0.1.0_amd64.deb');
+  const rpmSrc = path.resolve('apps/desktop/src-tauri/target/release/bundle/rpm/IRIS-0.1.0-1.x86_64.rpm');
+  const tarSrc = path.resolve('iris-v0.1.0-alpha-linux-x86_64.tar.gz');
+  const binSrc = path.resolve('apps/desktop/src-tauri/target/release/iris');
+
+  const assetsToUpload = [];
+
+  if (fs.existsSync(tarSrc)) {
+    assetsToUpload.push({ name: 'iris-v0.1.0-alpha-linux-x86_64.tar.gz', path: tarSrc, mime: 'application/gzip' });
+  }
+  if (fs.existsSync(debSrc)) {
+    assetsToUpload.push({ name: 'iris_0.1.0_amd64.deb', path: debSrc, mime: 'application/vnd.debian.binary-package' });
+  }
+  if (fs.existsSync(rpmSrc)) {
+    assetsToUpload.push({ name: 'iris-0.1.0-1.x86_64.rpm', path: rpmSrc, mime: 'application/x-rpm' });
+  }
+  if (fs.existsSync(binSrc)) {
+    const rawBinPath = path.resolve('/tmp/iris-linux-x86_64');
+    fs.copyFileSync(binSrc, rawBinPath);
+    fs.chmodSync(rawBinPath, 0o755);
+    assetsToUpload.push({ name: 'iris-linux-x86_64', path: rawBinPath, mime: 'application/octet-stream' });
+  }
+
+  console.log(`Preparing release ${tag} for ${repo}...`);
   const listRes = await fetch(`https://api.github.com/repos/${repo}/releases`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -35,8 +59,34 @@ async function main() {
   const releases = await listRes.json();
   let release = Array.isArray(releases) ? releases.find((r) => r.tag_name === tag) : null;
 
+  const releaseBody = `## IRIS v0.1.0-alpha (Public Alpha Release)
+
+**Intelligent Reasoning & Integration System** — The spatial operating environment for autonomous AI agents.
+
+---
+
+### 📥 Direct Downloads & Binaries
+
+| Package | Platform / Distro | Direct Download |
+| :--- | :--- | :--- |
+| 📦 **Standalone Archive** | Linux (x86_64 universal) | [**Download \`.tar.gz\`**](https://github.com/${repo}/releases/download/${tag}/iris-v0.1.0-alpha-linux-x86_64.tar.gz) |
+| 📦 **Debian / Ubuntu Package** | Ubuntu, Debian, Pop!_OS, Mint | [**Download \`.deb\`**](https://github.com/${repo}/releases/download/${tag}/iris_0.1.0_amd64.deb) |
+| 📦 **Fedora / RHEL Package** | Fedora, RHEL, openSUSE | [**Download \`.rpm\`**](https://github.com/${repo}/releases/download/${tag}/iris-0.1.0-1.x86_64.rpm) |
+| 🚀 **Standalone Executable** | Linux (x86_64 raw binary) | [**Download \`iris-linux-x86_64\`**](https://github.com/${repo}/releases/download/${tag}/iris-linux-x86_64) |
+
+---
+
+### ✨ What's Included in this Release:
+- 🛸 **Floating Desktop Desklet (Live HUD)**: Frosted glass capsule with live status pulse, activity ticker, and system telemetry.
+- 🤖 **Multi-Agent Cortex**: Autonomous sub-agent delegation, planning, and tool orchestration.
+- 🔌 **Model Context Protocol (MCP) & Skills**: Built-in support for stdio/SSE/HTTP tool servers.
+- 🛡️ **Interactive Workspace & Diff Viewer**: Direct patch inspection and permission safety gates.
+- 🧠 **Vector Memory & Dreaming**: Semantic graph indexing and background consolidation.
+- 🌐 **100% Model Agnostic**: Native support for Ollama, OpenRouter, Anthropic Claude, OpenAI, and Google Gemini.
+- 🔄 **In-App Update Notifications**: Seamless alerts when new releases become available.`;
+
   if (!release) {
-    console.log(`Creating new release ${tag}...`);
+    console.log(`Creating release ${tag}...`);
     const createRes = await fetch(`https://api.github.com/repos/${repo}/releases`, {
       method: 'POST',
       headers: {
@@ -49,68 +99,68 @@ async function main() {
         tag_name: tag,
         target_commitish: 'main',
         name: 'IRIS v0.1.0-alpha',
-        body: `## IRIS v0.1.0-alpha (Public Alpha)
-
-**Intelligent Reasoning & Integration System** — The spatial operating environment for autonomous AI agents.
-
-### ✨ What's Included in this Release:
-- 🛸 **Floating Desktop Desklet (Live HUD)**: Frosted glass capsule with live status pulse, activity ticker, and system telemetry.
-- 🤖 **Multi-Agent Cortex**: Autonomous sub-agent delegation, planning, and tool orchestration.
-- 🔌 **Model Context Protocol (MCP) & Skills**: Built-in support for stdio/SSE/HTTP tool servers.
-- 🛡️ **Interactive Workspace & Diff Viewer**: Direct patch inspection and permission safety gates.
-- 🧠 **Vector Memory & Dreaming**: Semantic graph indexing and background consolidation.
-- 🌐 **100% Model Agnostic**: Native support for Ollama, OpenRouter, Anthropic Claude, OpenAI, and Google Gemini.
-
-### 📦 Release Binaries
-- \`iris-v0.1.0-alpha-linux-x86_64.tar.gz\`: Linux x86_64 pre-compiled production binary bundle.`,
+        body: releaseBody,
         draft: false,
         prerelease: true,
       }),
     });
+    release = await createRes.json();
+  } else {
+    console.log(`Updating release body for ${release.html_url}...`);
+    const updateRes = await fetch(`https://api.github.com/repos/${repo}/releases/${release.id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'IRIS-Release-Publisher',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        body: releaseBody,
+      }),
+    });
+    release = await updateRes.json();
+  }
 
-    if (!createRes.ok) {
-      const errText = await createRes.text();
-      throw new Error(`Failed to create release: ${createRes.status} ${errText}`);
+  // Delete existing assets if re-uploading
+  const existingAssets = release.assets || [];
+  for (const asset of assetsToUpload) {
+    const found = existingAssets.find((a) => a.name === asset.name);
+    if (found) {
+      console.log(`Deleting existing asset ${asset.name} (${found.id})...`);
+      await fetch(`https://api.github.com/repos/${repo}/releases/assets/${found.id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'IRIS-Release-Publisher',
+        },
+      });
     }
 
-    release = await createRes.json();
-    console.log(`Release created: ${release.html_url}`);
-  } else {
-    console.log(`Found existing release: ${release.html_url}`);
+    console.log(`Uploading ${asset.name} (${(fs.statSync(asset.path).size / 1024 / 1024).toFixed(2)} MB)...`);
+    const uploadUrl = release.upload_url.replace(/\{\?name,label\}/, `?name=${encodeURIComponent(asset.name)}`);
+    const buffer = fs.readFileSync(asset.path);
+
+    const uploadRes = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'IRIS-Release-Publisher',
+        'Content-Type': asset.mime,
+      },
+      body: buffer,
+    });
+
+    if (!uploadRes.ok) {
+      console.warn(`Upload failed for ${asset.name}: ${uploadRes.status} ${await uploadRes.text()}`);
+    } else {
+      console.log(`Uploaded ${asset.name} successfully!`);
+    }
   }
 
-  const assetPath = path.resolve('iris-v0.1.0-alpha-linux-x86_64.tar.gz');
-  if (!fs.existsSync(assetPath)) {
-    throw new Error(`Asset file not found: ${assetPath}`);
-  }
-
-  const assetName = 'iris-v0.1.0-alpha-linux-x86_64.tar.gz';
-  const uploadUrlTemplate = release.upload_url; // e.g. https://uploads.github.com/repos/bubbadk/IRIS/releases/12345/assets{?name,label}
-  const uploadUrl = uploadUrlTemplate.replace(/\{\?name,label\}/, `?name=${encodeURIComponent(assetName)}`);
-
-  console.log(`Uploading ${assetName} (${(fs.statSync(assetPath).size / 1024 / 1024).toFixed(2)} MB)...`);
-  const fileBuffer = fs.readFileSync(assetPath);
-
-  const uploadRes = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-      'User-Agent': 'IRIS-Release-Publisher',
-      'Content-Type': 'application/gzip',
-    },
-    body: fileBuffer,
-  });
-
-  if (!uploadRes.ok) {
-    const errText = await uploadRes.text();
-    console.warn(`Upload response: ${uploadRes.status} ${errText}`);
-  } else {
-    const assetInfo = await uploadRes.json();
-    console.log(`Asset uploaded successfully! Download URL: ${assetInfo.browser_download_url}`);
-  }
-
-  console.log(`Release is live at: ${release.html_url}`);
+  console.log(`\n🎉 Release successfully published with all binary packages at:\n${release.html_url}`);
 }
 
 main().catch((err) => {
