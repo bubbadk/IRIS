@@ -41,37 +41,40 @@ server.listen(14208, async () => {
     });
 
   try {
+    console.log('Capturing real Desktop Workspace with open windows...');
+    await runChromium([
+      '--headless',
+      '--disable-gpu',
+      '--no-sandbox',
+      '--window-size=1720,980',
+      '--force-device-scale-factor=1.5',
+      '--screenshot=docs/screenshots/iris-desktop-main.png',
+      'http://localhost:14208?onboarding=false&preview=desktop',
+    ]);
+
+    console.log('Capturing real Live Glass Desklet Widget on wallpaper backdrop...');
+    await runChromium([
+      '--headless',
+      '--disable-gpu',
+      '--no-sandbox',
+      '--window-size=720,320',
+      '--force-device-scale-factor=1.5',
+      '--screenshot=docs/screenshots/iris-desktop-widget.png',
+      'http://localhost:14208?window=widget-preview',
+    ]);
+
     console.log('Capturing real Onboarding Wizard screenshot...');
     await runChromium([
       '--headless',
       '--disable-gpu',
       '--no-sandbox',
       '--window-size=1280,820',
+      '--force-device-scale-factor=1.5',
       '--screenshot=docs/screenshots/iris-onboarding-wizard.png',
       'http://localhost:14208',
     ]);
 
-    console.log('Capturing real Desktop Workspace screenshot...');
-    await runChromium([
-      '--headless',
-      '--disable-gpu',
-      '--no-sandbox',
-      '--window-size=1280,820',
-      '--screenshot=docs/screenshots/iris-desktop-main.png',
-      'http://localhost:14208?onboarding=false',
-    ]);
-
-    console.log('Capturing real Live Desklet Widget screenshot...');
-    await runChromium([
-      '--headless',
-      '--disable-gpu',
-      '--no-sandbox',
-      '--window-size=480,320',
-      '--screenshot=docs/screenshots/iris-desktop-widget.png',
-      'http://localhost:14208?window=widget',
-    ]);
-
-    console.log('Screenshots captured successfully!');
+    console.log('All screenshots captured successfully!');
   } catch (err) {
     console.error('Error capturing screenshots:', err);
   } finally {

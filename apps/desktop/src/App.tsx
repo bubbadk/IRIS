@@ -4027,7 +4027,33 @@ function WindowFrame({
 }
 
 export function App() {
-  const [windows, setWindows] = useState<DesktopWindow[]>(() => loadWindows());
+  const [windows, setWindows] = useState<DesktopWindow[]>(() => {
+    if (typeof window !== 'undefined' && window.location.search.includes('preview=desktop')) {
+      return [
+        {
+          id: 'win-agents',
+          objectType: 'agents',
+          title: 'Agents',
+          x: 60,
+          y: 80,
+          width: 820,
+          height: 680,
+          z: 11,
+        },
+        {
+          id: 'win-workspace',
+          objectType: 'workspace',
+          title: 'Workspace',
+          x: 920,
+          y: 110,
+          width: 760,
+          height: 640,
+          z: 12,
+        },
+      ];
+    }
+    return loadWindows();
+  });
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('iris.theme') === 'dark');
   const [workspaceMount, setWorkspaceMount] = useState<WorkspaceMount | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(
