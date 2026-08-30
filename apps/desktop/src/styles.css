@@ -6636,9 +6636,10 @@ kbd {
    ========================================================================== */
 .emoji-picker-popover {
   position: absolute;
-  bottom: calc(100% + 8px);
-  right: 12px;
+  bottom: calc(100% + 10px);
+  left: 0;
   width: 320px;
+  max-width: 90vw;
   background: var(--surface);
   backdrop-filter: blur(24px);
   border: 1px solid var(--line);
