@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default IRIS desktop capability set","local":true,"windows":["main"],"permissions":["core:default","dialog:allow-open",{"identifier":"opener:allow-open-url","allow":[{"url":"https://*"}]}]}}

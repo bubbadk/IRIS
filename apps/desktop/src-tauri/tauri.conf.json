@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "IRIS",
+  "version": "0.1.0",
+  "identifier": "systems.iris.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "IRIS",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "backgroundColor": "#f3f0e9"
+      },
+      {
+        "label": "widget",
+        "title": "IRIS Desklet",
+        "width": 360,
+        "height": 220,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "visible": false,
+        "url": "index.html?window=widget"
+      }
+    ],
+    "security": {"csp": null}
+  },
+  "bundle": {
+    "active": true,
+    "category": "Utility",
+    "shortDescription": "Intelligent Reasoning & Integration System",
+    "longDescription": "A graphical desktop environment for creating, configuring and operating AI agents.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png"]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name":"@iris/providers","private":true,"version":"0.1.0","type":"module","exports":"./src/index.ts",
+  "scripts":{"build":"tsc --noEmit","typecheck":"tsc --noEmit","test":"vitest run --passWithNoTests","lint":"eslint src --max-warnings=0"},
+  "dependencies":{"@iris/core":"workspace:*"},"devDependencies":{"typescript":"^5.8.0","vitest":"^3.0.0"}
+}
