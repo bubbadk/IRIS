@@ -7,6 +7,7 @@ export type IrisObjectType =
   | 'memory'
   | 'skills'
   | 'connections'
+  | 'channels'
   | 'settings';
 
 export type Capability = 'chat' | 'streaming' | 'reasoning' | 'vision' | 'tools' | 'embeddings';

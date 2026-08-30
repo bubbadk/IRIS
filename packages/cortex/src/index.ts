@@ -18,6 +18,7 @@ const aliases: Record<IrisObjectType, string[]> = {
   memory: ['memory', 'memories', 'remember', 'knowledge'],
   skills: ['skill', 'skills', 'capability', 'capabilities'],
   connections: ['connection', 'connections', 'mcp', 'server', 'servers', 'integration'],
+  channels: ['channel', 'channels', 'telegram', 'discord', 'slack', 'bridge', 'mobile', 'messaging'],
   settings: ['setting', 'settings', 'configuration', 'configure', 'preferences'],
 };
 

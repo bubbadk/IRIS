@@ -23,6 +23,9 @@ import { skillOrigin, type SkillDefinition } from '@iris/skills';
 import { diffWorkspaceText, type WorkspaceMount } from '@iris/workspaces';
 import type { PermissionDecision, ToolDefinition } from '@iris/tools';
 import { DiffViewer } from './DiffViewer';
+import { EmojiPicker, QuickReactionsBar } from './EmojiPicker';
+import { ChannelsWindow } from './ChannelsState';
+import { analyzeTurnForSkill, saveLearnedSkill, type LearnedSkillDraft } from './skillLearner';
 import { OnboardingWizard, isOnboardingNeeded } from './OnboardingWizard';
 import { checkLatestRelease, type ReleaseInfo } from './updateChecker';
 import { UpdateNotificationModal } from './UpdateNotificationModal';
@@ -179,6 +182,12 @@ const objects: Array<{
     Icon: ConnectionsIcon,
   },
   {
+    type: 'channels',
+    label: 'Channels',
+    description: 'Bridge Telegram and Discord messaging to IRIS.',
+    Icon: ConnectionsIcon,
+  },
+  {
     type: 'settings',
     label: 'System',
     description: 'Inspect tool authority and local permission decisions.',
@@ -283,7 +292,7 @@ function capabilityGroups(tools: readonly ToolDefinition[]): CapabilityGroup[] {
       id: tool.id,
       name: tool.name,
       description: tool.description,
-      meta: tool.risk,
+      meta: String(tool.risk ?? ''),
     });
     groups.set(id, group);
   }
@@ -693,6 +702,9 @@ function ChatDesklet({
   const [showHistory, setShowHistory] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [activeTools, setActiveTools] = useState<ActiveToolInvocation[]>([]);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [pendingLearnedSkill, setPendingLearnedSkill] = useState<LearnedSkillDraft | null>(null);
+  const [reactions, setReactions] = useState<Record<string, Record<string, number>>>({});
   const abortControllerRef = useRef<AbortController | null>(null);
   const chatBodyRef = useRef<HTMLDivElement | null>(null);
   const reasoningTextRef = useRef<HTMLParagraphElement | null>(null);
@@ -871,11 +883,32 @@ function ChatDesklet({
           );
           setActivity('Thinking after tool result…');
         } else if (runtimeEvent.type === 'assistant-complete') {
-          setMessages(await conversationRepository.list(selectedAgent.id));
+          const list = await conversationRepository.list(selectedAgent.id);
+          setMessages(list);
           setAssistantDraft('');
           setReasoningDraft('');
           setActivity('');
           setTurnStartedAt(null);
+
+          // Auto-learn skills heuristic from completed multi-step turn
+          const lastAssistant = list.filter((m) => m.role === 'assistant').slice(-1)[0];
+          const lastUser = list.filter((m) => m.role === 'user').slice(-1)[0];
+          if (lastUser && lastAssistant) {
+            const learned = analyzeTurnForSkill({
+              turnId: lastAssistant.turnId || `turn-${Date.now()}`,
+              userPrompt: lastUser.content,
+              assistantReply: lastAssistant.content,
+              toolSteps: activeTools.map((t) => ({
+                name: t.name,
+                input: (t.input as Record<string, unknown>) || {},
+                status: t.status,
+                output: typeof t.output === 'string' ? t.output : JSON.stringify(t.output),
+              })),
+            });
+            if (learned) {
+              setPendingLearnedSkill(learned);
+            }
+          }
         } else if (runtimeEvent.type === 'tool-approval-required') {
           setApproval(runtimeEvent.approval);
           setApprovalInput(runtimeEvent.call.input);
@@ -1124,6 +1157,25 @@ function ChatDesklet({
             >
               <MessageImages images={message.images} />
               <RichMessage content={message.content} />
+              {message.role === 'assistant' && (
+                <QuickReactionsBar
+                  activeReactions={reactions[message.turnId || String(index)] || {}}
+                  onReact={(emoji) => {
+                    const key = message.turnId || String(index);
+                    setReactions((prev) => {
+                      const msgReactions = prev[key] || {};
+                      const currentCount = msgReactions[emoji] || 0;
+                      return {
+                        ...prev,
+                        [key]: {
+                          ...msgReactions,
+                          [emoji]: currentCount > 0 ? 0 : 1,
+                        },
+                      };
+                    });
+                  }}
+                />
+              )}
             </div>
           ))
         )}
@@ -1222,6 +1274,37 @@ function ChatDesklet({
           </div>
         )}
       </div>
+      {pendingLearnedSkill && (
+        <div className="learned-skill-prompt-banner">
+          <div className="learned-skill-info">
+            <span className="learned-skill-badge">💡 Auto-Learned Skill</span>
+            <span>
+              Synthesized procedure for <strong>{pendingLearnedSkill.name}</strong>
+            </span>
+          </div>
+          <div className="learned-skill-actions">
+            <button
+              type="button"
+              className="learned-skill-btn-save"
+              onClick={async () => {
+                await saveLearnedSkill(pendingLearnedSkill);
+                setPendingLearnedSkill(null);
+                setActivity('✨ Saved new skill to your library!');
+                setTimeout(() => setActivity(''), 3000);
+              }}
+            >
+              Save to Skills
+            </button>
+            <button
+              type="button"
+              className="learned-skill-btn-dismiss"
+              onClick={() => setPendingLearnedSkill(null)}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
       {slashMode && selectedAgent && (
         <div className="slash-palette" role="listbox" aria-label="Slash commands">
           <p>Skills</p>
@@ -1247,6 +1330,27 @@ function ChatDesklet({
       <AttachmentChips attachments={attachments} onRemove={removeAttachment} />
       <form className="desktop-chat-composer" onSubmit={send}>
         <AttachButton onFiles={(files) => void attachFiles(files)} disabled={!selectedAgent || busy} />
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="soft-button emoji-toggle-btn"
+            title="Insert emoji"
+            onClick={() => setShowEmojiPicker((v) => !v)}
+            disabled={!selectedAgent || busy}
+            style={{ fontSize: '15px', padding: '6px 9px' }}
+          >
+            😀
+          </button>
+          {showEmojiPicker && (
+            <EmojiPicker
+              onSelect={(emoji) => {
+                setDraft((prev) => prev + emoji);
+                setShowEmojiPicker(false);
+              }}
+              onClose={() => setShowEmojiPicker(false)}
+            />
+          )}
+        </div>
         <textarea
           ref={textareaRef}
           value={draft}
@@ -3990,6 +4094,8 @@ function WindowFrame({
           <SkillsState />
         ) : win.objectType === 'connections' ? (
           <McpState />
+        ) : win.objectType === 'channels' ? (
+          <ChannelsWindow />
         ) : win.objectType === 'settings' ? (
           <PermissionsState />
         ) : (
