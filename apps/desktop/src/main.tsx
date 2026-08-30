@@ -7,6 +7,11 @@ import './styles.css';
 const isWidgetWindow = window.location.search.includes('window=widget');
 const isWidgetPreview = window.location.search.includes('window=widget-preview');
 
+if (isWidgetWindow) {
+  document.documentElement.classList.add('widget-window');
+  document.body.classList.add('widget-window');
+}
+
 function WidgetPreviewWrapper() {
   return (
     <div

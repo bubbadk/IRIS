@@ -5412,13 +5412,26 @@ kbd {
 }
 
 /* Standalone Transparent Widget Viewport */
+html.widget-window,
+body.widget-window,
+body.widget-window #root {
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
 .standalone-widget-viewport {
   width: 100vw;
   height: 100vh;
   margin: 0;
-  padding: 8px;
+  padding: 0;
   box-sizing: border-box;
   background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5454,10 +5467,15 @@ kbd {
   position: relative;
   bottom: auto;
   right: auto;
-  width: 100%;
-  max-width: 504px;
-  height: 136px;
-  margin: 0;
+  width: 500px;
+  height: 140px;
+  margin: auto;
+  background: #181b19;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
 }
 
 .desktop-live-widget.capsule-hud:hover {
