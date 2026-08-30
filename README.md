@@ -12,7 +12,7 @@
 </div>
 
 <div align="center">
-  <img src="docs/screenshots/iris-desktop-main.png" alt="IRIS Spatial Operating Environment" width="100%" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15);" />
+  <img src="docs/screenshots/iris-spatial-desktop-v1.png" alt="IRIS Spatial Operating Environment" width="100%" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15);" />
 </div>
 
 ---
@@ -51,7 +51,7 @@ IRIS is a **graphical agent operating environment**. It treats agents, workspace
 Close the main window, and IRIS seamlessly transitions into a sleek, transparent, floating glass mini-HUD on your physical desktop.
 
 <div align="center">
-  <img src="docs/screenshots/iris-desktop-widget.png" alt="IRIS Floating Desklet Widget" width="480" style="border-radius: 16px; margin: 12px 0;" />
+  <img src="docs/screenshots/iris-capsule-desklet-v1.png" alt="IRIS Floating Desklet Widget" width="540" style="border-radius: 16px; margin: 14px 0;" />
 </div>
 
 - **Live Status Pulse**: Shows real-time agent thoughts and states (`● Ready` / `● Working…`).
@@ -84,7 +84,7 @@ Close the main window, and IRIS seamlessly transitions into a sleek, transparent
 - **3-Step Onboarding**: Get started in 1 minute with pre-configured specialist agents.
 
 <div align="center">
-  <img src="docs/screenshots/iris-onboarding-wizard.png" alt="IRIS Onboarding Wizard" width="600" style="border-radius: 16px; margin: 12px 0;" />
+  <img src="docs/screenshots/iris-onboarding-wizard-v1.png" alt="IRIS Onboarding Wizard" width="600" style="border-radius: 16px; margin: 14px 0;" />
 </div>
 
 ---
