@@ -33,6 +33,7 @@
         "transparent": true,
         "shadow": false,
         "alwaysOnTop": true,
+        "skipTaskbar": true,
         "visible": false,
         "url": "index.html?window=widget"
       }
