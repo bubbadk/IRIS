@@ -1,8 +1,11 @@
 # IRIS Current State
 
-Status: **Repository-backed skills and recoverable MCP connections**
+Status: **Public Alpha Release v0.1.0-alpha & Spatial Operating Environment Live**
 
-- Repository validation is green: lint, strict typecheck, 175 desktop tests plus all package tests, `cargo test`/`cargo build` in src-tauri, and production build.
+- Public GitHub release `v0.1.0-alpha` published with production binary bundle `iris-v0.1.0-alpha-linux-x86_64.tar.gz`.
+- Repository validation is 100% green: 34 test suites (180 tests), 26 Rust tests, ESLint, strict TypeScript, and production binary build.
+- Spatial Glass Capsule HUD Desklet fully implemented with live status pulse, specialist activity feed, and system telemetry.
+- In-app update notification modal and 3-step onboarding wizard with automatic existing-data detection.
 
 ## Working foundation
 
