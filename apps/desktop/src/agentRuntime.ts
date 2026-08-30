@@ -23,7 +23,7 @@ import {
   permissionRuleRepository,
   suspendedAgentTurnRepository,
 } from './persistence';
-import { agentToolRuleId } from './agentPermissions';
+import { agentToolRuleId, ensureAssignedToolsRequireApproval } from './agentPermissions';
 import { toolRegistry, agentToolRuntime, janitorHealthToolId } from './tooling';
 import { createSubAgentTool } from './subagentTool';
 import { agentContextBuilder } from './memory';
@@ -107,27 +107,47 @@ export function subscribeAgentActivity(
   return () => activityListeners.delete(listener);
 }
 
+export const standardWorkspaceTools: readonly string[] = [
+  'workspace.list',
+  'workspace.search',
+  'workspace.read',
+  'workspace.directory',
+  'workspace.write',
+  'workspace.patch',
+  'workspace.move',
+  'workspace.delete',
+  'memory.remember',
+  'host.inspect',
+  'subagent.delegate',
+];
+
 export async function normalizeDesktopAgent(agent: AgentDefinition): Promise<AgentDefinition> {
-  if (agent.autonomy !== 'janitor' || agent.toolIds.includes(janitorHealthToolId)) return agent;
-  const updated = { ...agent, toolIds: [...agent.toolIds, janitorHealthToolId] };
-  await agentRepository.save(updated);
-  const rules = await permissionRuleRepository.list();
+  let modified = false;
+  let toolIds = [...agent.toolIds];
   if (
-    !rules.some(
-      (rule) =>
-        (rule.agentId === '*' || rule.agentId === agent.id) &&
-        (rule.toolId === '*' || rule.toolId === janitorHealthToolId),
-    )
+    toolIds.length === 0 &&
+    (agent.autonomy === 'operate' || agent.autonomy === 'act' || agent.autonomy === 'assist')
   ) {
-    await permissionRuleRepository.save({
-      id: agentToolRuleId(agent.id, janitorHealthToolId),
-      agentId: agent.id,
-      toolId: janitorHealthToolId,
-      decision: 'ask',
-      reason: `${agent.name} requires approval each time it requests Run Janitor health check.`,
-    });
+    toolIds = [...standardWorkspaceTools];
+    modified = true;
   }
-  return updated;
+  if (agent.autonomy === 'janitor' && !toolIds.includes(janitorHealthToolId)) {
+    toolIds.push(janitorHealthToolId);
+    modified = true;
+  }
+  if (modified) {
+    const updated = { ...agent, toolIds };
+    await agentRepository.save(updated);
+    const rules = await permissionRuleRepository.list();
+    await ensureAssignedToolsRequireApproval(
+      permissionRuleRepository,
+      [updated],
+      toolRegistry.list(),
+      rules,
+    );
+    return updated;
+  }
+  return agent;
 }
 
 export function configuredAgentModel(

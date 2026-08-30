@@ -29,9 +29,9 @@ export function analyzeTurnForSkill(params: {
 }): LearnedSkillDraft | null {
   const { turnId, userPrompt, assistantReply, toolSteps } = params;
 
-  // Filter successful tool invocations
+  // Must have at least 2 successful tool invocations to synthesize a multi-step procedural skill
   const completedSteps = toolSteps.filter((s) => s.status === 'completed');
-  if (completedSteps.length < 2 && userPrompt.length < 15) {
+  if (completedSteps.length < 2) {
     return null;
   }
 

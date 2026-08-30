@@ -156,6 +156,19 @@ export function OnboardingWizard({
       // 3. Ensure Default Agents exist
       const existingAgents = await agentRepository.list();
       if (existingAgents.length === 0) {
+        const workspaceTools = [
+          'workspace.list',
+          'workspace.search',
+          'workspace.read',
+          'workspace.directory',
+          'workspace.write',
+          'workspace.patch',
+          'workspace.move',
+          'workspace.delete',
+          'memory.remember',
+          'host.inspect',
+          'subagent.delegate',
+        ];
         const defaultAgents: AgentDefinition[] = [
           {
             id: `agent-iris-${crypto.randomUUID().slice(0, 8)}`,
@@ -168,7 +181,7 @@ export function OnboardingWizard({
             model: providerConfig.model,
             autonomy: 'operate',
             skillIds: [],
-            toolIds: [],
+            toolIds: workspaceTools,
           },
           {
             id: `agent-dev-${crypto.randomUUID().slice(0, 8)}`,
@@ -180,7 +193,7 @@ export function OnboardingWizard({
             model: providerConfig.model,
             autonomy: 'act',
             skillIds: [],
-            toolIds: [],
+            toolIds: workspaceTools,
           },
           {
             id: `agent-janitor-${crypto.randomUUID().slice(0, 8)}`,
@@ -192,7 +205,15 @@ export function OnboardingWizard({
             model: providerConfig.model,
             autonomy: 'act',
             skillIds: [],
-            toolIds: [],
+            toolIds: [
+              'janitor.health',
+              'janitor.diagnostics',
+              'janitor.command',
+              'memory.remember',
+              'workspace.list',
+              'workspace.read',
+              'workspace.write',
+            ],
           },
         ];
 
