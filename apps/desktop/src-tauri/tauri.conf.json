@@ -26,8 +26,8 @@
       {
         "label": "widget",
         "title": "IRIS Desklet",
-        "width": 520,
-        "height": 160,
+        "width": 500,
+        "height": 140,
         "resizable": false,
         "decorations": false,
         "transparent": true,

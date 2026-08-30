@@ -5464,18 +5464,19 @@ body.widget-window #root {
 }
 
 .desktop-live-widget.capsule-hud.is-standalone-window {
-  position: relative;
-  bottom: auto;
-  right: auto;
-  width: 500px;
-  height: 140px;
-  margin: auto;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   background: #181b19;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: none !important;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 999px;
+  box-sizing: border-box;
 }
 
 .desktop-live-widget.capsule-hud:hover {
