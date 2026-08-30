@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IRIS · Live GitHub Release & Community Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0d1110;
+      --surface: rgba(22, 28, 25, 0.75);
+      --surface-border: rgba(255, 255, 255, 0.1);
+      --card-bg: rgba(28, 36, 32, 0.65);
+      --card-hover: rgba(36, 46, 41, 0.85);
+      --text: #eef3f0;
+      --text-muted: #8e9e95;
+      --emerald: #39db80;
+      --emerald-glow: rgba(57, 219, 128, 0.35);
+      --amber: #f59e0b;
+      --sky: #38bdf8;
+      --purple: #c084fc;
+      --rose: #fb7185;
+      --line: rgba(255, 255, 255, 0.08);
+      --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg);
+      background-image: 
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(57, 219, 128, 0.15), transparent),
+        radial-gradient(ellipse 60% 40% at 90% 80%, rgba(56, 189, 248, 0.08), transparent);
+      color: var(--text);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      padding: 24px;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* Top Navigation / Header */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      padding: 16px 24px;
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 20px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo-badge {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      background: rgba(57, 219, 128, 0.15);
+      border: 1px solid rgba(57, 219, 128, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 0 20px var(--emerald-glow);
+    }
+
+    .brand h1 {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand p {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      background: rgba(57, 219, 128, 0.12);
+      border: 1px solid rgba(57, 219, 128, 0.25);
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--emerald);
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--emerald);
+      box-shadow: 0 0 10px var(--emerald);
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .refresh-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--surface-border);
+      color: var(--text);
+      padding: 6px 14px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .refresh-btn:hover {
+      background: rgba(255, 255, 255, 0.16);
+      transform: translateY(-1px);
+    }
+
+    .token-input-btn {
+      background: transparent;
+      border: 1px dashed var(--surface-border);
+      color: var(--text-muted);
+      padding: 6px 12px;
+      border-radius: 10px;
+      font-size: 11.5px;
+      cursor: pointer;
+    }
+
+    .token-input-btn:hover {
+      color: var(--text);
+      border-color: var(--text-muted);
+    }
+
+    /* Metric Highlights Grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+
+    .metric-card {
+      background: var(--card-bg);
+      border: 1px solid var(--surface-border);
+      border-radius: 18px;
+      padding: 20px;
+      backdrop-filter: blur(16px);
+      transition: transform 0.2s ease, border-color 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .metric-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .metric-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+    }
+
+    .card-stars::before { background: var(--amber); }
+    .card-downloads::before { background: var(--emerald); }
+    .card-issues::before { background: var(--sky); }
+    .card-release::before { background: var(--purple); }
+
+    .metric-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .metric-icon {
+      font-size: 18px;
+    }
+
+    .metric-value {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: #ffffff;
+      font-family: var(--font-sans);
+    }
+
+    .metric-footer {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Main Sections */
+    .dashboard-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    @media (max-width: 900px) {
+      .dashboard-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .section-card {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 20px;
+      padding: 24px;
+      backdrop-filter: blur(20px);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .section-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 14px;
+    }
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 750;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge-count {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--surface-border);
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    /* Asset Downloads Table */
+    .asset-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .asset-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      transition: background 0.15s ease;
+    }
+
+    .asset-item:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .asset-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .asset-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .asset-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: var(--font-mono);
+    }
+
+    .asset-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .asset-downloads {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      flex-shrink: 0;
+    }
+
+    .download-count {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--emerald);
+      font-family: var(--font-mono);
+    }
+
+    .download-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    /* Issues & Community Feed */
+    .issues-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 480px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .issue-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 12px 14px;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.15s ease;
+    }
+
+    .issue-item:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.18);
+      transform: translateX(2px);
+    }
+
+    .issue-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .issue-title {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #ffffff;
+      line-height: 1.35;
+    }
+
+    .issue-number {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .issue-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 11.5px;
+      color: var(--text-muted);
+      flex-wrap: wrap;
+    }
+
+    .issue-labels {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .issue-label {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #ffffff;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 36px 16px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    .empty-icon {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+    }
+
+    footer a {
+      color: var(--emerald);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="brand">
+        <div class="logo-badge">🛸</div>
+        <div>
+          <h1>IRIS Live Monitor</h1>
+          <p>Repository & Release Telemetry · <span id="repo-name">bubbadk/IRIS</span></p>
+        </div>
+      </div>
+
+      <div class="header-controls">
+        <div class="live-indicator">
+          <span class="live-dot"></span>
+          <span>LIVE (<span id="countdown">30</span>s)</span>
+        </div>
+        <button class="refresh-btn" id="refresh-btn" onclick="fetchData(true)">
+          🔄 Refresh
+        </button>
+        <button class="token-input-btn" id="token-btn" onclick="promptToken()">
+          🔑 Set API Key
+        </button>
+      </div>
+    </header>
+
+    <!-- Key Metrics Grid -->
+    <div class="metrics-grid">
+      <div class="metric-card card-stars">
+        <div class="metric-header">
+          <span>GitHub Stars</span>
+          <span class="metric-icon">⭐</span>
+        </div>
+        <div class="metric-value" id="val-stars">—</div>
+        <div class="metric-footer">
+          <span id="val-forks">0 forks</span> · <span id="val-watchers">0 watchers</span>
+        </div>
+      </div>
+
+      <div class="metric-card card-downloads">
+        <div class="metric-header">
+          <span>Total Downloads</span>
+          <span class="metric-icon">📥</span>
+        </div>
+        <div class="metric-value" id="val-downloads">—</div>
+        <div class="metric-footer" id="val-downloads-sub">
+          Across all binary assets
+        </div>
+      </div>
+
+      <div class="metric-card card-issues">
+        <div class="metric-header">
+          <span>Open Issues & PRs</span>
+          <span class="metric-icon">💬</span>
+        </div>
+        <div class="metric-value" id="val-issues">—</div>
+        <div class="metric-footer" id="val-issues-sub">
+          Community questions & bugs
+        </div>
+      </div>
+
+      <div class="metric-card card-release">
+        <div class="metric-header">
+          <span>Latest Release</span>
+          <span class="metric-icon">🚀</span>
+        </div>
+        <div class="metric-value" id="val-release-tag" style="font-size: 24px;">v0.1.0-alpha</div>
+        <div class="metric-footer" id="val-release-date">
+          Checking timestamp...
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content Layout -->
+    <div class="dashboard-layout">
+      <!-- Release Assets & Download Breakdown -->
+      <div class="section-card">
+        <div class="section-title-row">
+          <div class="section-title">
+            <span>📦</span>
+            <span>Release Binaries & Downloads</span>
+          </div>
+          <span class="badge-count" id="asset-count">0 files</span>
+        </div>
+
+        <div class="asset-list" id="asset-list">
+          <div class="empty-state">
+            <div class="empty-icon">⏳</div>
+            <p>Loading release assets...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Issues, Discussions & Questions -->
+      <div class="section-card">
+        <div class="section-title-row">
+          <div class="section-title">
+            <span>💬</span>
+            <span>Issues, Questions & Feedback</span>
+          </div>
+          <a id="new-issue-link" href="https://github.com/bubbadk/IRIS/issues/new" target="_blank" class="badge-count" style="text-decoration: none; color: var(--emerald);">
+            + New Issue
+          </a>
+        </div>
+
+        <div class="issues-list" id="issues-list">
+          <div class="empty-state">
+            <div class="empty-icon">⏳</div>
+            <p>Fetching issues...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+      <span>IRIS Intelligent Reasoning & Integration System</span>
+      <span>•</span>
+      <a href="https://github.com/bubbadk/IRIS" target="_blank">View on GitHub ↗</a>
+      <span>•</span>
+      <a href="https://github.com/bubbadk/IRIS/releases" target="_blank">Releases ↗</a>
+    </footer>
+  </div>
+
+  <script>
+    const REPO = 'bubbadk/IRIS';
+    let token = localStorage.getItem('iris_gh_token') || '';
+    let countdown = 30;
+    let countdownTimer = null;
+
+    function getHeaders() {
+      const h = { Accept: 'application/vnd.github+json' };
+      if (token) h.Authorization = `Bearer ${token}`;
+      return h;
+    }
+
+    function promptToken() {
+      const current = token ? 'Token is set' : 'No token';
+      const input = prompt(`Enter GitHub Personal Access Token (optional, raises rate limit to 5,000 req/hr). Current: ${current}:`, token);
+      if (input !== null) {
+        token = input.trim();
+        if (token) {
+          localStorage.setItem('iris_gh_token', token);
+        } else {
+          localStorage.removeItem('iris_gh_token');
+        }
+        updateTokenBtn();
+        fetchData(true);
+      }
+    }
+
+    function updateTokenBtn() {
+      const btn = document.getElementById('token-btn');
+      if (token) {
+        btn.textContent = '🔑 Token Active';
+        btn.style.color = 'var(--emerald)';
+        btn.style.borderColor = 'var(--emerald)';
+      } else {
+        btn.textContent = '🔑 Set API Key';
+        btn.style.color = 'var(--text-muted)';
+        btn.style.borderColor = 'var(--surface-border)';
+      }
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function timeAgo(dateString) {
+      const date = new Date(dateString);
+      const now = new Date();
+      const seconds = Math.floor((now - date) / 1000);
+      if (seconds < 60) return 'just now';
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      return `${days}d ago`;
+    }
+
+    function getAssetIcon(name) {
+      if (name.endsWith('.deb')) return '📦';
+      if (name.endsWith('.rpm')) return '📦';
+      if (name.endsWith('.tar.gz') || name.endsWith('.zip')) return '🗜️';
+      if (name.endsWith('.AppImage')) return '🚀';
+      if (name.endsWith('.dmg')) return '🍏';
+      if (name.endsWith('.msi') || name.endsWith('.exe')) return '🪟';
+      return '⚙️';
+    }
+
+    async function fetchData(manual = false) {
+      countdown = 30;
+      try {
+        // 1. Fetch Repository Info
+        const repoRes = await fetch(`https://api.github.com/repos/${REPO}`, { headers: getHeaders() });
+        if (repoRes.ok) {
+          const repo = await repoRes.json();
+          document.getElementById('val-stars').textContent = repo.stargazers_count.toLocaleString();
+          document.getElementById('val-forks').textContent = `${repo.forks_count} forks`;
+          document.getElementById('val-watchers').textContent = `${repo.subscribers_count || repo.watchers_count} watchers`;
+          document.getElementById('val-issues').textContent = repo.open_issues_count.toLocaleString();
+        }
+
+        // 2. Fetch Releases & Downloads
+        const relRes = await fetch(`https://api.github.com/repos/${REPO}/releases`, { headers: getHeaders() });
+        if (relRes.ok) {
+          const releases = await relRes.json();
+          if (releases.length > 0) {
+            const latest = releases[0];
+            document.getElementById('val-release-tag').textContent = latest.tag_name;
+            document.getElementById('val-release-date').textContent = `Released ${timeAgo(latest.published_at)}`;
+
+            let totalDownloads = 0;
+            const assetListEl = document.getElementById('asset-list');
+            const assets = latest.assets || [];
+            document.getElementById('asset-count').textContent = `${assets.length} file${assets.length === 1 ? '' : 's'}`;
+
+            if (assets.length > 0) {
+              assetListEl.innerHTML = '';
+              assets.forEach(asset => {
+                totalDownloads += asset.download_count;
+                const item = document.createElement('div');
+                item.className = 'asset-item';
+                item.innerHTML = `
+                  <div class="asset-info">
+                    <span class="asset-icon">${getAssetIcon(asset.name)}</span>
+                    <div>
+                      <div class="asset-name" title="${asset.name}">${asset.name}</div>
+                      <div class="asset-meta">${formatBytes(asset.size)} · Updated ${timeAgo(asset.updated_at)}</div>
+                    </div>
+                  </div>
+                  <div class="asset-downloads">
+                    <span class="download-count">${asset.download_count.toLocaleString()}</span>
+                    <span class="download-label">downloads</span>
+                  </div>
+                `;
+                assetListEl.appendChild(item);
+              });
+            } else {
+              assetListEl.innerHTML = `
+                <div class="empty-state">
+                  <div class="empty-icon">📦</div>
+                  <p>No binary assets attached yet</p>
+                </div>
+              `;
+            }
+
+            document.getElementById('val-downloads').textContent = totalDownloads.toLocaleString();
+          }
+        }
+
+        // 3. Fetch Issues & Questions
+        const issuesRes = await fetch(`https://api.github.com/repos/${REPO}/issues?state=open&per_page=15`, { headers: getHeaders() });
+        if (issuesRes.ok) {
+          const issues = await issuesRes.json();
+          const issuesListEl = document.getElementById('issues-list');
+          
+          if (issues.length > 0) {
+            issuesListEl.innerHTML = '';
+            issues.forEach(issue => {
+              const isPR = !!issue.pull_request;
+              const item = document.createElement('a');
+              item.className = 'issue-item';
+              item.href = issue.html_url;
+              item.target = '_blank';
+
+              const labelsHtml = (issue.labels || []).map(l => `
+                <span class="issue-label" style="background: #${l.color}33; border: 1px solid #${l.color}; color: #${l.color};">
+                  ${l.name}
+                </span>
+              `).join('');
+
+              item.innerHTML = `
+                <div class="issue-header">
+                  <div class="issue-title">${isPR ? '🔀 ' : '💬 '}${escapeHtml(issue.title)}</div>
+                  <span class="issue-number">#${issue.number}</span>
+                </div>
+                <div class="issue-meta">
+                  <span>by <strong>@${issue.user.login}</strong></span>
+                  <span>·</span>
+                  <span>${timeAgo(issue.created_at)}</span>
+                  <span>·</span>
+                  <span>💬 ${issue.comments} comments</span>
+                  ${labelsHtml ? `<div class="issue-labels">${labelsHtml}</div>` : ''}
+                </div>
+              `;
+              issuesListEl.appendChild(item);
+            });
+          } else {
+            issuesListEl.innerHTML = `
+              <div class="empty-state">
+                <div class="empty-icon">🌿</div>
+                <p>No open issues or questions right now!</p>
+              </div>
+            `;
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching live monitor data:', err);
+      }
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Auto-refresh timer
+    updateTokenBtn();
+    fetchData();
+
+    if (countdownTimer) clearInterval(countdownTimer);
+    countdownTimer = setInterval(() => {
+      countdown--;
+      document.getElementById('countdown').textContent = countdown;
+      if (countdown <= 0) {
+        fetchData();
+      }
+    }, 1000);
+  </script>
+</body>
+</html>
