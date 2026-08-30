@@ -15,4 +15,6 @@ coverage/
 *.sqlite3
 .cache/
 .claude/
+*.tar.gz
+*.zip
 

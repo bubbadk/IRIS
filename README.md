@@ -8,7 +8,11 @@
   [![CI](https://github.com/iris-systems/iris/actions/workflows/ci.yml/badge.svg)](https://github.com/iris-systems/iris/actions/workflows/ci.yml)
   [![Release](https://github.com/iris-systems/iris/actions/workflows/release.yml/badge.svg)](https://github.com/iris-systems/iris/actions/workflows/release.yml)
   [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
-  [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-blue.svg)](https://github.com/iris-systems/iris/releases)
+  [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-blue.svg)](https://github.com/bubbadk/IRIS/releases)
+</div>
+
+<div align="center">
+  <img src="docs/screenshots/iris-desktop-main.png" alt="IRIS Spatial Operating Environment" width="100%" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15);" />
 </div>
 
 ---
@@ -45,6 +49,11 @@ IRIS is a **graphical agent operating environment**. It treats agents, workspace
 
 ### 🛸 1. Floating Desktop Desklet (Live HUD)
 Close the main window, and IRIS seamlessly transitions into a sleek, transparent, floating glass mini-HUD on your physical desktop.
+
+<div align="center">
+  <img src="docs/screenshots/iris-desktop-widget.png" alt="IRIS Floating Desklet Widget" width="480" style="border-radius: 16px; margin: 12px 0;" />
+</div>
+
 - **Live Status Pulse**: Shows real-time agent thoughts and states (`● Ready` / `● Working…`).
 - **Activity Ticker**: Humanized tool action feed with specialist icons (`🤖 Specialist Sub-Agent`, `📁 Workspace Patch`, `💾 Memory Record`).
 - **Telemetry**: Live CPU usage, RAM consumption, and system uptime.
@@ -69,17 +78,21 @@ Close the main window, and IRIS seamlessly transitions into a sleek, transparent
 - Episodic and semantic memory records with automatic embedding indexing.
 - Background *Dreaming & Consolidation* processes that synthesize memories while idle.
 
-### 🌐 6. 100% Model Agnostic & Local-First
+### 🌐 6. 100% Model Agnostic & First-Run Onboarding
 - **Local & Offline**: Native support for local LLMs via Ollama / vLLM.
 - **Cloud Providers**: OpenRouter, Anthropic Claude (3.7 Sonnet), OpenAI (GPT-4o), Google Gemini.
-- All configuration and conversation data stored strictly locally.
+- **3-Step Onboarding**: Get started in 1 minute with pre-configured specialist agents.
+
+<div align="center">
+  <img src="docs/screenshots/iris-onboarding-wizard.png" alt="IRIS Onboarding Wizard" width="600" style="border-radius: 16px; margin: 12px 0;" />
+</div>
 
 ---
 
 ## 🚀 Quickstart
 
 ### Pre-Built Binaries
-Download the latest release for your platform from [GitHub Releases](https://github.com/iris-systems/iris/releases):
+Download the latest release for your platform from [GitHub Releases](https://github.com/bubbadk/IRIS/releases):
 - **Linux**: `.AppImage` (Run directly) or `.deb`
 - **macOS**: `.dmg` (Universal for Intel & Apple Silicon)
 - **Windows**: `.msi` / `.exe` installer

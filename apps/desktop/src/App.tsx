@@ -4030,7 +4030,9 @@ export function App() {
   const [windows, setWindows] = useState<DesktopWindow[]>(() => loadWindows());
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('iris.theme') === 'dark');
   const [workspaceMount, setWorkspaceMount] = useState<WorkspaceMount | null>(null);
-  const [showOnboarding, setShowOnboarding] = useState(() => isOnboardingNeeded());
+  const [showOnboarding, setShowOnboarding] = useState(
+    () => isOnboardingNeeded() && !window.location.search.includes('onboarding=false'),
+  );
   const [availableUpdate, setAvailableUpdate] = useState<ReleaseInfo | null>(null);
   const [widgetMode, setWidgetMode] = useState(false);
   const [chatStarted, setChatStarted] = useState(false);
