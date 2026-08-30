@@ -379,7 +379,7 @@ const workspaceToolIds = new Set([
   'workspace.list',
   'workspace.search',
   'workspace.read',
-  'workspace.mkdir',
+  'workspace.directory',
   'workspace.write',
   'workspace.move',
   'workspace.delete',
@@ -406,7 +406,7 @@ export function createAgentWorkspaceContext(
         const assignedTools = agent.toolIds.filter((toolId) => workspaceToolIds.has(toolId));
         return assignedTools.length > 0
           ? [
-              `IRIS workspace state: The local workspace “${mount.name}” is mounted at “${mount.rootPath}”. This agent has these workspace tools assigned: ${assignedTools.join(', ')}. Use only assigned tools and workspace-relative paths; never invent file access or results.`,
+              `IRIS workspace state: The local workspace “${mount.name}” is mounted at “${mount.rootPath}”. This agent has these workspace tools assigned: ${assignedTools.join(', ')}. Use only assigned tools and workspace-relative paths; never invent file access or results.\n\nACTION DIRECTIVE: When the user asks to create, write, generate, build, edit, or patch files or scripts in the workspace, you MUST immediately execute the corresponding tool call (such as \`workspace_write\` or \`workspace_patch\`) in your response turn. Do not merely state that you will write the file in text without executing the tool call.`,
             ]
           : [
               `IRIS workspace state: The local workspace “${mount.name}” is mounted at “${mount.rootPath}”, but this agent has no workspace tools assigned. State that access limitation instead of claiming there is no workspace.`,

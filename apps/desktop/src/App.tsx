@@ -55,7 +55,7 @@ import {
   loadProviderSecrets,
   saveProviderSecrets,
 } from './credentials';
-import { agentRuntime, subscribeAgentRuntime } from './agentRuntime';
+import { agentRuntime, normalizeDesktopAgent, subscribeAgentRuntime } from './agentRuntime';
 import { recordUserActivity } from './userActivity';
 import { applyAgentConfiguration } from './agentConfiguration';
 import {
@@ -755,9 +755,10 @@ function ChatDesklet({
     let active = true;
     const load = async () => {
       const stored = await agentRepository.list();
+      const normalized = await Promise.all(stored.map(normalizeDesktopAgent));
       if (!active) return;
-      setAgents(stored);
-      setSelectedAgentId((current) => current || stored[0]?.id || '');
+      setAgents(normalized);
+      setSelectedAgentId((current) => current || normalized[0]?.id || '');
       setSkills(await listSkills());
     };
     void load();
@@ -1508,19 +1509,20 @@ function AgentsState() {
     let active = true;
     void Promise.all([agentRepository.list(), permissionRuleRepository.list()]).then(
       async ([storedAgents, storedRules]) => {
+        const normalized = await Promise.all(storedAgents.map(normalizeDesktopAgent));
         const createdRules = await ensureAssignedToolsRequireApproval(
           permissionRuleRepository,
-          storedAgents,
+          normalized,
           availableAgentTools,
           storedRules,
         );
-        if (createdRules > 0 && storedAgents[0]) {
-          agentRuntime.refreshConfiguration(storedAgents[0].id);
+        if (createdRules > 0 && normalized[0]) {
+          agentRuntime.refreshConfiguration(normalized[0].id);
         }
         if (!active) return;
-        setAgents(storedAgents);
-        setSelectedAgentId(storedAgents[0]?.id ?? null);
-        setShowEditor(storedAgents.length === 0);
+        setAgents(normalized);
+        setSelectedAgentId(normalized[0]?.id ?? null);
+        setShowEditor(normalized.length === 0);
         setLoaded(true);
       },
     );
