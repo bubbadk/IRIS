@@ -4358,6 +4358,9 @@ kbd {
   bottom: -180px;
   background: radial-gradient(circle, rgba(185, 205, 195, 0.28), transparent 66%);
 }
+.dark-mode .ambient {
+  display: none;
+}
 
 .skills-state {
   min-height: 100%;
@@ -4872,25 +4875,23 @@ kbd {
 }
 
 .dark-mode {
-  --ink: #f2f5f8;
-  --muted: #9ba4b2;
-  --line: rgba(255, 255, 255, 0.08);
-  --surface: rgba(20, 24, 30, 0.78);
-  --shadow: 0 24px 64px rgba(0, 0, 0, 0.65), 0 4px 16px rgba(0, 0, 0, 0.35);
+  --ink: #e8ecf2;
+  --muted: #8891a0;
+  --line: rgba(255, 255, 255, 0.07);
+  --surface: rgba(22, 25, 32, 0.82);
+  --shadow: 0 20px 48px rgba(0, 0, 0, 0.5), 0 2px 12px rgba(0, 0, 0, 0.25);
   color: var(--ink);
-  background: #0d0f12;
+  background: #111318;
 }
 .dark-mode .desktop-shell {
   background:
-    radial-gradient(circle at 18% 15%, rgba(220, 180, 110, 0.07), transparent 32%),
-    radial-gradient(circle at 84% 76%, rgba(70, 165, 125, 0.06), transparent 36%),
-    radial-gradient(circle at 50% 50%, rgba(20, 24, 32, 0.4), transparent 70%),
-    linear-gradient(155deg, #0d0f12 0%, #13161b 50%, #0a0c0f 100%);
+    linear-gradient(168deg, #141720 0%, #111318 35%, #0f1116 65%, #12151c 100%);
 }
 .dark-mode .desktop-shell::before {
+  opacity: 0.12;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
 }
 .dark-mode .topbar,
 .dark-mode .command-bar,
@@ -4911,15 +4912,14 @@ kbd {
 .dark-mode .workspace-window,
 .dark-mode .system-panel,
 .dark-mode .channels-window {
-  background: rgba(18, 22, 28, 0.85);
+  background: rgba(20, 23, 30, 0.92);
   color: var(--ink);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(28px) saturate(1.4);
+  border-color: rgba(255, 255, 255, 0.06);
 }
 .dark-mode .topbar {
-  background: rgba(15, 18, 24, 0.82);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(17, 19, 24, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(20px);
 }
 .dark-mode .theme-toggle {
   background: rgba(28, 33, 42, 0.88);
