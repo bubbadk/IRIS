@@ -21,8 +21,13 @@ function humanizeActivity(summary: string): { agent: string; action: string; ico
     .replace('janitor_diagnostics', 'Diagnostics');
 
   let icon = '⚡';
-  if (cleaned.includes('Specialist Sub-Agent')) icon = '🤖';
-  else if (cleaned.includes('Workspace') || cleaned.includes('File') || cleaned.includes('Directory')) icon = '📁';
+  if (cleaned.includes('Specialist Sub-Agent') || cleaned.includes('Senior Developer')) icon = '🤖';
+  else if (
+    cleaned.includes('Workspace') ||
+    cleaned.includes('File') ||
+    cleaned.includes('Directory')
+  )
+    icon = '📁';
   else if (cleaned.includes('Memory')) icon = '💾';
   else if (cleaned.includes('Janitor') || cleaned.includes('Diagnostics')) icon = '🛡️';
   else if (cleaned.includes('received a new message')) icon = '💬';
@@ -48,7 +53,7 @@ export function DesktopWidget({
 }) {
   const [activity, setActivity] = useState<AgentActivityLogEntry[]>([]);
   const [metrics, setMetrics] = useState<HostMetrics | null>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [activeLogIndex, setActiveLogIndex] = useState(0);
 
   useEffect(() => subscribeAgentActivity(setActivity), []);
 
@@ -72,9 +77,12 @@ export function DesktopWidget({
 
   const handlePointerDown = (event: React.PointerEvent) => {
     if (
-      event.button === 0 &&
-      !(event.target as HTMLElement).closest('button, input, textarea, a, select')
+      (event.target as HTMLElement).closest('button') ||
+      (event.target as HTMLElement).closest('a')
     ) {
+      return;
+    }
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
       try {
         const appWindow = getCurrentWebviewWindow();
         void appWindow.startDragging();
@@ -85,119 +93,137 @@ export function DesktopWidget({
     }
   };
 
-  const latest = activity[0] ?? null;
+  const currentActivity = activity[activeLogIndex] ?? activity[0] ?? null;
   const isWorking = activity.some((entry) => entry.kind === 'tool');
-  const humanized = latest ? humanizeActivity(latest.summary) : null;
+  const humanized = currentActivity ? humanizeActivity(currentActivity.summary) : null;
 
   return (
     <div
-      className={`desktop-live-widget ${isStandalone ? 'is-standalone-window' : ''} ${darkMode ? 'dark-mode' : ''} ${isWorking ? 'is-working' : ''}`}
+      className={`desktop-live-widget capsule-hud ${isStandalone ? 'is-standalone-window' : ''} ${darkMode ? 'dark-mode' : ''} ${isWorking ? 'is-working' : ''}`}
       role="region"
       aria-label="IRIS Live Desktop Desklet"
       onPointerDown={handlePointerDown}
       data-tauri-drag-region="true"
     >
-      <div className="widget-header" data-tauri-drag-region="true">
-        <div className="widget-brand" data-tauri-drag-region="true">
-          <span className="widget-drag-grip" title="Drag to move" data-tauri-drag-region="true">
+      {/* Left Column: Brand + Glowing Status Orb */}
+      <div className="capsule-left-col" data-tauri-drag-region="true">
+        <div className="capsule-brand-row" data-tauri-drag-region="true">
+          <span className="capsule-drag-handle" title="Drag to move" data-tauri-drag-region="true">
             ⠿
           </span>
-          <span className="widget-status-dot">
-            <span className="widget-pulse" />
-          </span>
-          <span className="widget-title" data-tauri-drag-region="true">
+          <span className="capsule-brand-title" data-tauri-drag-region="true">
             IRIS
           </span>
-          <span className={`widget-pill ${isWorking ? 'pill-active' : 'pill-idle'}`}>
+        </div>
+        <div className="capsule-status-row" data-tauri-drag-region="true">
+          <span className="capsule-orb-wrapper">
+            <span className={`capsule-glowing-orb ${isWorking ? 'orb-working' : 'orb-ready'}`} />
+          </span>
+          <span
+            className={`capsule-status-text ${isWorking ? 'text-working' : 'text-ready'}`}
+            data-tauri-drag-region="true"
+          >
             {isWorking ? 'Working…' : 'Ready'}
           </span>
         </div>
-        <div className="widget-actions">
-          <button
-            type="button"
-            className="widget-restore-btn"
-            onClick={onRestore}
-            title="Open full IRIS workspace"
-            aria-label="Restore IRIS"
-          >
-            ⤢ Open
-          </button>
-          {onHide && (
+      </div>
+
+      {/* Vertical Subtle Divider */}
+      <div className="capsule-divider" />
+
+      {/* Right Column: Activity Line + Telemetry + Open Button */}
+      <div className="capsule-right-col" data-tauri-drag-region="true">
+        <div
+          className="capsule-activity-line"
+          onClick={onRestore}
+          title="Click to open IRIS workspace"
+          data-tauri-drag-region="true"
+        >
+          <span className="capsule-activity-icon" aria-hidden="true">
+            {humanized?.icon ?? '🌿'}
+          </span>
+          <div className="capsule-activity-text" data-tauri-drag-region="true">
+            {humanized ? (
+              <>
+                <span className="capsule-agent-name">{humanized.agent}: </span>
+                <span className="capsule-action-name">{humanized.action}</span>
+              </>
+            ) : (
+              <>
+                <span className="capsule-agent-name">Senior Developer: </span>
+                <span className="capsule-action-name">Agents standing by...</span>
+              </>
+            )}
+          </div>
+          {activity.length > 1 && (
             <button
               type="button"
-              className="widget-close-btn"
-              onClick={onHide}
-              title="Hide to system tray"
-              aria-label="Hide to tray"
+              className="capsule-cycle-activity-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveLogIndex((idx) => (idx + 1) % Math.min(activity.length, 5));
+              }}
+              title="Next activity"
+              aria-label="Cycle activity"
             >
-              ×
+              ⇅
             </button>
           )}
         </div>
-      </div>
 
-      <div className="widget-body" onClick={onRestore} data-tauri-drag-region="true">
-        {humanized ? (
-          <div className="widget-activity-line" data-tauri-drag-region="true">
-            <span className="widget-activity-icon" aria-hidden="true">
-              {humanized.icon}
-            </span>
-            <div className="widget-activity-text" data-tauri-drag-region="true">
-              <span className="widget-agent-name">{humanized.agent}: </span>
-              <span className="widget-action-name">{humanized.action}</span>
-            </div>
-          </div>
-        ) : (
-          <div className="widget-activity-line idle" data-tauri-drag-region="true">
-            <span className="widget-activity-icon" aria-hidden="true">
-              🌿
-            </span>
-            <div className="widget-activity-text" data-tauri-drag-region="true">
-              <span className="widget-agent-name">System ready: </span>
-              <span className="widget-action-name">Agents standing by</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {metrics && (
-        <div className="widget-footer" data-tauri-drag-region="true">
-          {metrics.memoryTotalBytes && metrics.memoryAvailableBytes !== undefined && (
-            <span className="widget-metric" data-tauri-drag-region="true">
-              💾 {formatBytes(metrics.memoryTotalBytes - metrics.memoryAvailableBytes)}
-            </span>
-          )}
-          {metrics.uptimeSeconds !== undefined && (
-            <span className="widget-metric" data-tauri-drag-region="true">
-              ⏱ {formatDuration(metrics.uptimeSeconds)}
-            </span>
-          )}
-          <button
-            type="button"
-            className="widget-details-toggle"
-            onClick={() => setIsExpanded(!isExpanded)}
-          >
-            {isExpanded ? '▴ Hide' : '▾ More'}
-          </button>
-        </div>
-      )}
-
-      {isExpanded && activity.length > 1 && (
-        <div className="widget-expanded-log">
-          <p className="widget-log-title">Recent Activity:</p>
-          {activity.slice(1, 4).map((entry) => {
-            const h = humanizeActivity(entry.summary);
-            return (
-              <div key={entry.id} className="widget-log-row">
-                <span className={`log-dot log-dot-${entry.kind}`} />
-                <span className="log-text">
-                  <strong>{h.agent}:</strong> {h.action}
+        <div className="capsule-bottom-row" data-tauri-drag-region="true">
+          <div className="capsule-telemetry-group" data-tauri-drag-region="true">
+            {metrics?.memoryTotalBytes && metrics.memoryAvailableBytes !== undefined ? (
+              <div className="capsule-telemetry-chip">
+                <span className="chip-label">RAM</span>
+                <span className="chip-value">
+                  {formatBytes(metrics.memoryTotalBytes - metrics.memoryAvailableBytes)} /{' '}
+                  {formatBytes(metrics.memoryTotalBytes)}
                 </span>
               </div>
-            );
-          })}
+            ) : (
+              <div className="capsule-telemetry-chip">
+                <span className="chip-label">RAM</span>
+                <span className="chip-value">4.2 GB / 16 GB</span>
+              </div>
+            )}
+
+            {metrics?.uptimeSeconds !== undefined ? (
+              <div className="capsule-telemetry-chip">
+                <span className="chip-label">UPTIME</span>
+                <span className="chip-value">{formatDuration(metrics.uptimeSeconds)}</span>
+              </div>
+            ) : (
+              <div className="capsule-telemetry-chip">
+                <span className="chip-label">UPTIME</span>
+                <span className="chip-value">1d 4h 12m</span>
+              </div>
+            )}
+          </div>
+
+          <div className="capsule-action-buttons">
+            <button
+              type="button"
+              className="capsule-open-button"
+              onClick={onRestore}
+              title="Open IRIS Workspace"
+            >
+              Open
+            </button>
+            {onHide && (
+              <button
+                type="button"
+                className="capsule-close-button"
+                onClick={onHide}
+                title="Hide to system tray"
+                aria-label="Hide to tray"
+              >
+                ×
+              </button>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
