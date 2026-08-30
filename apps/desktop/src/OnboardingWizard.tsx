@@ -7,7 +7,28 @@ import { mountWorkspace } from './workspace';
 export const ONBOARDING_COMPLETED_KEY = 'iris.onboarding.completed.v1';
 
 export function isOnboardingNeeded(): boolean {
-  return localStorage.getItem(ONBOARDING_COMPLETED_KEY) !== 'true';
+  if (localStorage.getItem(ONBOARDING_COMPLETED_KEY) === 'true') {
+    return false;
+  }
+  // Automatically bypass onboarding for existing users with configured agents or providers
+  try {
+    const hasAgents =
+      localStorage.getItem('iris.agents.v1') ||
+      localStorage.getItem('iris.agents.v2') ||
+      localStorage.getItem('iris.agents.config.v2');
+    const hasProviders =
+      localStorage.getItem('iris.providers.v1') ||
+      localStorage.getItem('iris.providers.config.v2');
+    const hasWindows = localStorage.getItem('iris.desktop.windows.v1');
+    const hasMemory = localStorage.getItem('iris.memory.records.v1');
+    if (hasAgents || hasProviders || hasWindows || hasMemory) {
+      localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true');
+      return false;
+    }
+  } catch {
+    /* ignore */
+  }
+  return true;
 }
 
 export function markOnboardingComplete(): void {
@@ -31,6 +52,11 @@ export function OnboardingWizard({
   const [workspacePath, setWorkspacePath] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const handleSkip = () => {
+    markOnboardingComplete();
+    onFinish();
+  };
 
   const handleNextStep1 = () => {
     if (providerType !== 'ollama' && !apiKey.trim()) {
@@ -194,11 +220,22 @@ export function OnboardingWizard({
         aria-labelledby="onboarding-title"
       >
         <div className="onboarding-header">
-          <div className="onboarding-brand">
-            <span className="onboarding-status-dot" />
-            <h1 id="onboarding-title" className="onboarding-title">
-              Welcome to IRIS
-            </h1>
+          <div className="onboarding-brand-row">
+            <div className="onboarding-brand">
+              <span className="onboarding-status-dot" />
+              <h1 id="onboarding-title" className="onboarding-title">
+                Welcome to IRIS
+              </h1>
+            </div>
+            <button
+              type="button"
+              className="onboarding-skip-top-btn"
+              onClick={handleSkip}
+              title="Skip setup and open existing workspace"
+              aria-label="Skip setup"
+            >
+              Skip ✕
+            </button>
           </div>
           <p className="onboarding-subtitle">
             Intelligent Reasoning & Integration System · Get started in 1 minute

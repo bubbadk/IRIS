@@ -5795,6 +5795,42 @@ kbd {
   border-bottom: 1px solid var(--line);
 }
 
+.onboarding-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.onboarding-skip-top-btn {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.onboarding-skip-top-btn:hover {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.dark-mode .onboarding-skip-top-btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: #c0ccc4;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.dark-mode .onboarding-skip-top-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
 .onboarding-brand {
   display: flex;
   align-items: center;
