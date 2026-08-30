@@ -71,14 +71,14 @@ button {
   top: 0;
   left: 0;
   right: 0;
-  height: 62px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 25px;
-  border-bottom: 1px solid rgba(65, 59, 50, 0.08);
-  background: rgba(250, 248, 243, 0.63);
-  backdrop-filter: blur(22px) saturate(1.15);
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  backdrop-filter: blur(24px) saturate(1.2);
 }
 
 .brand {
@@ -90,8 +90,8 @@ button {
   font-size: 13px;
 }
 .brand svg {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   color: #6c7d72;
 }
 .top-status {
@@ -100,23 +100,35 @@ button {
   gap: 8px;
   color: var(--muted);
   font-size: 12px;
-  margin-right: 48px;
+  margin-right: 0;
+}
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .theme-toggle {
-  position: absolute;
-  top: 14px;
-  right: 22px;
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(65, 59, 50, 0.12);
+  position: relative;
+  top: auto;
+  right: auto;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
   border-radius: 50%;
-  background: rgba(255, 254, 250, 0.62);
-  color: #6d756d;
-  font-size: 18px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 15px;
   line-height: 1;
   cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.theme-toggle:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+  transform: scale(1.08);
 }
 .status-dot {
   width: 7px;
@@ -4860,24 +4872,25 @@ kbd {
 }
 
 .dark-mode {
-  --ink: #eee9df;
-  --muted: #aaa69d;
-  --line: rgba(235, 229, 216, 0.14);
-  --surface: rgba(38, 39, 37, 0.9);
-  --shadow: 0 22px 70px rgba(0, 0, 0, 0.32), 0 5px 18px rgba(0, 0, 0, 0.2);
+  --ink: #f2f5f8;
+  --muted: #9ba4b2;
+  --line: rgba(255, 255, 255, 0.08);
+  --surface: rgba(20, 24, 30, 0.78);
+  --shadow: 0 24px 64px rgba(0, 0, 0, 0.65), 0 4px 16px rgba(0, 0, 0, 0.35);
   color: var(--ink);
-  background: #20211f;
+  background: #0d0f12;
 }
 .dark-mode .desktop-shell {
   background:
-    radial-gradient(circle at 19% 17%, rgba(125, 104, 78, 0.18), transparent 24%),
-    radial-gradient(circle at 85% 74%, rgba(78, 105, 94, 0.16), transparent 28%),
-    linear-gradient(145deg, #272824 0%, #1f211f 52%, #252724 100%);
+    radial-gradient(circle at 18% 15%, rgba(220, 180, 110, 0.07), transparent 32%),
+    radial-gradient(circle at 84% 76%, rgba(70, 165, 125, 0.06), transparent 36%),
+    radial-gradient(circle at 50% 50%, rgba(20, 24, 32, 0.4), transparent 70%),
+    linear-gradient(155deg, #0d0f12 0%, #13161b 50%, #0a0c0f 100%);
 }
 .dark-mode .desktop-shell::before {
   background-image:
-    linear-gradient(rgba(230, 224, 212, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(230, 224, 212, 0.025) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
 }
 .dark-mode .topbar,
 .dark-mode .command-bar,
@@ -4895,31 +4908,46 @@ kbd {
 .dark-mode .memory-window,
 .dark-mode .project-window,
 .dark-mode .schedule-window,
-.dark-mode .workspace-window {
-  background-color: rgba(39, 41, 38, 0.94);
+.dark-mode .workspace-window,
+.dark-mode .system-panel,
+.dark-mode .channels-window {
+  background: rgba(18, 22, 28, 0.85);
   color: var(--ink);
-  border-color: var(--line);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(28px) saturate(1.4);
 }
 .dark-mode .topbar {
-  background: rgba(31, 33, 31, 0.78);
+  background: rgba(15, 18, 24, 0.82);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 .dark-mode .theme-toggle {
-  background: rgba(57, 59, 55, 0.86);
-  color: #eadca9;
-  border-color: var(--line);
+  background: rgba(28, 33, 42, 0.88);
+  color: #f6d365;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.dark-mode .widget-toggle-btn {
+  background: rgba(28, 33, 42, 0.7);
+  color: #d1d9e2;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.dark-mode .widget-toggle-btn:hover {
+  background: rgba(38, 45, 58, 0.9);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
 }
 .dark-mode .command-bar input,
 .dark-mode input,
 .dark-mode select,
 .dark-mode textarea {
-  background-color: rgba(29, 31, 29, 0.9);
+  background-color: rgba(13, 16, 21, 0.85);
   color: var(--ink);
-  border-color: var(--line);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 .dark-mode .command-bar input::placeholder,
 .dark-mode input::placeholder,
 .dark-mode textarea::placeholder {
-  color: #89877f;
+  color: #768192;
 }
 .dark-mode .window-content,
 .dark-mode .agent-conversation,
@@ -4932,9 +4960,9 @@ kbd {
 .dark-mode .skill-bundle,
 .dark-mode .skill-bundle-file,
 .dark-mode .skill-bundle-tool {
-  background-color: rgba(32, 34, 32, 0.82);
+  background-color: rgba(15, 18, 24, 0.75);
   color: var(--ink);
-  border-color: var(--line);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 .dark-mode .window-title,
 .dark-mode .window-titlebar,
@@ -4958,15 +4986,22 @@ kbd {
 .dark-mode .row-button,
 .dark-mode .soft-button,
 .dark-mode .capability-summary-button {
-  color: #d8e2d8;
-  border-color: rgba(171, 199, 178, 0.24);
-  background: rgba(69, 84, 72, 0.56);
+  color: #dbe4ee;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(36, 43, 55, 0.65);
+}
+.dark-mode .row-button:hover,
+.dark-mode .soft-button:hover {
+  background: rgba(48, 58, 74, 0.85);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
 }
 .dark-mode .status-dot {
-  background: #9dbda5;
+  background: #52c488;
+  box-shadow: 0 0 0 4px rgba(82, 196, 136, 0.15);
 }
 .dark-mode .capability-picker-backdrop {
-  background: rgba(0, 0, 0, 0.48);
+  background: rgba(0, 0, 0, 0.6);
 }
 .dark-mode {
   color-scheme: dark;
@@ -4999,9 +5034,9 @@ kbd {
 .dark-mode .memory-access,
 .dark-mode .mcp-card,
 .dark-mode .permission-card {
-  background-color: rgba(31, 33, 31, 0.92);
+  background-color: rgba(16, 20, 26, 0.85);
   color: var(--ink);
-  border-color: var(--line);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 .dark-mode .workspace-entry-list button:hover,
 .dark-mode .workspace-search-list button:hover,
@@ -5011,11 +5046,21 @@ kbd {
 .dark-mode .project-list button.selected,
 .dark-mode .skill-row:hover,
 .dark-mode .skill-row.selected {
-  background: rgba(69, 84, 72, 0.56);
-  color: var(--ink);
+  background: rgba(45, 55, 72, 0.7);
+  color: #ffffff;
 }
-.dark-mode .desktop-chat-body .message,
-.dark-mode .conversation-body .message,
+.dark-mode .desktop-chat-body .message-user,
+.dark-mode .conversation-body .message-user {
+  background: linear-gradient(145deg, rgba(38, 54, 76, 0.8), rgba(28, 42, 60, 0.8));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f2f5f8;
+}
+.dark-mode .desktop-chat-body .message-assistant,
+.dark-mode .conversation-body .message-assistant {
+  background: rgba(19, 23, 30, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  color: #f2f5f8;
+}
 .dark-mode .desktop-chat-approval,
 .dark-mode .desktop-chat-reasoning,
 .dark-mode .attachment-chip,
@@ -5027,22 +5072,22 @@ kbd {
 .dark-mode .turn-step,
 .dark-mode .schedule-form,
 .dark-mode .memory-local-seal {
-  background: rgba(42, 45, 41, 0.9);
+  background: rgba(22, 27, 35, 0.88);
   color: var(--ink);
-  border-color: var(--line);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 .dark-mode .desktop-chat-composer {
-  background: rgba(38, 41, 38, 0.88);
+  background: rgba(16, 20, 26, 0.9);
   border-color: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
 }
 .dark-mode .desktop-chat-composer:focus-within {
-  background: rgba(38, 41, 38, 0.98);
-  border-color: rgba(142, 212, 170, 0.45);
-  box-shadow: 0 6px 22px rgba(142, 212, 170, 0.12), 0 0 0 1px rgba(142, 212, 170, 0.25);
+  background: rgba(18, 22, 30, 0.98);
+  border-color: rgba(94, 204, 142, 0.45);
+  box-shadow: 0 8px 30px rgba(94, 204, 142, 0.12), 0 0 0 1px rgba(94, 204, 142, 0.25);
 }
 .dark-mode .desktop-chat-composer textarea::placeholder {
-  color: rgba(255, 255, 255, 0.38);
+  color: rgba(255, 255, 255, 0.42);
 }
 .dark-mode pre,
 .dark-mode code {
