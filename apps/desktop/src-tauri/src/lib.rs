@@ -686,7 +686,7 @@ pub fn run() {
             let quit_item = tauri::menu::MenuItem::with_id(app, "quit", "Quit IRIS", true, None::<&str>)?;
             let menu = tauri::menu::Menu::with_items(app, &[&show_item, &widget_item, &quit_item])?;
 
-            let _tray = tauri::tray::TrayIconBuilder::new()
+            let _tray = tauri::tray::TrayIconBuilder::with_id("iris-system-tray")
                 .icon(app.default_window_icon().cloned().unwrap())
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -733,15 +733,10 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
                 if window.label() == "main" {
-                    let _ = window.hide();
                     let app = window.app_handle();
-                    if let Some(widget) = app.get_webview_window("widget") {
-                        let _ = widget.show();
-                        let _ = widget.unminimize();
-                    }
+                    app.exit(0);
                 } else if window.label() == "widget" {
                     let _ = window.hide();
                 }
