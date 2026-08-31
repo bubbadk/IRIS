@@ -28,6 +28,7 @@ import { ChannelsWindow } from './ChannelsState';
 import { OnboardingWizard, isOnboardingNeeded } from './OnboardingWizard';
 import { checkLatestRelease, type ReleaseInfo } from './updateChecker';
 import { UpdateNotificationModal } from './UpdateNotificationModal';
+import { MemoryBenchmarkView } from './MemoryBenchmarkView';
 import {
   createProviderConfig,
   loadProviderCatalog,
@@ -3024,6 +3025,7 @@ function TurnStepRow({ step }: { step: CortexTurnStep }) {
 }
 
 function MemoryState() {
+  const [memoryTab, setMemoryTab] = useState<'records' | 'benchmark'>('records');
   const [records, setRecords] = useState<MemoryRecord[]>([]);
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -3302,6 +3304,29 @@ function MemoryState() {
         </div>
       </div>
 
+      <div style={{ display: 'flex', gap: '8px', margin: '14px 0 16px 0', borderBottom: '1px solid var(--line)', paddingBottom: '10px' }}>
+        <button
+          type="button"
+          className={`button ${memoryTab === 'records' ? 'button-primary' : 'button-secondary'}`}
+          onClick={() => setMemoryTab('records')}
+          style={{ fontSize: '12px', padding: '6px 14px' }}
+        >
+          🧠 Stored Memories ({records.length})
+        </button>
+        <button
+          type="button"
+          className={`button ${memoryTab === 'benchmark' ? 'button-primary' : 'button-secondary'}`}
+          onClick={() => setMemoryTab('benchmark')}
+          style={{ fontSize: '12px', padding: '6px 14px' }}
+        >
+          🏆 FP-AMB Benchmark (91.4%)
+        </button>
+      </div>
+
+      {memoryTab === 'benchmark' ? (
+        <MemoryBenchmarkView />
+      ) : (
+        <>
       <section className="memory-retrieval" aria-label="Memory retrieval">
         <div className="section-heading">
           <div>
@@ -3668,6 +3693,8 @@ function MemoryState() {
         </div>
       )}
       {error && <p className="memory-error">{error}</p>}
+        </>
+      )}
     </div>
   );
 }
