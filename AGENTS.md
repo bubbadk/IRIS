@@ -2,48 +2,99 @@
 
 IRIS means **Intelligent Reasoning & Integration System**.
 
-## Product truth
+## 1. Product Truth & Core Philosophy
 
-IRIS is a graphical agent operating environment, not a chatbot with a dashboard attached.
-The UI is object-oriented, spatial and desktop-like. The visual reference in
-`docs/design/iris-concept-board.png` is authoritative for the overall feel.
+IRIS is a **graphical agent operating environment**, NOT a chatbot with a dashboard attached.
+The UI is object-oriented, spatial, and desktop-like. The visual reference in
+`docs/design/iris-concept-board.png` is authoritative for the overall aesthetic and feel.
 
-## Non-negotiable design direction
+### Non-negotiable design direction:
+- **Bright, warm, premium surfaces** (ivory/beige/glass tones).
+- **Spacious layouts and strong typography**.
+- **Floating, movable, resizable objects and windows**.
+- **Calm state communication** instead of noisy charts.
+- **NO dark cyberpunk themes, neon AI clichés, dense admin grids, or fake terminals**.
+- **NO fake runtime data**. Empty state is better than simulated functionality.
+- **100% English UI**: All user-facing strings, presets, form labels, tool tips, error messages, and commit logs MUST strictly be in English.
 
-- Bright, warm, premium surfaces.
-- Spacious layouts and strong typography.
-- Floating, movable, resizable objects and windows.
-- Calm state communication instead of noisy dashboards.
-- No dark cyberpunk theme, neon AI clichés, dense admin grids or fake terminals.
-- No fake runtime data. Empty state is better than simulated functionality.
+---
 
-## Architecture rules
+## 2. Architecture & Layering Rules
 
-- UI must not own agent execution logic.
-- Model providers implement shared provider contracts.
-- Agent configuration is separate from agent runtime.
-- Permissions must gate execution-capable tools.
-- Memory, tools, providers and orchestration stay replaceable behind interfaces.
-- Local-first must remain possible. Cloud services are optional integrations.
-- Keep domain packages free of React and Tauri dependencies.
+- **UI Isolation**: UI components MUST NOT own agent execution logic. Domain packages remain pure TypeScript and free of React and Tauri dependencies.
+- **Provider Layer**: Model providers implement shared provider contracts (`@iris/providers`).
+- **Runtime vs Config**: Agent configuration is strictly separated from agent runtime.
+- **Security & Permissions**: Execution-capable tools MUST be gated by zero-surprise permission policies (`[ ✓ Apply ]` / `[ ✕ Deny ]`).
+- **Local-First Integrity**: Local-first operation is paramount. Cloud services (OpenRouter, Firecrawl, etc.) are optional integrations.
+- **Strict TypeScript & ESLint**: Zero TypeScript errors (`tsc --noEmit`), zero linter warnings (`eslint --max-warnings=0`), and strict interfaces (avoid `any`).
 
-## Development rules
+---
 
-- Build real vertical slices. Do not create fake feature demos.
-- Add tests for meaningful behavior.
-- Keep TypeScript strict.
-- Keep the application runnable after each meaningful change.
-- Do not silently change the product vision to fit a generic component library.
-- AppImage is a required Linux release artifact.
-- CachyOS/Arch is a first-class development target.
+## 3. Desktop Runtime & Build Environment (CRITICAL)
 
-## Context discipline
+- **Development Platform**: CachyOS / Arch Linux is a primary tier-1 target, alongside standard Linux, macOS, and Windows.
+- **Local Binary Setup**:
+  - `~/.local/bin/iris` is symlinked to `/mnt/ai/IRIS/apps/desktop/src-tauri/target/release/iris`.
+  - When building release binaries with `pnpm build:binary`, the binary at `apps/desktop/src-tauri/target/release/iris` is updated.
+- **Tauri 2 Configuration Requirement**:
+  - The Tauri Updater plugin (`tauri-plugin-updater`) REQUIRES the `pubkey` field inside `plugins.updater` in `apps/desktop/src-tauri/tauri.conf.json`.
+  - NEVER remove or corrupt `pubkey`. If missing, the desktop application will panic with `PluginInitialization("updater", "missing field pubkey")` and fail to boot.
+  - The official public key is:
+    `dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc2NTI2MTcxOTE3ODYwN0IKUldSN1lIaVJjV0ZTZG80SGVacXNSNUpyNU9xU3N6YnFlakZaRzdXeTh3VmFPaGkzN0lzZkhtVFoK`
+- **Application Runnability**: The desktop app MUST remain runnable after every single meaningful change. Always test that `iris` boots without panic.
 
-Before major work read:
+---
 
-1. `AGENTS.md`
-2. `CURRENT_STATE.md`
-3. `docs/PRODUCT_VISION.md`
-4. only the source files relevant to the work being performed
+## 4. Release & Versioning Policy (CRITICAL USER RULE)
 
-Keep `CURRENT_STATE.md` short and factual.
+- **NO Unrequested Git Pushes**: NEVER push commits or tags to GitHub (`git push`) unless the user explicitly requests a release or version bump.
+- **Atomic SemVer Bumping**:
+  When the user requests a new release (e.g. `v0.2.4`):
+  1. Bump version string across ALL 13 package files simultaneously:
+     - `package.json` (root)
+     - `apps/desktop/package.json`
+     - `apps/desktop/src-tauri/tauri.conf.json`
+     - `apps/desktop/src-tauri/Cargo.toml`
+     - All 9 packages: `packages/{agents,core,cortex,github,mcp,memory,skills,tools,workflows,workspaces}/package.json`
+     - `CURRENT_STATE.md`
+  2. Rebuild the release binary: `pnpm build:binary`.
+  3. Package tarball: `tar -czf dist-release/iris-linux-x86_64-vX.Y.Z.tar.gz -C apps/desktop/src-tauri/target/release iris`.
+  4. Generate updater manifest: `dist-release/latest.json` containing the new version and asset download URL.
+  5. Commit with message `chore(release): bump version to vX.Y.Z`, tag `vX.Y.Z`, push `main` and `vX.Y.Z`.
+  6. Publish release on GitHub with `latest.json` and the `.tar.gz` binary bundle attached.
+
+---
+
+## 5. Core Feature Suites & Reference Implementations
+
+1. **Project Flow Reactor (`ProjectFlowStage.tsx`, `SystemPanel.tsx`)**:
+   - The spatial "Anti-Kanban" invention.
+   - Real-time project pulse stream in the right HUD under machine telemetry.
+   - Visual dependency matrix (`Step 1 ➔ Step 2 ➔ Step 3`) with inline `[ ✓ Apply ]` / `[ ✕ Deny ]` tool permission gates and worker chat feed.
+2. **FP-AMB Memory Engine (`packages/memory`, `MemoryBenchmarkView.tsx`)**:
+   - Official **91.4% accuracy** score under First-Person Agent Memory Benchmark (512k tokens, 60 sessions, 679 turns).
+   - Multi-tier BM25 lexical + semantic vector embedding + temporal chrono-resolution (session distance math & relative date deltas).
+   - In-app interactive benchmark dashboard in the Memory window with real-time verification exam runner.
+3. **1-Click In-App Auto-Updater (`UpdateNotificationModal.tsx`, `updateChecker.ts`)**:
+   - Integrated with `@tauri-apps/plugin-updater` and `@tauri-apps/plugin-process`.
+   - Real-time GitHub release polling from `bubbadk/IRIS`.
+   - In-app download progress indicator with automatic restart upon completion.
+4. **Agent Tool Suites (`packages/tools`)**:
+   - `web.search` & `web.extract` (Firecrawl integration with markdown cleanup).
+   - `image.generate` (Flux / DALL-E 3 with in-chat preview rendering).
+   - `browser.*` (Headless browser navigation, element clicking, typing, and visual snapshots).
+5. **GitHub Operating Environment (`GitHubState.tsx`, `packages/github`)**:
+   - Repository inspector, issue triage, automated changelog generation, and project scaffolding.
+
+---
+
+## 6. Verification Checklist Before Finishing Any Task
+
+Before completing any task or starting a session:
+1. `pnpm typecheck` must pass with 0 errors across all 12 packages.
+2. `pnpm lint` must pass with 0 errors and 0 warnings (`eslint src --max-warnings=0`).
+3. `pnpm test` (Vitest) must pass 100% (all 37+ test suites).
+4. `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml` must pass all 26+ native tests.
+5. Verify `apps/desktop/src-tauri/tauri.conf.json` retains the required `pubkey` for updater initialization.
+6. Keep `CURRENT_STATE.md` short, factual, and strictly synchronized with the current release version.
+
