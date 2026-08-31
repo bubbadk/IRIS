@@ -123,19 +123,23 @@ describe('Subtitle Chunker & Prompt Builder', () => {
     const prompt = buildChunkTranslationPrompt(chunks[1], { targetLanguage: 'Dansk (Danish)' });
 
     expect(prompt).toContain('Dansk (Danish)');
-    expect(prompt).toContain('FORRIGE DIALOG-KONTEKST');
-    expect(prompt).toContain('UNDERTEKSTER DER SKAL OVERSÆTTES');
+    expect(prompt).toContain('PRECEDING DIALOGUE CONTEXT');
+    expect(prompt).toContain('CUES TO TRANSLATE');
   });
 
-  it('parses JSON response correctly even with markdown fences', () => {
-    const rawResponse = `Her er oversættelsen:
+  it('parses JSON response correctly even with markdown fences and think tags', () => {
+    const rawResponse = `<think>
+I need to translate this colloquially into Danish.
+Cue 1: Hello world -> Hej verden
+Cue 2: Second line -> Anden linje
+</think>
+Here is the translation:
 \`\`\`json
 [
   { "id": 1, "text": "Hej verden" },
   { "id": 2, "text": "Anden linje" }
 ]
 \`\`\``;
-
     const parsed = parseChunkTranslationResponse(rawResponse, [1, 2]);
     expect(parsed.get(1)).toBe('Hej verden');
     expect(parsed.get(2)).toBe('Anden linje');

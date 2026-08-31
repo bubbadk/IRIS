@@ -4,14 +4,14 @@ export function buildChunkTranslationPrompt(
   chunk: TranslationChunk,
   options: TranslationOptions,
 ): string {
-  const targetLanguage = options.targetLanguage || 'Dansk (Danish)';
+  const targetLanguage = options.targetLanguage || 'Danish (Dansk)';
   const maxChars = options.maxCharsPerLine || 40;
-  const custom = options.customInstructions ? `\nEkstra retningslinjer:\n${options.customInstructions}\n` : '';
+  const custom = options.customInstructions ? `\nAdditional Style Instructions:\n${options.customInstructions}\n` : '';
 
   let contextSection = '';
   if (chunk.contextCues.length > 0) {
     contextSection = `
-FORRIGE DIALOG-KONTEKST (KUN TIL LÆSNING - OVERSÆT IKKE DISSE IGEN):
+PRECEDING DIALOGUE CONTEXT (FOR CONTEXT ONLY - DO NOT RE-TRANSLATE THESE):
 ${JSON.stringify(
   chunk.contextCues.map((c) => ({ id: c.id, text: c.text })),
   null,
@@ -22,22 +22,22 @@ ${JSON.stringify(
 
   const cuesToTranslate = chunk.cues.map((c) => ({ id: c.id, text: c.text }));
 
-  return `Du er en professionel undertekstoversætter. 
-Oversæt følgende undertekstblokke til naturligt, mundret ${targetLanguage}.
+  return `You are a world-class professional subtitle translator.
+Translate the following subtitle dialogue cues accurately and colloquially into ${targetLanguage}.
 
-REGLER FOR UNDERTEKSTER:
-1. Oversæt talesprog og idiomer naturligt til målsproget. Undgå stive, ordrette oversættelser (anglicismer).
-2. Maksimalt ~${maxChars} tegn pr. linje og maksimalt 2 linjer pr. undertekstblok.
-3. Bevar formateringstags som <i>...</i>, <b>...</b> eller <u>...</u> intakt.
-4. Hver undertekst SKAL beholde sit oprindelige ID.${custom}
+SUBTITLE RULES:
+1. Translate spoken dialogue naturally and colloquially into the target language. Preserve humor, idioms, tone, swearing, and informal phrasing. Avoid stiff literal translations.
+2. Maintain max ~${maxChars} characters per line and max 2 lines per subtitle cue where possible.
+3. Keep HTML formatting tags intact (e.g., <i>...</i>, <b>...</b>, <u>...</u>).
+4. Every cue MUST retain its exact original integer "id".${custom}
 ${contextSection}
-UNDERTEKSTER DER SKAL OVERSÆTTES (Chunk ${chunk.chunkIndex} af ${chunk.totalChunks}):
+CUES TO TRANSLATE (Batch ${chunk.chunkIndex} of ${chunk.totalChunks}):
 ${JSON.stringify(cuesToTranslate, null, 2)}
 
 OUTPUT FORMAT:
-Returnér KUN et gyldigt JSON array i dette nøjagtige format uden yderligere forklaring:
+Return ONLY a valid JSON array of objects. Do not include markdown preamble, explanations, or thinking.
 [
-  { "id": ${chunk.cues[0]?.id ?? 1}, "text": "oversat tekst" }
+  { "id": ${chunk.cues[0]?.id ?? 1}, "text": "translated dialogue" }
 ]`;
 }
 
@@ -47,9 +47,11 @@ export function parseChunkTranslationResponse(
 ): Map<number, string> {
   const resultMap = new Map<number, string>();
   const expectedSet = expectedIds ? new Set(expectedIds) : null;
-  const text = rawResponse.trim();
 
-  // Look for JSON block in markdown code fences or plain array
+  // 1. Strip reasoning / thinking tags (e.g. DeepSeek / Gemini thinking models)
+  const text = rawResponse.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+  // 2. Look for JSON markdown block or bracketed array
   let jsonString = text;
   const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (codeBlockMatch) {
@@ -61,30 +63,33 @@ export function parseChunkTranslationResponse(
     }
   }
 
+  // 3. Try standard JSON parse
   try {
     const parsed = JSON.parse(jsonString);
     if (Array.isArray(parsed)) {
       for (const item of parsed) {
-        if (item && typeof item === 'object' && typeof item.id === 'number' && typeof item.text === 'string') {
-          if (!expectedSet || expectedSet.has(item.id)) {
-            resultMap.set(item.id, item.text);
-          }
-        } else if (item && typeof item === 'object' && typeof item.id === 'string' && typeof item.text === 'string') {
-          const numId = parseInt(item.id, 10);
-          if (!isNaN(numId) && (!expectedSet || expectedSet.has(numId))) {
-            resultMap.set(numId, item.text);
+        if (item && typeof item === 'object') {
+          const rawId = (item as { id?: unknown }).id;
+          const rawText = (item as { text?: unknown }).text;
+          const id = typeof rawId === 'number' ? rawId : parseInt(String(rawId), 10);
+          const textVal = typeof rawText === 'string' ? rawText : String(rawText || '');
+          if (!isNaN(id) && textVal && (!expectedSet || expectedSet.has(id))) {
+            resultMap.set(id, textVal);
           }
         }
       }
     }
   } catch {
-    // If JSON parse fails, attempt line-by-line heuristic parsing of [{"id": 1, "text": "..."}]
+    // 4. Fallback regex extraction if JSON is slightly malformed
     const itemRegex = /"id"\s*:\s*(\d+)[\s\S]*?"text"\s*:\s*"((?:\\.|[^"\\])*)"/g;
     let match: RegExpExecArray | null;
     while ((match = itemRegex.exec(jsonString)) !== null) {
       const id = parseInt(match[1], 10);
-      const val = match[2].replace(/\\n/g, '\n').replace(/\\"/g, '"');
-      if (!expectedSet || expectedSet.has(id)) {
+      const val = match[2]
+        .replace(/\\n/g, '\n')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\');
+      if (!isNaN(id) && (!expectedSet || expectedSet.has(id))) {
         resultMap.set(id, val);
       }
     }
