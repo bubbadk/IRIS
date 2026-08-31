@@ -251,6 +251,30 @@ function RichMessage({ content }: { content: string }) {
         if (/^https?:\/\//.test(token)) {
           const href = token.replace(/[),.;!?]+$/, '');
           const trailing = token.slice(href.length);
+          const isImage =
+            /\.(?:png|jpg|jpeg|webp|gif)(?:\?.*)?$/i.test(href) ||
+            href.includes('pollinations.ai/prompt/') ||
+            href.includes('oaidalleapiprodscus');
+          if (isImage) {
+            return (
+              <span key={`${token}-${index}`} style={{ display: 'block', margin: '8px 0' }}>
+                <a href={href} target="_blank" rel="noreferrer" style={{ display: 'inline-block' }}>
+                  <img
+                    src={href}
+                    alt="Generated Visual"
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '380px',
+                      borderRadius: '10px',
+                      boxShadow: '0 4px 14px rgba(0,0,0,0.1)',
+                      border: '1px solid var(--line)',
+                    }}
+                  />
+                </a>
+                {trailing}
+              </span>
+            );
+          }
           return (
             <span key={`${token}-${index}`}>
               <a href={href} target="_blank" rel="noreferrer">
@@ -292,11 +316,31 @@ function capabilityGroups(tools: readonly ToolDefinition[]): CapabilityGroup[] {
         ? 'Workspace'
         : id === 'memory'
           ? 'Memory'
-          : 'IRIS core';
+          : id === 'github'
+            ? 'GitHub Operations'
+            : id === 'web'
+              ? 'Web & Search'
+              : id === 'image'
+                ? 'Image Generation'
+                : id === 'browser'
+                  ? 'Browser Automation'
+                  : id === 'janitor'
+                    ? 'Janitor Host Control'
+                    : 'IRIS Core';
     const group = groups.get(id) ?? {
       id,
       label,
-      description: mcp ? 'Tools advertised by this connected MCP server.' : 'Built-in IRIS tools.',
+      description: mcp
+        ? 'Tools advertised by this connected MCP server.'
+        : id === 'web'
+          ? 'Web search and full-page Firecrawl extraction tools.'
+          : id === 'image'
+            ? 'Multimodal image generation and synthesis tools.'
+            : id === 'browser'
+              ? 'Headless browser automation and inspection primitives.'
+              : id === 'github'
+                ? 'GitHub release management and issue triage tools.'
+                : 'Built-in IRIS tools.',
       items: [],
     };
     group.items.push({
@@ -1299,7 +1343,7 @@ function ChatDesklet({
               <option value="">Choose agent…</option>
               {agents.map((agent) => (
                 <option key={agent.id} value={agent.id}>
-                  {agent.name} {agentStates[agent.id]?.busy ? '● (arbejder)' : ''}
+                  {agent.name} {agentStates[agent.id]?.busy ? '● (working)' : ''}
                 </option>
               ))}
             </select>

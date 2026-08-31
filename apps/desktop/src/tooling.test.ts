@@ -227,4 +227,19 @@ describe('desktop agent tool runtime', () => {
       }),
     ]);
   });
+
+  it('exposes web search and image generation tools when assigned to agents', async () => {
+    const agent = {
+      id: 'agent-search',
+      name: 'Researcher',
+      autonomy: 'assist' as const,
+      skillIds: [],
+      toolIds: ['web.search', 'image.generate', 'browser.navigate'],
+    };
+
+    const defs = agentToolRuntime.definitions(agent);
+    expect(defs.some((d) => d.name === 'web_search')).toBe(true);
+    expect(defs.some((d) => d.name === 'image_generate')).toBe(true);
+    expect(defs.some((d) => d.name === 'browser_navigate')).toBe(true);
+  });
 });

@@ -5,6 +5,10 @@ import {
   StaticPermissionEngine,
   ToolPermissionError,
   ToolRegistry,
+  createWebSearchTool,
+  createWebExtractTool,
+  createImageGenerationTool,
+  createAllBrowserTools,
   type PermissionRule,
   type ToolExecutionResult,
 } from '@iris/tools';
@@ -51,6 +55,12 @@ toolRegistry.register(createWorkspaceWriteTool());
 toolRegistry.register(createWorkspaceMoveTool());
 toolRegistry.register(createWorkspaceDeleteTool());
 toolRegistry.register(createWorkspacePatchTool());
+toolRegistry.register(createWebSearchTool());
+toolRegistry.register(createWebExtractTool());
+toolRegistry.register(createImageGenerationTool());
+for (const tool of createAllBrowserTools()) {
+  toolRegistry.register(tool);
+}
 for (const tool of createAllGitHubTools()) {
   toolRegistry.register(tool);
 }
