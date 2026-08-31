@@ -1,8 +1,9 @@
 # IRIS Current State
 
-Status: **IRIS v0.2.2 (Release with Clean Linter, Polished Types & Project Flow Reactor)**
+Status: **IRIS v0.2.3 (Release with Native 1-Click Auto-Updater & Project Flow Reactor)**
 
-- **Version**: `v0.2.2`
+- **Version**: `v0.2.3`
+- **Tauri 1-Click In-App Auto-Updater**: Direct in-app update downloading, progress reporting, and auto-restart via `@tauri-apps/plugin-updater`.
 - **Project Flow Stream (HUD Live Section)**: Real-time dynamic project monitor in the right sidebar HUD under System Telemetry with progress indicators and inline `[ ✓ Apply ]` and `[ ✕ Deny ]` action buttons.
 - **Project Flow Stage (`ProjectFlowStage.tsx`)**: Dedicated per-project living spatial window with interactive visual task chain / Flow Matrix (anti-Kanban), live worker agent conversation stream, and live permission approval dispatch.
 - **Web Search & Full-Page Extract**: (`web.search`, `web.extract`) via Firecrawl and resilient search gateways.

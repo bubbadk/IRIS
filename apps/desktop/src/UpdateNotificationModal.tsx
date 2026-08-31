@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ReleaseInfo } from './updateChecker';
 
 export function UpdateNotificationModal({
@@ -9,7 +10,72 @@ export function UpdateNotificationModal({
   onDismiss: () => void;
   darkMode: boolean;
 }) {
-  const handleOpenRelease = () => {
+  const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [statusText, setStatusText] = useState<string>('');
+  const [errorText, setErrorText] = useState<string>('');
+
+  async function handleAutoUpdate() {
+    setDownloading(true);
+    setErrorText('');
+    setStatusText('Checking update package…');
+
+    try {
+      // Dynamic import to support both Tauri and browser dev mode
+      const { check } = await import('@tauri-apps/plugin-updater');
+      const { relaunch } = await import('@tauri-apps/plugin-process');
+
+      const update = await check();
+      if (!update) {
+        // Fallback if native updater is not configured or in dev
+        setStatusText('Opening direct download…');
+        window.open(release.downloadUrl || release.url, '_blank');
+        onDismiss();
+        return;
+      }
+
+      let downloaded = 0;
+      let contentLength = 0;
+
+      setStatusText('Downloading update…');
+      await update.downloadAndInstall((event) => {
+        switch (event.event) {
+          case 'Started':
+            contentLength = event.data.contentLength ?? 0;
+            setProgress(0);
+            setStatusText('Starting download…');
+            break;
+          case 'Progress':
+            downloaded += event.data.chunkLength;
+            if (contentLength > 0) {
+              const pct = Math.min(100, Math.round((downloaded / contentLength) * 100));
+              setProgress(pct);
+              setStatusText(`Downloading: ${pct}%`);
+            } else {
+              setStatusText(`Downloading: ${(downloaded / 1024 / 1024).toFixed(1)} MB`);
+            }
+            break;
+          case 'Finished':
+            setProgress(100);
+            setStatusText('Installing update & restarting…');
+            break;
+        }
+      });
+
+      setStatusText('Restarting IRIS…');
+      await relaunch();
+    } catch (err) {
+      console.warn('Native auto-update fallback:', err);
+      // Fallback: open direct asset download in browser
+      setStatusText('Opening direct download in browser…');
+      window.open(release.downloadUrl || release.url, '_blank');
+      setTimeout(() => onDismiss(), 1000);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  const handleOpenGitHub = () => {
     window.open(release.url, '_blank');
     onDismiss();
   };
@@ -39,6 +105,7 @@ export function UpdateNotificationModal({
             className="update-close-btn"
             onClick={onDismiss}
             aria-label="Close update notification"
+            disabled={downloading}
           >
             ×
           </button>
@@ -46,6 +113,32 @@ export function UpdateNotificationModal({
 
         <div className="update-body">
           <h3 className="update-release-name">{release.name}</h3>
+          
+          {errorText && (
+            <div className="workspace-error" style={{ margin: '0 0 10px 0' }}>
+              {errorText}
+            </div>
+          )}
+
+          {downloading && (
+            <div className="update-progress-container" style={{ margin: '12px 0', padding: '12px', background: 'rgba(80,93,83,0.06)', borderRadius: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600, marginBottom: '6px', color: 'var(--ink)' }}>
+                <span>{statusText}</span>
+                {progress !== null && <span>{progress}%</span>}
+              </div>
+              <div style={{ height: '6px', background: 'var(--line)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${progress ?? 100}%`,
+                    background: '#10b981',
+                    transition: 'width 0.2s ease',
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="update-notes-container">
             <p className="update-notes-label">What&apos;s new in this release:</p>
             <div className="update-notes-content">
@@ -68,17 +161,29 @@ export function UpdateNotificationModal({
           <button
             type="button"
             className="update-btn-secondary"
-            onClick={onDismiss}
+            onClick={handleOpenGitHub}
+            disabled={downloading}
           >
-            Maybe later
+            View Notes on GitHub ⤤
           </button>
-          <button
-            type="button"
-            className="update-btn-primary"
-            onClick={handleOpenRelease}
-          >
-            Get Update ⤤
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              type="button"
+              className="update-btn-secondary"
+              onClick={onDismiss}
+              disabled={downloading}
+            >
+              Maybe later
+            </button>
+            <button
+              type="button"
+              className="update-btn-primary"
+              onClick={handleAutoUpdate}
+              disabled={downloading}
+            >
+              {downloading ? 'Updating…' : '⚡ 1-Click Update'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
