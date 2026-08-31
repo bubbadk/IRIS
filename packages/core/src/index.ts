@@ -8,11 +8,12 @@ export type IrisObjectType =
   | 'skills'
   | 'connections'
   | 'channels'
-  | 'settings';
+  | 'settings'
+  | 'github';
 
 export type Capability = 'chat' | 'streaming' | 'reasoning' | 'vision' | 'tools' | 'embeddings';
 
-export type AgentAutonomy = 'observe' | 'assist' | 'act' | 'operate' | 'janitor';
+export type AgentAutonomy = 'observe' | 'assist' | 'act' | 'operate' | 'janitor' | 'github';
 
 export type AgentMemoryAccess = 'none' | 'read';
 export type AgentApprovalMode = 'ask' | 'yolo';
@@ -32,6 +33,8 @@ export interface AgentDefinition {
   persona?: string;
   providerPolicyId?: string;
   model?: string;
+  takeoverProviderPolicyId?: string;
+  takeoverModel?: string;
   autonomy: AgentAutonomy;
   memoryAccess?: AgentMemoryAccess;
   /** YOLO skips repeated approvals for assigned tools; explicit deny rules still win. */
@@ -55,11 +58,14 @@ export function validateAgentDefinition(value: unknown): value is AgentDefinitio
     (candidate.persona === undefined || typeof candidate.persona === 'string') &&
     (candidate.providerPolicyId === undefined || typeof candidate.providerPolicyId === 'string') &&
     (candidate.model === undefined || typeof candidate.model === 'string') &&
+    (candidate.takeoverProviderPolicyId === undefined || typeof candidate.takeoverProviderPolicyId === 'string') &&
+    (candidate.takeoverModel === undefined || typeof candidate.takeoverModel === 'string') &&
     (candidate.autonomy === 'observe' ||
       candidate.autonomy === 'assist' ||
       candidate.autonomy === 'act' ||
       candidate.autonomy === 'operate' ||
-      candidate.autonomy === 'janitor') &&
+      candidate.autonomy === 'janitor' ||
+      candidate.autonomy === 'github') &&
     (candidate.memoryAccess === undefined ||
       candidate.memoryAccess === 'none' ||
       candidate.memoryAccess === 'read') &&

@@ -33,69 +33,69 @@ interface ProjectPreset {
 
 const projectPresets: ProjectPreset[] = [
   {
-    title: 'Fuld Funktionsbygning',
-    badge: '4 trin',
-    objective: 'Byg en komplet softwarefunktion fra arkitektur til færdig UI og integration.',
+    title: 'Full Feature Build',
+    badge: '4 steps',
+    objective: 'Build a complete software feature from architecture to final UI and integration.',
     tasks: [
       {
-        title: '1. Arkitektur & Datamodel',
-        description: 'Analyser krav, definer datamodeller og tegn interfaces.',
+        title: '1. Architecture & Data Model',
+        description: 'Analyze requirements, define data models, and outline core interfaces.',
       },
       {
-        title: '2. Backend Logik & Værktøjer',
-        description: 'Implementer kernetjenester og håndter forretningslogik.',
+        title: '2. Backend Logic & Tooling',
+        description: 'Implement core services, error handling, and business logic.',
         depIndex: 0,
       },
       {
-        title: '3. UI & Brugerflade',
-        description: 'Byg visuelle komponenter og forbind dem til datalaget.',
+        title: '3. UI & User Interface',
+        description: 'Construct visual components and bind them to the underlying data layer.',
         depIndex: 1,
       },
       {
-        title: '4. Test & Verifikation',
-        description: 'Kør enhedstests, fiks regressionsfejl og verificer funktionaliteten.',
+        title: '4. Test & Verification',
+        description: 'Run unit test suites, resolve regressions, and verify behavior.',
         depIndex: 2,
       },
     ],
   },
   {
-    title: 'Kode-audit & Testdækning',
-    badge: '3 trin',
-    objective: 'Gennemgå kodebasen for fejl, skriv enhedstests og dokumenter status.',
+    title: 'Codebase Audit & Testing',
+    badge: '3 steps',
+    objective: 'Audit the codebase for bugs, add comprehensive tests, and document health.',
     tasks: [
       {
-        title: '1. Codebase Analyse',
-        description: 'Find ubehandlede edge-cases, manglende type safety og fejl.',
+        title: '1. Codebase Analysis',
+        description: 'Identify unhandled edge cases, missing type safety, and defects.',
       },
       {
-        title: '2. Enhedstests',
-        description: 'Skriv grundige tests der afdækker kritiske funktioner.',
+        title: '2. Unit & Integration Tests',
+        description: 'Write robust test suites covering critical logic and error paths.',
         depIndex: 0,
       },
       {
-        title: '3. Fejlretning & Rapport',
-        description: 'Udbedr fundne mangler og generer en opsummering.',
+        title: '3. Bug Fixes & Summary',
+        description: 'Fix identified vulnerabilities and generate an audit summary report.',
         depIndex: 1,
       },
     ],
   },
   {
-    title: 'Release & Pakkering',
-    badge: '3 trin',
-    objective: 'Klargør projektet til udrulning, byg eksekverbare filer og lav release notes.',
+    title: 'Release & Packaging',
+    badge: '3 steps',
+    objective: 'Prepare project for distribution, compile binary executables, and generate release notes.',
     tasks: [
       {
-        title: '1. Versionering & Changelog',
-        description: 'Opdater versionsnumre og skriv overskuelig changelog.',
+        title: '1. Versioning & Changelog',
+        description: 'Bump SemVer versioning and author human-readable changelog highlights.',
       },
       {
-        title: '2. Kompiler Release Byg',
-        description: 'Kør build scripts og generer produktionsbinærer.',
+        title: '2. Compile Release Binaries',
+        description: 'Execute build scripts and generate optimized standalone production binaries.',
         depIndex: 0,
       },
       {
-        title: '3. Røgtest & Verifikation',
-        description: 'Start applikationen og verificer at alle kernefunktioner kører.',
+        title: '3. Smoke Test & Verification',
+        description: 'Launch artifacts and verify core capabilities operate smoothly.',
         depIndex: 1,
       },
     ],
@@ -316,8 +316,8 @@ export function ProjectsState() {
         <div className="schedule-editor">
           <div className="schedule-presets-section">
             <div className="schedule-presets-header">
-              <span className="schedule-presets-title">⚡ Projekt-skabeloner</span>
-              <span className="schedule-presets-subtitle">Start hurtigt med en komplet opgavegraf og afhængigheder:</span>
+              <span className="schedule-presets-title">⚡ Project Presets</span>
+              <span className="schedule-presets-subtitle">Quickstart with a pre-configured task graph and dependency chain:</span>
             </div>
             <div className="schedule-presets-grid">
               {projectPresets.map((preset) => (
@@ -339,19 +339,19 @@ export function ProjectsState() {
 
           <form className="project-editor" onSubmit={(event) => void createProject(event)}>
             <label>
-              Projektnavn
+              Project Title
               <input
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
-                placeholder="f.eks. Byg ny feature eller modul"
+                placeholder="e.g. Build new feature or module"
               />
             </label>
             <label>
-              Overordnet Mål (Objective)
+              Objective
               <textarea
                 value={objective}
                 onChange={(event) => setObjective(event.target.value)}
-                placeholder="Beskriv det konkrete resultat som grafen skal opnå…"
+                placeholder="Describe the concrete milestone this task graph must achieve…"
                 rows={2}
               />
             </label>
@@ -369,7 +369,7 @@ export function ProjectsState() {
                 className="soft-button primary-button"
                 disabled={!title.trim() || !objective.trim()}
               >
-                Opret projektgraf
+                Create Project Graph
               </button>
             </div>
           </form>
@@ -377,13 +377,13 @@ export function ProjectsState() {
       )}
 
       {!loaded ? (
-        <div className="projects-empty">Indlæser lokale projekter…</div>
+        <div className="projects-empty">Loading local projects…</div>
       ) : projects.length === 0 ? (
         <div className="projects-empty">
-          <strong>Ingen projektgrafer endnu</strong>
+          <strong>No project graphs yet</strong>
           <p>
-            Projekter lader dig definere trinvise opgaver, som agenter udfører i rækkefølge med
-            afhængighedskontrol. Vælg en skabelon ovenfor eller opret din egen.
+            Projects let you define step-by-step tasks that autonomous agents execute with dependency
+            control. Select a preset above or author your own graph.
           </p>
         </div>
       ) : (

@@ -12,6 +12,8 @@ export interface EditableAgentConfiguration {
   persona?: string;
   providerPolicyId: string;
   model: string;
+  takeoverProviderPolicyId?: string;
+  takeoverModel?: string;
   autonomy: AgentAutonomy;
   memoryAccess: AgentMemoryAccess;
   approvalMode: AgentApprovalMode;
@@ -31,6 +33,8 @@ export function applyAgentConfiguration(
   const persona = (configuration.persona ?? '').trim();
   const providerPolicyId = configuration.providerPolicyId.trim();
   const model = configuration.model.trim();
+  const takeoverProviderPolicyId = (configuration.takeoverProviderPolicyId ?? '').trim();
+  const takeoverModel = (configuration.takeoverModel ?? '').trim();
 
   return {
     ...agent,
@@ -39,6 +43,8 @@ export function applyAgentConfiguration(
     persona: persona || undefined,
     providerPolicyId: providerPolicyId || undefined,
     model: model || undefined,
+    takeoverProviderPolicyId: takeoverProviderPolicyId || undefined,
+    takeoverModel: takeoverModel || undefined,
     autonomy: configuration.autonomy,
     memoryAccess: configuration.memoryAccess,
     approvalMode: configuration.approvalMode,

@@ -1,5 +1,5 @@
 {
-  "name": "@iris/agents",
+  "name": "@iris/github",
   "private": true,
   "version": "0.2.0",
   "type": "module",
@@ -7,13 +7,11 @@
   "scripts": {
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "lint": "eslint src --max-warnings=0"
   },
   "dependencies": {
-    "@iris/core": "workspace:*",
-    "@iris/cortex": "workspace:*",
-    "@iris/providers": "workspace:*"
+    "@iris/core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.8.0",

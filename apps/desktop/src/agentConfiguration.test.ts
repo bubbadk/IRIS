@@ -34,6 +34,8 @@ describe('agent configuration', () => {
       description: 'Investigates local material.',
       providerPolicyId: 'provider-1',
       model: 'model-1',
+      takeoverProviderPolicyId: undefined,
+      takeoverModel: undefined,
       autonomy: 'assist',
       memoryAccess: 'read',
       approvalMode: 'ask',

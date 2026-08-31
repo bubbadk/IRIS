@@ -35,6 +35,9 @@ importers:
       '@iris/cortex':
         specifier: workspace:*
         version: link:../../packages/cortex
+      '@iris/github':
+        specifier: workspace:*
+        version: link:../../packages/github
       '@iris/mcp':
         specifier: workspace:*
         version: link:../../packages/mcp
@@ -136,6 +139,19 @@ importers:
       '@iris/skills':
         specifier: workspace:*
         version: link:../skills
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(jsdom@26.1.0)
+
+  packages/github:
+    dependencies:
+      '@iris/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       typescript:
         specifier: ^5.8.0

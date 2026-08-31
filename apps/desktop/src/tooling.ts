@@ -26,6 +26,7 @@ import {
   createWorkspaceDeleteTool,
   createWorkspacePatchTool,
 } from './workspaceTools';
+import { createAllGitHubTools } from './githubTools';
 import {
   agentRepository,
   permissionAuditRepository,
@@ -50,6 +51,9 @@ toolRegistry.register(createWorkspaceWriteTool());
 toolRegistry.register(createWorkspaceMoveTool());
 toolRegistry.register(createWorkspaceDeleteTool());
 toolRegistry.register(createWorkspacePatchTool());
+for (const tool of createAllGitHubTools()) {
+  toolRegistry.register(tool);
+}
 
 export function createToolExecutor(rules: PermissionRule[]) {
   return new GatedToolExecutor(
@@ -92,6 +96,12 @@ export const agentToolRuntime: AgentToolRuntime = {
       return {
         status: 'denied',
         reason: 'Janitor tools are reserved for agents with Janitor autonomy.',
+      };
+    }
+    if (tool.id.startsWith('github.') && agent.autonomy !== 'github') {
+      return {
+        status: 'denied',
+        reason: 'GitHub tools are reserved for agents with GitHub autonomy.',
       };
     }
     const rules = await permissionRuleRepository.list();

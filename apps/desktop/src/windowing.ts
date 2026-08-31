@@ -83,25 +83,29 @@ export function defaultWindow(objectType: DesktopWindow['objectType'], z: number
     width:
       objectType === 'welcome'
         ? 560
-        : objectType === 'settings' ||
-            objectType === 'memory' ||
-            objectType === 'projects' ||
-            objectType === 'schedules' ||
-            objectType === 'workspace'
-          ? objectType === 'projects' || objectType === 'workspace'
-            ? 760
-            : 680
-          : objectType === 'agents' ? 860 : 520,
+        : objectType === 'github'
+          ? 920
+          : objectType === 'settings' ||
+              objectType === 'memory' ||
+              objectType === 'projects' ||
+              objectType === 'schedules' ||
+              objectType === 'workspace'
+            ? objectType === 'projects' || objectType === 'workspace'
+              ? 760
+              : 680
+            : objectType === 'agents' ? 860 : 520,
     height:
       objectType === 'welcome'
         ? 360
-        : objectType === 'settings' ||
-            objectType === 'memory' ||
-            objectType === 'projects' ||
-            objectType === 'schedules' ||
-            objectType === 'workspace'
-          ? 560
-          : objectType === 'agents' ? 620 : 390,
+        : objectType === 'github'
+          ? 640
+          : objectType === 'settings' ||
+              objectType === 'memory' ||
+              objectType === 'projects' ||
+              objectType === 'schedules' ||
+              objectType === 'workspace'
+            ? 560
+            : objectType === 'agents' ? 620 : 390,
     z,
   };
 }

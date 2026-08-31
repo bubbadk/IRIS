@@ -61,54 +61,54 @@ interface SchedulePreset {
 
 const schedulePresets: SchedulePreset[] = [
   {
-    title: 'Morgen IT-Nyheder',
-    badge: 'Daglig 08:00',
-    description: 'Søger og opsummerer det seneste døgns vigtigste tech-, AI- og softwarenyheder.',
-    name: 'Morgen IT- & Tech-overblik',
+    title: 'Daily Tech & AI Briefing',
+    badge: 'Daily 08:00',
+    description: 'Summarizes the most critical tech, AI, and software developments from the past 24 hours.',
+    name: 'Daily Tech & Architecture Briefing',
     recurrence: 'daily',
     timeOfDay: '08:00',
     prompt:
-      'Søg efter og opsummer de vigtigste IT-, software- og AI-nyheder fra det seneste døgn. Fremhæv kritiske sikkerhedsbulletiner, nye open source releases og AI-gennembrud i et klart punktformat.',
+      'Search for and summarize the most important tech, software, and AI developments from the past 24 hours. Highlight critical security advisories, major open-source releases, and research breakthroughs in a concise bulleted digest.',
   },
   {
-    title: 'Indbakke & Mail Check',
-    badge: 'Daglig 09:00',
-    description: 'Gennemgår ulæste henvendelser og laver et handlingsresumé over vigtige punkter.',
-    name: 'Daglig Indbakke Opsummering',
+    title: 'Inbox & Channels Triage',
+    badge: 'Daily 09:00',
+    description: 'Reviews incoming communications and prepares an actionable summary of priority items.',
+    name: 'Daily Communications Summary',
     recurrence: 'daily',
     timeOfDay: '09:00',
     prompt:
-      'Gennemgå ulæste meddelelser og kanaler. Udarbejd et kortfattet handlingsresumé over ting, der kræver svar eller opmærksomhed i dag, sorteret efter prioritet.',
+      'Review unread messages and incoming channels. Produce a prioritized, concise action digest of items requiring response or attention today.',
   },
   {
-    title: 'Workspace Oprydning',
-    badge: 'Daglig 17:00',
-    description: 'Tjekker workspace-status, git-ændringer og rapporterer kodehelbred.',
-    name: 'Workspace Sundhedstjek',
+    title: 'Workspace Health Check',
+    badge: 'Daily 17:00',
+    description: 'Inspects workspace status, git modifications, and reports code health.',
+    name: 'Daily Workspace Audit',
     recurrence: 'daily',
     timeOfDay: '17:00',
     prompt:
-      'Gennemgå det monterede workspace. Tjek git status, opsummer dagens kodeændringer, identificer midlertidige filer (.tmp, caches) og giv et kort statusoverblik.',
+      'Inspect the mounted workspace. Check git status, summarize modified files, identify untracked artifacts, and report general repository health.',
   },
   {
-    title: 'Aften Dreaming',
-    badge: 'Inaktivitet (60 min)',
-    description: 'Konsoliderer dagens viden og vigtige beslutninger til langtidshukommelsen.',
-    name: 'Aften Dreaming & Hukommelse',
+    title: 'Evening Memory Consolidation',
+    badge: 'Idle (60 min)',
+    description: 'Synthesizes key decisions and durable facts into long-term vector memory.',
+    name: 'Evening Dreaming & Memory Synthesis',
     recurrence: 'idle',
     timeOfDay: '22:00',
     idleMinutes: 60,
     prompt: dreamingPromptSuggestion,
   },
   {
-    title: 'System- & Sikkerhedstjek',
-    badge: 'Ugentlig Mandag',
-    description: 'Ugentlig gennemgang af maskinstatus, diskforbrug og agentrettigheder.',
-    name: 'Ugentlig Systemaudit',
+    title: 'System & Security Audit',
+    badge: 'Weekly Monday',
+    description: 'Weekly audit of machine health, disk usage, and agent capability permissions.',
+    name: 'Weekly System & Tool Audit',
     recurrence: 'weekly',
     timeOfDay: '09:00',
     prompt:
-      'Kør en system- og værktøjsaudit. Evaluer diskforbrug, CPU, aktive forbindelser og verificer at agent-rettigheder er opdaterede.',
+      'Run a system health and tool permission audit. Inspect disk usage, host telemetry, active connections, and verify that tool policies remain compliant.',
   },
 ];
 
@@ -294,8 +294,8 @@ export function SchedulesState() {
         <form className="schedule-editor" onSubmit={(event) => void save(event)}>
           <div className="schedule-presets-section">
             <div className="schedule-presets-header">
-              <span className="schedule-presets-title">⚡ Hurtige skabeloner</span>
-              <span className="schedule-presets-subtitle">Vælg et forudindstillet job for at udfylde felterne automatisk:</span>
+              <span className="schedule-presets-title">⚡ Quick Presets</span>
+              <span className="schedule-presets-subtitle">Select a preset job to populate the configuration automatically:</span>
             </div>
             <div className="schedule-presets-grid">
               {schedulePresets.map((preset) => (
@@ -321,7 +321,7 @@ export function SchedulesState() {
               <input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="f.eks. Morgen IT- & Tech-overblik"
+                placeholder="e.g. Daily Tech & Architecture Briefing"
               />
             </label>
             <label className="schedule-field-full">
@@ -338,18 +338,18 @@ export function SchedulesState() {
           </div>
 
           <label className="schedule-prompt-field">
-            Prompt / Instruktion
+            Prompt / Instructions
             <textarea
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder="Beskriv hvad agenten skal gøre ved hvert kørsel…"
+              placeholder="Describe what the agent should accomplish on each scheduled run…"
               rows={4}
             />
           </label>
 
           <div className="schedule-timing-grid">
             <label>
-              Gentagelse
+              Recurrence
               <select
                 value={recurrence}
                 onChange={(event) => {
@@ -358,16 +358,16 @@ export function SchedulesState() {
                   if (next === 'idle' && !prompt.trim()) setPrompt(dreamingPromptSuggestion);
                 }}
               >
-                <option value="once">Enkelt kørsel (Once)</option>
-                <option value="daily">Dagligt (Daily)</option>
-                <option value="weekly">Ugentligt (Weekly)</option>
-                <option value="idle">Ved inaktivitet (Dreaming)</option>
+                <option value="once">One-time (Once)</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="idle">When idle (Dreaming)</option>
               </select>
             </label>
 
             {recurrence === 'idle' ? (
               <label>
-                Minutters inaktivitet
+                Idle minutes
                 <input
                   type="number"
                   min="1"
@@ -378,7 +378,7 @@ export function SchedulesState() {
             ) : (
               <>
                 <label>
-                  Klokkeslæt
+                  Time of day
                   <input
                     type="time"
                     value={timeOfDay}
@@ -386,7 +386,7 @@ export function SchedulesState() {
                   />
                 </label>
                 <label>
-                  Tidszone
+                  Timezone
                   <select value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>
                     {timeZones.map((zone) => (
                       <option key={zone}>{zone}</option>
@@ -397,7 +397,7 @@ export function SchedulesState() {
             )}
 
             <label>
-              Maks forsøg
+              Max attempts
               <input
                 type="number"
                 min="1"
@@ -411,7 +411,7 @@ export function SchedulesState() {
 
             {recurrence === 'once' && (
               <label className="schedule-field-span">
-                Kørselstidspunkt
+                Scheduled time
                 <input
                   type="datetime-local"
                   value={runAt}
@@ -422,7 +422,7 @@ export function SchedulesState() {
 
             {recurrence === 'weekly' && (
               <fieldset className="weekday-picker schedule-field-span">
-                <legend>Ugedage</legend>
+                <legend>Days of week</legend>
                 {weekdayOptions.map(([label, day]) => (
                   <label key={day}>
                     <input
@@ -449,7 +449,7 @@ export function SchedulesState() {
               Cancel
             </button>
             <button className="soft-button primary-button">
-              {editingId ? 'Opdater tidsplan' : 'Gem tidsplan'}
+              {editingId ? 'Update Schedule' : 'Save Schedule'}
             </button>
           </div>
         </form>

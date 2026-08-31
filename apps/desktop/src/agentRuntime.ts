@@ -121,6 +121,23 @@ export const standardWorkspaceTools: readonly string[] = [
   'subagent.delegate',
 ];
 
+export const standardGitHubTools = [
+  'github.list_repos',
+  'github.get_repo',
+  'github.create_repo',
+  'github.create_release',
+  'github.trigger_workflow',
+  'github.get_workflow_status',
+  'github.list_issues',
+  'github.create_pull_request',
+  'workspace.list',
+  'workspace.search',
+  'workspace.read',
+  'workspace.write',
+  'workspace.patch',
+  'memory.remember',
+];
+
 export async function normalizeDesktopAgent(agent: AgentDefinition): Promise<AgentDefinition> {
   let modified = false;
   let toolIds = [...agent.toolIds];
@@ -129,6 +146,10 @@ export async function normalizeDesktopAgent(agent: AgentDefinition): Promise<Age
     (agent.autonomy === 'operate' || agent.autonomy === 'act' || agent.autonomy === 'assist')
   ) {
     toolIds = [...standardWorkspaceTools];
+    modified = true;
+  }
+  if (agent.autonomy === 'github' && toolIds.length === 0) {
+    toolIds = [...standardGitHubTools];
     modified = true;
   }
   if (agent.autonomy === 'janitor' && !toolIds.includes(janitorHealthToolId)) {

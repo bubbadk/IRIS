@@ -69,6 +69,7 @@ import {
   AgentsIcon,
   ChannelsIcon,
   CloseIcon,
+  GitHubIcon,
   HomeIcon,
   IrisMark,
   MemoryIcon,
@@ -103,6 +104,7 @@ import { formatCount } from './systemTelemetry';
 import { PermissionsState } from './PermissionsState';
 import { ProjectsState } from './ProjectsState';
 import { SchedulesState } from './SchedulesState';
+import { GitHubState } from './GitHubState';
 import { SystemPanel } from './SystemPanel';
 import { DesktopWidget } from './DesktopWidget';
 import { McpState } from './McpState';
@@ -159,6 +161,12 @@ const objects: Array<{
     label: 'Workspace',
     description: 'Mount and inspect one real local folder.',
     Icon: WorkspaceIcon,
+  },
+  {
+    type: 'github',
+    label: 'GitHub',
+    description: 'Autonomous versioning, release automation & intelligent debugging.',
+    Icon: GitHubIcon,
   },
   {
     type: 'models',
@@ -1602,6 +1610,8 @@ function AgentsState() {
   const [persona, setPersona] = useState('');
   const [providerId, setProviderId] = useState(providers[0]?.id ?? '');
   const [model, setModel] = useState(providers[0]?.model ?? '');
+  const [takeoverProviderId, setTakeoverProviderId] = useState('');
+  const [takeoverModel, setTakeoverModel] = useState('');
   const [autonomy, setAutonomy] = useState<AgentAutonomy>('assist');
   const [memoryAccess, setMemoryAccess] = useState<AgentMemoryAccess>('none');
   const [approvalMode, setApprovalMode] = useState<AgentApprovalMode>('ask');
@@ -1679,6 +1689,18 @@ function AgentsState() {
         ? [...new Set([...selectableAgentModels(selectedProvider), model.trim()].filter(Boolean))]
         : [],
     [model, selectedProvider],
+  );
+
+  const selectedTakeoverProvider = useMemo(
+    () => providers.find((provider) => provider.id === takeoverProviderId),
+    [takeoverProviderId, providers],
+  );
+  const selectableTakeoverModels = useMemo(
+    () =>
+      selectedTakeoverProvider
+        ? [...new Set([...selectableAgentModels(selectedTakeoverProvider), takeoverModel.trim()].filter(Boolean))]
+        : [],
+    [takeoverModel, selectedTakeoverProvider],
   );
 
   const missingEditorSkillIds = useMemo(
@@ -1830,6 +1852,8 @@ function AgentsState() {
     setPersona('');
     setProviderId(providers[0]?.id ?? '');
     setModel(providers[0]?.model ?? '');
+    setTakeoverProviderId('');
+    setTakeoverModel('');
     setAutonomy('assist');
     setMemoryAccess('none');
     setApprovalMode('ask');
@@ -1848,6 +1872,8 @@ function AgentsState() {
     setPersona(agent.persona ?? '');
     setProviderId(agent.providerPolicyId ?? '');
     setModel(agent.model ?? '');
+    setTakeoverProviderId(agent.takeoverProviderPolicyId ?? '');
+    setTakeoverModel(agent.takeoverModel ?? '');
     setAutonomy(agent.autonomy);
     setMemoryAccess(agent.memoryAccess ?? 'none');
     setApprovalMode(agent.approvalMode ?? 'ask');
@@ -1928,6 +1954,8 @@ function AgentsState() {
         persona,
         providerPolicyId: providerId,
         model,
+        takeoverProviderPolicyId: takeoverProviderId,
+        takeoverModel,
         autonomy,
         memoryAccess,
         approvalMode,
@@ -2222,6 +2250,45 @@ function AgentsState() {
               </select>
             </label>
             <label>
+              ⚡ Takeover Provider (Expert AI)
+              <select
+                value={takeoverProviderId}
+                onChange={(event) => {
+                  const nextProvider = providers.find(
+                    (provider) => provider.id === event.target.value,
+                  );
+                  setTakeoverProviderId(event.target.value);
+                  setTakeoverModel(nextProvider?.model ?? '');
+                }}
+              >
+                <option value="">No takeover (default)</option>
+                {providers.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    ⚡ {provider.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              ⚡ Takeover Model
+              <select
+                value={takeoverModel}
+                disabled={!selectedTakeoverProvider}
+                onChange={(event) => setTakeoverModel(event.target.value)}
+              >
+                {!selectedTakeoverProvider && (
+                  <option value="">
+                    {takeoverProviderId ? 'Provider unavailable' : 'Choose a takeover provider first…'}
+                  </option>
+                )}
+                {selectableTakeoverModels.map((availableModel) => (
+                  <option key={availableModel} value={availableModel}>
+                    {availableModel}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
               Autonomy
               <select
                 value={autonomy}
@@ -2232,6 +2299,7 @@ function AgentsState() {
                 <option value="act">Act</option>
                 <option value="operate">Operate</option>
                 <option value="janitor">Janitor</option>
+                <option value="github">GitHub</option>
               </select>
             </label>
             <label>
@@ -4270,6 +4338,8 @@ function WindowFrame({
           <AgentsState />
         ) : win.objectType === 'projects' ? (
           <ProjectsState />
+        ) : win.objectType === 'github' ? (
+          <GitHubState />
         ) : win.objectType === 'schedules' ? (
           <SchedulesState />
         ) : win.objectType === 'workspace' ? (

@@ -1,7 +1,7 @@
 {
   "name": "@iris/desktop",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,6 +16,7 @@
     "@iris/agents": "workspace:*",
     "@iris/core": "workspace:*",
     "@iris/cortex": "workspace:*",
+    "@iris/github": "workspace:*",
     "@iris/mcp": "workspace:*",
     "@iris/memory": "workspace:*",
     "@iris/providers": "workspace:*",
