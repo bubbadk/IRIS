@@ -52,7 +52,7 @@ IRIS is a **graphical agent operating environment**. It treats agents, workspace
 
 ---
 
-## ✨ What's New in v0.2.0
+## ✨ Key Features in v0.2.0
 
 ### 🐙 1. GitHub Live Operations & Release Automation
 Turn your agent into a senior release engineer directly inside IRIS:
@@ -80,7 +80,21 @@ Stop overpaying for simple queries or getting stuck when a lightweight model hit
 
 ---
 
-### 🤖 3. Object-Oriented Agent Workspace & Tool Gating
+### 🛸 3. Floating Desktop Desklet (Live HUD)
+Close the main workspace, and IRIS seamlessly condenses into a translucent, floating mini-HUD widget directly on your physical desktop:
+
+<div align="center">
+  <img src="docs/screenshots/iris-capsule-desklet-v020.png" alt="IRIS Floating Desklet on Physical Desktop" width="100%" style="border-radius: 12px; margin: 12px 0; box-shadow: 0 16px 40px rgba(0,0,0,0.25);" />
+</div>
+
+- **Live Status Pulse**: Shows real-time agent thoughts and states (`● Ready` / `● Working…`).
+- **Activity Ticker**: Humanized tool action feed with specialist icons (`🤖 Specialist Sub-Agent`, `📁 Workspace Patch`, `💾 Memory Record`).
+- **Real-Time Telemetry**: Live CPU load, RAM consumption, and system uptime.
+- **One-Click Restore**: Expand back into the spatial workspace at any time.
+
+---
+
+### 🤖 4. Object-Oriented Agent Workspace & Tool Gating
 
 <div align="center">
   <img src="docs/screenshots/iris-agent-workspace-v020.png" alt="IRIS Agent Workspace" width="94%" style="border-radius: 12px; margin: 12px 0; box-shadow: 0 10px 30px rgba(0,0,0,0.08);" />
@@ -92,7 +106,7 @@ Stop overpaying for simple queries or getting stuck when a lightweight model hit
 
 ---
 
-### 📊 4. Project Task Graphs & Presets
+### 📊 5. Project Task Graphs & Presets
 
 <div align="center">
   <img src="docs/screenshots/iris-project-graphs-v020.png" alt="IRIS Project Graphs" width="94%" style="border-radius: 12px; margin: 12px 0; box-shadow: 0 10px 30px rgba(0,0,0,0.08);" />
@@ -101,15 +115,6 @@ Stop overpaying for simple queries or getting stuck when a lightweight model hit
 - **Visual Dependency Graphs**: Define multi-step development milestones with strict prerequisite dependencies.
 - **Built-in Engineering Presets**: Quickstart with 1-click templates for *Full Feature Build*, *Codebase Audit & Testing*, and *Release & Packaging*.
 - **Worker Assignment**: Assign tasks to designated autonomous agents and monitor execution progress in real time.
-
----
-
-### 🛸 5. Floating Desktop Desklet (Live HUD)
-Close the main workspace, and IRIS seamlessly condenses into a translucent, floating mini-HUD widget directly on your physical desktop:
-- **Live Status Pulse**: Shows real-time agent thoughts and states (`● Ready` / `● Working…`).
-- **Activity Ticker**: Humanized tool action feed with specialist icons (`🤖 Specialist Sub-Agent`, `📁 Workspace Patch`, `💾 Memory Record`).
-- **Real-Time Telemetry**: Live CPU load, RAM consumption, and system uptime.
-- **One-Click Restore**: Expand back into the spatial workspace at any time.
 
 ---
 
