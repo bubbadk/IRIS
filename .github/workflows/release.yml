@@ -33,6 +33,48 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate What's New Release Notes
+        id: changelog
+        shell: bash
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"* %s (%h)" --no-merges)
+          else
+            COMMITS=$(git log -n 15 --pretty=format:"* %s (%h)" --no-merges)
+          fi
+
+          cat << 'EOF' > release_body.txt
+          ## 🌟 IRIS - Intelligent Reasoning & Integration System
+
+          Welcome to this release of **IRIS**!
+
+          ### 🚀 What's New
+          EOF
+
+          echo "$COMMITS" >> release_body.txt
+
+          cat << 'EOF' >> release_body.txt
+
+          ---
+
+          ### 📦 Download & Installation
+          - 🐧 **Linux**: Download `.AppImage` (standalone) or `.deb` (Debian/Ubuntu/Mint/CachyOS). Make AppImage executable with `chmod +x` and run.
+          - 🍏 **macOS**: Download `.dmg` (Universal binary for both Apple Silicon M-series & Intel Macs) and drag to Applications.
+          - 🪟 **Windows**: Download and run `.msi` or setup installer.
+
+          *Built automatically with continuous verification.* ✨
+          EOF
+
+          BODY=$(cat release_body.txt)
+          {
+            echo "body<<EOF"
+            echo "$BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -76,6 +118,8 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'IRIS v__VERSION__'
+          releaseBody: ${{ steps.changelog.outputs.body }}
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
