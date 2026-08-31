@@ -72,7 +72,9 @@ export function defaultWindow(objectType: DesktopWindow['objectType'], z: number
       ? 'Welcome to IRIS'
       : objectType === 'settings'
         ? 'System Permissions'
-        : objectType[0].toUpperCase() + objectType.slice(1);
+        : objectType === 'subtitles'
+          ? 'Subtitle Studio'
+          : objectType[0].toUpperCase() + objectType.slice(1);
   const offset = Math.min(z * 22, 132);
   return {
     id: `${objectType}-${crypto.randomUUID()}`,
@@ -85,7 +87,9 @@ export function defaultWindow(objectType: DesktopWindow['objectType'], z: number
         ? 560
         : objectType === 'github'
           ? 920
-          : objectType === 'settings' ||
+          : objectType === 'subtitles'
+            ? 880
+            : objectType === 'settings' ||
               objectType === 'memory' ||
               objectType === 'projects' ||
               objectType === 'schedules' ||
@@ -99,7 +103,9 @@ export function defaultWindow(objectType: DesktopWindow['objectType'], z: number
         ? 360
         : objectType === 'github'
           ? 640
-          : objectType === 'settings' ||
+          : objectType === 'subtitles'
+            ? 580
+            : objectType === 'settings' ||
               objectType === 'memory' ||
               objectType === 'projects' ||
               objectType === 'schedules' ||

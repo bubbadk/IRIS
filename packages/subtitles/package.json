@@ -1,5 +1,5 @@
 {
-  "name": "@iris/mcp",
+  "name": "@iris/subtitles",
   "private": true,
   "version": "0.2.5",
   "type": "module",
@@ -9,6 +9,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint src --max-warnings=0"
+  },
+  "dependencies": {
+    "@iris/core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.8.0",

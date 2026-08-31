@@ -9,7 +9,8 @@ export type IrisObjectType =
   | 'connections'
   | 'channels'
   | 'settings'
-  | 'github';
+  | 'github'
+  | 'subtitles';
 
 export type Capability = 'chat' | 'streaming' | 'reasoning' | 'vision' | 'tools' | 'embeddings';
 

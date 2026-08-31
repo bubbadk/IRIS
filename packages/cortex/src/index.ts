@@ -21,6 +21,7 @@ const aliases: Record<IrisObjectType, string[]> = {
   channels: ['channel', 'channels', 'telegram', 'discord', 'slack', 'bridge', 'mobile', 'messaging'],
   settings: ['setting', 'settings', 'configuration', 'configure', 'preferences'],
   github: ['github', 'gh', 'repo', 'repos', 'git', 'release', 'releases', 'workflow', 'workflows'],
+  subtitles: ['subtitle', 'subtitles', 'undertekster', 'undertekst', 'translate', 'srt', 'vtt'],
 };
 
 export function resolveWorkspaceIntent(input: string): IrisObjectType | null {

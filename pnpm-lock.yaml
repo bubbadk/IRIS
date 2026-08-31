@@ -50,6 +50,9 @@ importers:
       '@iris/skills':
         specifier: workspace:*
         version: link:../../packages/skills
+      '@iris/subtitles':
+        specifier: workspace:*
+        version: link:../../packages/subtitles
       '@iris/tools':
         specifier: workspace:*
         version: link:../../packages/tools
@@ -202,6 +205,19 @@ importers:
         version: 3.2.7(jsdom@26.1.0)
 
   packages/skills:
+    dependencies:
+      '@iris/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(jsdom@26.1.0)
+
+  packages/subtitles:
     dependencies:
       '@iris/core':
         specifier: workspace:*

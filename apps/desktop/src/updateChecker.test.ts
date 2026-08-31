@@ -38,8 +38,8 @@ describe('updateChecker', () => {
     const mockFetcher = async () =>
       new Response(
         JSON.stringify({
-          tag_name: 'v0.2.1',
-          name: 'IRIS v0.2.1',
+          tag_name: 'v0.2.5',
+          name: 'IRIS v0.2.5',
           body: 'Current release',
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },

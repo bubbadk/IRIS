@@ -80,8 +80,10 @@ import {
   SystemIcon,
   ConnectionsIcon,
   SkillsIcon,
+  SubtitlesIcon,
   WorkspaceIcon,
 } from './icons';
+import { SubtitlesState } from './SubtitlesState';
 import {
   defaultWindow,
   loadWindows,
@@ -185,6 +187,12 @@ const objects: Array<{
     label: 'Skills',
     description: 'Reusable capabilities and procedures.',
     Icon: SkillsIcon,
+  },
+  {
+    type: 'subtitles',
+    label: 'Subtitles',
+    description: 'Intelligent chunk-based SRT/VTT subtitle translator.',
+    Icon: SubtitlesIcon,
   },
   {
     type: 'connections',
@@ -4422,6 +4430,8 @@ function WindowFrame({
           <MemoryState />
         ) : win.objectType === 'skills' ? (
           <SkillsState />
+        ) : win.objectType === 'subtitles' ? (
+          <SubtitlesState />
         ) : win.objectType === 'connections' ? (
           <McpState />
         ) : win.objectType === 'channels' ? (

@@ -17,6 +17,7 @@ describe('resolveWorkspaceIntent', () => {
     expect(resolveWorkspaceIntent('configure Ollama provider')).toBe('models');
     expect(resolveWorkspaceIntent('show my task plan')).toBe('projects');
     expect(resolveWorkspaceIntent('open the local codebase')).toBe('workspace');
+    expect(resolveWorkspaceIntent('translate subtitles to danish')).toBe('subtitles');
   });
   it('returns null for unsupported intent', () => {
     expect(resolveWorkspaceIntent('make coffee')).toBeNull();

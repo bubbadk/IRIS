@@ -1,7 +1,7 @@
 {
   "name": "@iris/desktop",
   "private": true,
-  "version": "0.2.4",
+  "version": "0.2.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -21,6 +21,7 @@
     "@iris/memory": "workspace:*",
     "@iris/providers": "workspace:*",
     "@iris/skills": "workspace:*",
+    "@iris/subtitles": "workspace:*",
     "@iris/tools": "workspace:*",
     "@iris/workflows": "workspace:*",
     "@iris/workspaces": "workspace:*",
