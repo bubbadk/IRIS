@@ -23,7 +23,7 @@ jobs:
             args: ''
           - platform: 'macos-universal'
             os: macos-latest
-            rust_target: x86_64-apple-darwin,aarch64-apple-darwin
+            rust_target: 'x86_64-apple-darwin aarch64-apple-darwin'
             args: '--target universal-apple-darwin'
           - platform: 'windows-x86_64'
             os: windows-latest
