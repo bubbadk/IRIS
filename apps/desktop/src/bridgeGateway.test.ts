@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   loadChannelsConfig,
   saveChannelsConfig,
-  defaultChannelsConfig,
   sendTelegramMessage,
   sendDiscordWebhookMessage,
   pollTelegramUpdates,

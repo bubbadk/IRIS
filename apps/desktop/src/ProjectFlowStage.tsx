@@ -5,7 +5,6 @@ import {
   projectProgress,
   projectTaskState,
   type ProjectGraph,
-  type ProjectTask,
   type ProjectTaskRun,
 } from '@iris/workflows';
 import {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { bumpSemVer, generateChangelogEntry, generateReleaseNotes, generateProjectScaffolding } from './versioning';
 import { GitHubService } from './service';
 import type { NewProjectDraft } from './types';

@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = '0.1.0-alpha';
+export const CURRENT_VERSION = '0.2.1';
 
 export interface ReleaseInfo {
   version: string;
@@ -30,7 +30,7 @@ export function isNewerVersion(current: string, latest: string): boolean {
 }
 
 export async function checkLatestRelease(
-  repo = 'iris-systems/iris',
+  repo = 'bubbadk/IRIS',
   fetcher = globalThis.fetch,
 ): Promise<ReleaseInfo | null> {
   try {

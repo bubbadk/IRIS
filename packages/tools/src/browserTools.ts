@@ -1,4 +1,4 @@
-import type { RegisteredTool, ToolContext } from './index';
+import type { RegisteredTool } from './index';
 
 export interface BrowserNavigateInput {
   url: string;
@@ -92,7 +92,7 @@ export function createBrowserNavigateTool(
       required: ['url'],
       additionalProperties: false,
     },
-    async run(input: unknown, _context: ToolContext): Promise<BrowserNavigateOutput> {
+    async run(input: unknown): Promise<BrowserNavigateOutput> {
       if (!input || typeof input !== 'object') {
         throw new Error('Browser navigation requires an input object with a "url" field.');
       }
@@ -215,7 +215,7 @@ export function createBrowserClickTool(): RegisteredTool {
       required: ['url'],
       additionalProperties: false,
     },
-    async run(input: unknown, _context: ToolContext): Promise<BrowserClickOutput> {
+    async run(input: unknown): Promise<BrowserClickOutput> {
       if (!input || typeof input !== 'object') {
         throw new Error('Browser click requires an input object.');
       }
@@ -258,7 +258,7 @@ export function createBrowserTypeTool(): RegisteredTool {
       required: ['url', 'selector', 'text'],
       additionalProperties: false,
     },
-    async run(input: unknown, _context: ToolContext): Promise<BrowserTypeOutput> {
+    async run(input: unknown): Promise<BrowserTypeOutput> {
       if (!input || typeof input !== 'object') {
         throw new Error('Browser type requires an input object.');
       }
@@ -300,7 +300,7 @@ export function createBrowserVisionTool(
       required: ['url'],
       additionalProperties: false,
     },
-    async run(input: unknown, _context: ToolContext): Promise<BrowserVisionOutput> {
+    async run(input: unknown): Promise<BrowserVisionOutput> {
       if (!input || typeof input !== 'object') {
         throw new Error('Browser vision requires an input object with a "url" field.');
       }

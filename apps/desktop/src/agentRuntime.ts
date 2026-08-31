@@ -23,7 +23,7 @@ import {
   permissionRuleRepository,
   suspendedAgentTurnRepository,
 } from './persistence';
-import { agentToolRuleId, ensureAssignedToolsRequireApproval } from './agentPermissions';
+import { ensureAssignedToolsRequireApproval } from './agentPermissions';
 import { toolRegistry, agentToolRuntime, janitorHealthToolId } from './tooling';
 import { createSubAgentTool } from './subagentTool';
 import { agentContextBuilder } from './memory';

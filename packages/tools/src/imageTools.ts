@@ -1,4 +1,4 @@
-import type { RegisteredTool, ToolContext } from './index';
+import type { RegisteredTool } from './index';
 
 export interface ImageGenerationInput {
   prompt: string;
@@ -60,7 +60,7 @@ export function createImageGenerationTool(
       required: ['prompt'],
       additionalProperties: false,
     },
-    async run(input: unknown, _context: ToolContext): Promise<ImageGenerationOutput> {
+    async run(input: unknown): Promise<ImageGenerationOutput> {
       if (!input || typeof input !== 'object') {
         throw new Error('Image generation requires an input object with a "prompt" field.');
       }
@@ -97,7 +97,7 @@ export function createImageGenerationTool(
               model: model === 'dall-e-3' ? 'dall-e-3' : 'dall-e-2',
               prompt: enhancedPrompt,
               n: 1,
-              size: size as any,
+              size,
             }),
           });
 
@@ -106,8 +106,11 @@ export function createImageGenerationTool(
             throw new Error(`OpenAI image API failed (${res.status}): ${errBody}`);
           }
 
-          const data = (await res.json()) as any;
+          const data = (await res.json()) as { data?: Array<{ url?: string; revised_prompt?: string }> };
           const imgUrl = data?.data?.[0]?.url;
+          if (!imgUrl) {
+            throw new Error('No image URL returned by OpenAI image API.');
+          }
           return {
             prompt: prompt.trim(),
             url: imgUrl,
@@ -133,7 +136,7 @@ export function createImageGenerationTool(
           });
 
           if (res.ok) {
-            const data = (await res.json()) as any;
+            const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
             const content = data?.choices?.[0]?.message?.content;
             const imgMatch = content?.match(/https?:\/\/[^\s"'<>]+\.(?:png|jpg|jpeg|webp)/i);
             if (imgMatch) {

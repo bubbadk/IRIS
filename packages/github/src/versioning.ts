@@ -182,6 +182,7 @@ SOFTWARE.`;
 }
 
 export function generateGitignore(template?: string): string {
+  const extra = template === 'rust' ? '\n**/*.rs.bk\n' : template === 'python' ? '\n__pycache__/\n*.pyc\n' : '';
   return `# General
 node_modules/
 dist/
@@ -191,7 +192,7 @@ target/
 *.log
 .env
 .env.local
-*.local
+*.local${extra}
 `;
 }
 

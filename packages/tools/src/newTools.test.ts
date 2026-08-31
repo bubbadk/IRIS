@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { createWebSearchTool, createWebExtractTool, cleanHtmlToMarkdown } from './webTools';
-import { createImageGenerationTool } from './imageTools';
+import {
+  createWebSearchTool,
+  createWebExtractTool,
+  cleanHtmlToMarkdown,
+  type WebSearchOutput,
+  type WebExtractOutput,
+} from './webTools';
+import { createImageGenerationTool, type ImageGenerationOutput } from './imageTools';
 import {
   createBrowserNavigateTool,
   createBrowserClickTool,
   createBrowserTypeTool,
   createBrowserVisionTool,
+  type BrowserNavigateOutput,
+  type BrowserClickOutput,
+  type BrowserTypeOutput,
+  type BrowserVisionOutput,
 } from './browserTools';
 
 describe('Web Tools', () => {
@@ -39,22 +49,22 @@ describe('Web Tools', () => {
         <a class="result__snippet">Social news website focusing on computer science.</a>
       </div>
     `;
-    const mockFetch = async () =>
+    const mockFetch: typeof fetch = async () =>
       new Response(mockHtml, {
         status: 200,
         headers: { 'Content-Type': 'text/html' },
       });
 
-    const searchTool = createWebSearchTool(mockFetch as any);
+    const searchTool = createWebSearchTool(mockFetch);
     const result = (await searchTool.run(
       { query: 'Hacker News' },
       { agentId: 'test', agentName: 'Tester' },
-    )) as any;
+    )) as WebSearchOutput;
 
     expect(result.query).toBe('Hacker News');
     expect(result.count).toBeGreaterThan(0);
-    expect(result.results[0].title).toBe('Hacker News');
-    expect(result.results[0].url).toBe('https://news.ycombinator.com');
+    expect(result.results[0]?.title).toBe('Hacker News');
+    expect(result.results[0]?.url).toBe('https://news.ycombinator.com');
   });
 
   it('runs web.extract with mock fetch', async () => {
@@ -67,17 +77,17 @@ describe('Web Tools', () => {
         </body>
       </html>
     `;
-    const mockFetch = async () =>
+    const mockFetch: typeof fetch = async () =>
       new Response(mockHtml, {
         status: 200,
         headers: { 'Content-Type': 'text/html' },
       });
 
-    const extractTool = createWebExtractTool(mockFetch as any);
+    const extractTool = createWebExtractTool(mockFetch);
     const result = (await extractTool.run(
       { url: 'https://example.com/docs' },
       { agentId: 'test', agentName: 'Tester' },
-    )) as any;
+    )) as WebExtractOutput;
 
     expect(result.title).toBe('Documentation Guide');
     expect(result.markdown).toContain('# API Quickstart');
@@ -86,13 +96,13 @@ describe('Web Tools', () => {
 
 describe('Image Generation Tool', () => {
   it('generates an image URL with flux model fallback', async () => {
-    const mockFetch = async () => new Response(null, { status: 200 });
-    const imageTool = createImageGenerationTool(mockFetch as any);
+    const mockFetch: typeof fetch = async () => new Response(null, { status: 200 });
+    const imageTool = createImageGenerationTool(mockFetch);
 
     const result = (await imageTool.run(
       { prompt: 'A futuristic glass desklet on a calm ivory desktop', size: '1024x1024' },
       { agentId: 'test', agentName: 'Tester' },
-    )) as any;
+    )) as ImageGenerationOutput;
 
     expect(result.status).toBe('completed');
     expect(result.url).toContain('pollinations.ai');
@@ -114,28 +124,28 @@ describe('Browser Tools', () => {
         </body>
       </html>
     `;
-    const mockFetch = async () =>
+    const mockFetch: typeof fetch = async () =>
       new Response(mockHtml, {
         status: 200,
         headers: { 'Content-Type': 'text/html' },
       });
 
-    const navTool = createBrowserNavigateTool(mockFetch as any);
+    const navTool = createBrowserNavigateTool(mockFetch);
     const navResult = (await navTool.run(
       { url: 'https://example.com/app' },
       { agentId: 'test', agentName: 'Tester' },
-    )) as any;
+    )) as BrowserNavigateOutput;
 
     expect(navResult.title).toBe('Interactive App');
     expect(navResult.headings).toContain('Dashboard Overview');
-    expect(navResult.interactiveElements.some((e: any) => e.text === 'Deploy Now')).toBe(true);
-    expect(navResult.interactiveElements.some((e: any) => e.href === 'https://example.com/settings')).toBe(true);
+    expect(navResult.interactiveElements.some((e) => e.text === 'Deploy Now')).toBe(true);
+    expect(navResult.interactiveElements.some((e) => e.href === 'https://example.com/settings')).toBe(true);
 
     const clickTool = createBrowserClickTool();
     const clickResult = (await clickTool.run(
       { url: 'https://example.com/app', text: 'Deploy Now' },
       { agentId: 'test', agentName: 'Tester' },
-    )) as any;
+    )) as BrowserClickOutput;
     expect(clickResult.success).toBe(true);
     expect(clickResult.action).toBe('clicked');
 
@@ -143,15 +153,15 @@ describe('Browser Tools', () => {
     const typeResult = (await typeTool.run(
       { url: 'https://example.com/app', selector: '#search', text: 'query string' },
       { agentId: 'test', agentName: 'Tester' },
-    )) as any;
+    )) as BrowserTypeOutput;
     expect(typeResult.success).toBe(true);
     expect(typeResult.textLength).toBe(12);
 
-    const visionTool = createBrowserVisionTool(mockFetch as any);
+    const visionTool = createBrowserVisionTool(mockFetch);
     const visionResult = (await visionTool.run(
       { url: 'https://example.com/app' },
       { agentId: 'test', agentName: 'Tester' },
-    )) as any;
+    )) as BrowserVisionOutput;
     expect(visionResult.pageStructure.headings).toContain('Dashboard Overview');
     expect(visionResult.pageStructure.buttonsCount).toBe(1);
   });

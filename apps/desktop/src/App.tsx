@@ -23,9 +23,8 @@ import { skillOrigin, type SkillDefinition } from '@iris/skills';
 import { diffWorkspaceText, type WorkspaceMount } from '@iris/workspaces';
 import type { PermissionDecision, ToolDefinition } from '@iris/tools';
 import { DiffViewer } from './DiffViewer';
-import { EmojiPicker, QuickReactionsBar } from './EmojiPicker';
+import { EmojiPicker } from './EmojiPicker';
 import { ChannelsWindow } from './ChannelsState';
-import { analyzeTurnForSkill, saveLearnedSkill, type LearnedSkillDraft } from './skillLearner';
 import { OnboardingWizard, isOnboardingNeeded } from './OnboardingWizard';
 import { checkLatestRelease, type ReleaseInfo } from './updateChecker';
 import { UpdateNotificationModal } from './UpdateNotificationModal';
@@ -77,7 +76,6 @@ import {
   ProjectsIcon,
   SchedulesIcon,
   SearchIcon,
-  SettingsIcon,
   SystemIcon,
   ConnectionsIcon,
   SkillsIcon,

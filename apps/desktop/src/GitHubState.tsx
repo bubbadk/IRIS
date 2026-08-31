@@ -1020,7 +1020,7 @@ export function GitHubState() {
                   <label>License</label>
                   <select
                     value={newProject.license}
-                    onChange={(e) => setNewProject({ ...newProject, license: e.target.value as any })}
+                    onChange={(e) => setNewProject({ ...newProject, license: e.target.value as NewProjectDraft['license'] })}
                   >
                     <option value="MIT">MIT License (Recommended)</option>
                     <option value="Apache-2.0">Apache License 2.0</option>
@@ -1033,7 +1033,7 @@ export function GitHubState() {
                   <label>Project Template</label>
                   <select
                     value={newProject.template}
-                    onChange={(e) => setNewProject({ ...newProject, template: e.target.value as any })}
+                    onChange={(e) => setNewProject({ ...newProject, template: e.target.value as NewProjectDraft['template'] })}
                   >
                     <option value="rust-tauri">Rust + Tauri Native Desktop App</option>
                     <option value="typescript-node">TypeScript + Node.js Package</option>

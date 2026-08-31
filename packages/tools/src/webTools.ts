@@ -1,4 +1,4 @@
-import type { RegisteredTool, ToolContext } from './index';
+import type { RegisteredTool } from './index';
 
 export interface WebSearchInput {
   query: string;
@@ -97,7 +97,7 @@ export function createWebSearchTool(
       required: ['query'],
       additionalProperties: false,
     },
-    async run(input: unknown, _context: ToolContext): Promise<WebSearchOutput> {
+    async run(input: unknown): Promise<WebSearchOutput> {
       if (!input || typeof input !== 'object') {
         throw new Error('Web search requires an input object with a "query" field.');
       }
@@ -211,7 +211,7 @@ export function createWebExtractTool(
       required: ['url'],
       additionalProperties: false,
     },
-    async run(input: unknown, _context: ToolContext): Promise<WebExtractOutput> {
+    async run(input: unknown): Promise<WebExtractOutput> {
       if (!input || typeof input !== 'object') {
         throw new Error('Web extraction requires an input object with a "url" field.');
       }
@@ -239,7 +239,12 @@ export function createWebExtractTool(
           });
 
           if (firecrawlRes.ok) {
-            const data = (await firecrawlRes.json()) as any;
+            const data = (await firecrawlRes.json()) as {
+              data?: {
+                markdown?: string;
+                metadata?: { title?: string; statusCode?: number; description?: string; language?: string };
+              };
+            };
             if (data?.data?.markdown) {
               return {
                 url,
