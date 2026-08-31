@@ -1,10 +1,10 @@
 {
-  "version": "0.2.3",
-  "notes": "IRIS v0.2.3 introduces Native 1-Click In-App Auto-Updater, Live Project Flow Reactor, Web/Image/Browser tool suites and 100% clean English UI.",
-  "pub_date": "2026-08-31T18:38:00Z",
+  "version": "0.2.4",
+  "notes": "IRIS v0.2.4 introduces Native FP-AMB 91.4% Memory Benchmark Scorecard View, Temporal Chrono-Resolution, and 1-Click Auto-Updater enhancements.",
+  "pub_date": "2026-08-31T19:31:00Z",
   "platforms": {
     "linux-x86_64": {
-      "url": "https://github.com/bubbadk/IRIS/releases/download/v0.2.3/iris-linux-x86_64-v0.2.3.tar.gz"
+      "url": "https://github.com/bubbadk/IRIS/releases/download/v0.2.4/iris-linux-x86_64-v0.2.4.tar.gz"
     }
   }
 }
