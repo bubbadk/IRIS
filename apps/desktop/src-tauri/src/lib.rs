@@ -1,4 +1,5 @@
 use serde::Serialize;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -327,9 +328,7 @@ fn command_needs_sudo(command: &str) -> bool {
     command.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-').any(|word| word == "sudo")
 }
 
-/// A short-lived SUDO_ASKPASS helper: it never contains the password itself, only a
-/// command that reads it back out of an environment variable set on the child process.
-/// Written with 0600 permissions to a private temp file and deleted right after use.
+#[cfg(unix)]
 fn write_askpass_script() -> Result<std::path::PathBuf, String> {
     let path = std::env::temp_dir().join(format!(
         "iris-askpass-{}-{}.sh",
@@ -341,6 +340,11 @@ fn write_askpass_script() -> Result<std::path::PathBuf, String> {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
         .map_err(|error| format!("Could not secure the sudo password helper: {error}"))?;
     Ok(path)
+}
+
+#[cfg(not(unix))]
+fn write_askpass_script() -> Result<std::path::PathBuf, String> {
+    Err("SUDO askpass is only supported on Unix systems.".to_string())
 }
 
 #[tauri::command]
@@ -412,13 +416,31 @@ fn run_janitor_command(
         command.to_string()
     };
     let mut process_builder = if target == "local" {
-        let mut builder = Command::new("/bin/bash");
-        builder.args(["-lc", &wrapped_command]);
-        builder
+        #[cfg(unix)]
+        {
+            let mut builder = Command::new("/bin/bash");
+            builder.args(["-lc", &wrapped_command]);
+            builder
+        }
+        #[cfg(windows)]
+        {
+            let mut builder = Command::new("powershell");
+            builder.args(["-Command", &wrapped_command]);
+            builder
+        }
     } else {
-        let mut builder = Command::new("/bin/bash");
-        builder.args(["/mnt/ai/handoff/unraid-ssh.sh", command]);
-        builder
+        #[cfg(unix)]
+        {
+            let mut builder = Command::new("/bin/bash");
+            builder.args(["/mnt/ai/handoff/unraid-ssh.sh", command]);
+            builder
+        }
+        #[cfg(windows)]
+        {
+            let mut builder = Command::new("powershell");
+            builder.args(["-Command", command]);
+            builder
+        }
     };
     process_builder.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     if let Some((script_path, password)) = &askpass_script {
