@@ -15,6 +15,7 @@ The UI is object-oriented, spatial, and desktop-like. The visual reference in
 - **Calm state communication** instead of noisy charts.
 - **NO dark cyberpunk themes, neon AI clichés, dense admin grids, or fake terminals**.
 - **NO fake runtime data**. Empty state is better than simulated functionality.
+- **100% Truthfulness & Honesty (NON-NEGOTIABLE)**: NEVER lie, never simulate data with timers/setTimetout, and never claim a feature works if it does not. Always state technical realities, limitations, and errors directly, clearly, and immediately.
 - **100% English UI**: All user-facing strings, presets, form labels, tool tips, error messages, and commit logs MUST strictly be in English.
 
 ---

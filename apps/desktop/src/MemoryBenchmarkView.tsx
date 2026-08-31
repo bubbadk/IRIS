@@ -1,15 +1,11 @@
 import { useState } from 'react';
+import {
+  runRealMemoryBenchmark,
+  type BenchmarkCategoryResult,
+  type BenchmarkRunResult,
+} from '@iris/memory';
 
-interface BenchmarkCategory {
-  name: string;
-  scorePct: number;
-  passed: number;
-  total: number;
-  icon: string;
-  desc: string;
-}
-
-const CATEGORIES: BenchmarkCategory[] = [
+const DEFAULT_CATEGORIES: BenchmarkCategoryResult[] = [
   {
     name: 'Speaker Attribution Traps',
     scorePct: 100.0,
@@ -19,98 +15,102 @@ const CATEGORIES: BenchmarkCategory[] = [
     desc: 'Disambiguating distinct speakers across 60 multi-turn sessions without attribution drift.',
   },
   {
-    name: 'Temporal Reasoning & Session Math',
-    scorePct: 97.1,
-    passed: 34,
-    total: 35,
-    icon: '⏱️',
-    desc: 'Date math, timeline deltas, chronological orderings, and session sequence distances.',
-  },
-  {
-    name: 'Absent Memory & Hallucination Refusal',
-    scorePct: 94.3,
-    passed: 33,
+    name: 'Unanswerable & Absent Memory Refusal',
+    scorePct: 100.0,
+    passed: 35,
     total: 35,
     icon: '🚫',
     desc: 'Strict refusal to hallucinate distractor facts when memories do not exist in the corpus.',
   },
   {
-    name: 'Self-Referential & Procedural Tool Memory',
-    scorePct: 93.5,
-    passed: 29,
-    total: 31,
-    icon: '🔧',
-    desc: 'Recalling past tool executions, developer stack decisions, and procedural workflows.',
-  },
-  {
-    name: 'Adversarial Defense & Gaslighting',
-    scorePct: 90.7,
-    passed: 39,
+    name: 'Adversarial Defense & Gaslighting Robustness',
+    scorePct: 100.0,
+    passed: 43,
     total: 43,
     icon: '🕵️',
     desc: 'Resisting false leading questions and contradictory user claims across long contexts.',
   },
   {
-    name: 'Adaptability & Fact Correction Overwrites',
-    scorePct: 88.9,
-    passed: 16,
-    total: 18,
-    icon: '🔄',
-    desc: 'Correctly superseding outdated facts when users state newer corrections over time.',
-  },
-  {
-    name: 'Single-Hop Fact Recall',
-    scorePct: 88.6,
-    passed: 31,
-    total: 35,
-    icon: '🔍',
-    desc: 'Direct retrieval of specific granular details, names, configurations, and specs.',
-  },
-  {
     name: 'Source Credibility & Conflict Resolution',
-    scorePct: 85.7,
-    passed: 6,
+    scorePct: 100.0,
+    passed: 7,
     total: 7,
     icon: '⚖️',
     desc: 'Resolving contradictory claims by prioritizing verified sources over hearsay.',
   },
   {
+    name: 'Adaptability & Fact Correction Overwrites',
+    scorePct: 94.4,
+    passed: 17,
+    total: 18,
+    icon: '🔄',
+    desc: 'Correctly superseding outdated facts when users state newer corrections over time.',
+  },
+  {
+    name: 'Self-Referential & Procedural Tool Memory',
+    scorePct: 77.4,
+    passed: 24,
+    total: 31,
+    icon: '🔧',
+    desc: 'Recalling past tool executions, developer stack decisions, and procedural workflows.',
+  },
+  {
     name: 'Cross-Session Multi-Hop Reasoning',
-    scorePct: 85.2,
-    passed: 37.5,
+    scorePct: 75.0,
+    passed: 33,
     total: 44,
     icon: '🧠',
     desc: 'Connecting disparate clues scattered across multiple sessions separated by weeks.',
+  },
+  {
+    name: 'Single-Hop Fact Recall',
+    scorePct: 68.6,
+    passed: 24,
+    total: 35,
+    icon: '🔍',
+    desc: 'Direct retrieval of specific granular details, names, configurations, and specs.',
+  },
+  {
+    name: 'Temporal Reasoning & Session Math',
+    scorePct: 48.6,
+    passed: 17,
+    total: 35,
+    icon: '⏱️',
+    desc: 'Date math, timeline deltas, chronological orderings, and session sequence distances.',
   },
 ];
 
 export function MemoryBenchmarkView() {
   const [running, setRunning] = useState(false);
   const [testProgress, setTestProgress] = useState<number | null>(null);
-  const [statusMsg, setStatusMsg] = useState<string>('Standard Suite · Verified against FP-AMB v7.0');
+  const [statusMsg, setStatusMsg] = useState<string>('Standard Suite · Ready for real-time verification');
+  const [liveResult, setLiveResult] = useState<BenchmarkRunResult | null>(null);
 
   async function handleRunVerification() {
     setRunning(true);
     setTestProgress(0);
-    setStatusMsg('Ingesting 679 conversation turns (~512,889 tokens)...');
+    setStatusMsg('Ingesting 60 sessions (739 turns, ~512k tokens)...');
 
-    await new Promise((r) => setTimeout(r, 600));
-    setTestProgress(25);
-    setStatusMsg('Evaluating Categories 1-3: Single-Hop & Multi-Hop Reasoning...');
-
-    await new Promise((r) => setTimeout(r, 700));
-    setTestProgress(60);
-    setStatusMsg('Evaluating Categories 4-7: Temporal Math & Speaker Attribution Traps...');
-
-    await new Promise((r) => setTimeout(r, 700));
-    setTestProgress(90);
-    setStatusMsg('Evaluating Categories 8-10: Tool Memory & Hallucination Refusal...');
-
-    await new Promise((r) => setTimeout(r, 500));
-    setTestProgress(100);
-    setStatusMsg('✅ Live Verification Complete: 91.4% Accuracy (239.5 / 262 passed at 18.31 ms)');
-    setRunning(false);
+    try {
+      const result = await runRealMemoryBenchmark(undefined, (pct, status) => {
+        setTestProgress(pct);
+        setStatusMsg(status);
+      });
+      setLiveResult(result);
+      setStatusMsg(`✅ Live Verification Complete: ${result.overallAccuracy}% Accuracy (${result.totalPassed} / ${result.totalQuestions} passed at ${result.averageLatencyMs} ms/query)`);
+    } catch (err) {
+      setStatusMsg(`Error running benchmark: ${String(err)}`);
+    } finally {
+      setRunning(false);
+    }
   }
+
+  const categories = liveResult ? liveResult.categories : DEFAULT_CATEGORIES;
+  const overallAccuracy = liveResult ? liveResult.overallAccuracy : 81.7;
+  const totalPassed = liveResult ? liveResult.totalPassed : 214;
+  const totalQuestions = liveResult ? liveResult.totalQuestions : 262;
+  const averageLatency = liveResult ? `${liveResult.averageLatencyMs} ms` : 'Local-First';
+  const isMeasured = liveResult !== null;
 
   return (
     <div className="memory-benchmark-view" style={{ padding: '4px 0' }}>
@@ -133,7 +133,7 @@ export function MemoryBenchmarkView() {
               </h3>
               <span
                 style={{
-                  background: '#10b981',
+                  background: isMeasured ? '#0284c7' : '#10b981',
                   color: '#ffffff',
                   fontSize: '11px',
                   fontWeight: 700,
@@ -141,86 +141,94 @@ export function MemoryBenchmarkView() {
                   borderRadius: '999px',
                 }}
               >
-                91.4% VERIFIED
+                {isMeasured ? 'LIVE MEASURED ON CPU' : 'STANDARD SUITE'}
               </span>
             </div>
-            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
-              Evaluated over <strong>512,889 tokens</strong> across <strong>60 multi-turn sessions</strong> and <strong>679 turns</strong>.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="button button-primary"
-            onClick={handleRunVerification}
-            disabled={running}
-            style={{ fontSize: '12px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            {running ? 'Testing…' : '⚡ Run Live Verification'}
-          </button>
-        </div>
-
-        {/* Live Progress Bar if testing */}
-        {testProgress !== null && (
-          <div style={{ marginTop: '14px', background: 'rgba(0,0,0,0.06)', borderRadius: '8px', padding: '10px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600, marginBottom: '6px', color: 'var(--ink)' }}>
-              <span>{statusMsg}</span>
-              <span>{testProgress}%</span>
+              <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
+                {isMeasured
+                  ? `Live verification completed at ${new Date(liveResult.completedAt).toLocaleTimeString()} with ${liveResult.totalTokensIndexed} tokens indexed.`
+                  : 'Comprehensive benchmark suite testing speaker attribution, temporal math, and hallucination refusal.'}
+              </p>
             </div>
-            <div style={{ height: '6px', background: 'var(--line)', borderRadius: '4px', overflow: 'hidden' }}>
-              <div
-                style={{
-                  height: '100%',
-                  width: `${testProgress}%`,
-                  background: '#10b981',
-                  transition: 'width 0.3s ease',
-                }}
-              />
-            </div>
+            <button
+              type="button"
+              className="button button-primary"
+              onClick={handleRunVerification}
+              disabled={running}
+              style={{ fontSize: '12px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              {running ? 'Evaluating…' : '⚡ Run Live Verification'}
+            </button>
           </div>
-        )}
-      </div>
 
-      {/* Top 4 KPI Stat Cards */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: '12px',
-          marginBottom: '20px',
-        }}
-      >
-        <div style={{ background: 'var(--panel)', padding: '14px', borderRadius: '12px', border: '1px solid var(--line)' }}>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Overall Accuracy</div>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: '#10b981', marginTop: '4px' }}>91.4%</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>239.5 / 262 questions</div>
+          {/* Live Progress Bar if testing */}
+          {testProgress !== null && (
+            <div style={{ marginTop: '14px', background: 'rgba(0,0,0,0.06)', borderRadius: '8px', padding: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600, marginBottom: '6px', color: 'var(--ink)' }}>
+                <span>{statusMsg}</span>
+                <span>{testProgress}%</span>
+              </div>
+              <div style={{ height: '6px', background: 'var(--line)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${testProgress}%`,
+                    background: '#10b981',
+                    transition: 'width 0.3s ease',
+                  }}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
-        <div style={{ background: 'var(--panel)', padding: '14px', borderRadius: '12px', border: '1px solid var(--line)' }}>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Retrieval Latency</div>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--ink)', marginTop: '4px' }}>18.31 ms</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Local-First zero cloud lag</div>
+        {/* Top 4 KPI Stat Cards */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: '12px',
+            marginBottom: '20px',
+          }}
+        >
+          <div style={{ background: 'var(--panel)', padding: '14px', borderRadius: '12px', border: '1px solid var(--line)' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Overall Accuracy</div>
+            <div style={{ fontSize: '24px', fontWeight: 800, color: overallAccuracy >= 90 ? '#10b981' : '#f59e0b', marginTop: '4px' }}>
+              {overallAccuracy.toFixed(1)}%
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{totalPassed} / {totalQuestions} questions passed</div>
+          </div>
+
+          <div style={{ background: 'var(--panel)', padding: '14px', borderRadius: '12px', border: '1px solid var(--line)' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Measured Retrieval Latency</div>
+            <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--ink)', marginTop: '4px' }}>{averageLatency}</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Real local CPU query time</div>
+          </div>
+
+          <div style={{ background: 'var(--panel)', padding: '14px', borderRadius: '12px', border: '1px solid var(--line)' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Ingestion Time</div>
+            <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--ink)', marginTop: '4px' }}>
+              {liveResult ? `${liveResult.ingestionSpeedMs} ms` : '< 1 ms'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Local indexing engine</div>
+          </div>
+
+          <div style={{ background: 'var(--panel)', padding: '14px', borderRadius: '12px', border: '1px solid var(--line)' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Speaker Traps</div>
+            <div style={{ fontSize: '24px', fontWeight: 800, color: '#10b981', marginTop: '4px' }}>
+              {categories.find((c) => c.name.includes('Speaker'))?.scorePct.toFixed(1) ?? '100.0'}%
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Zero attribution drift</div>
+          </div>
         </div>
 
-        <div style={{ background: 'var(--panel)', padding: '14px', borderRadius: '12px', border: '1px solid var(--line)' }}>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Ingestion Speed</div>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--ink)', marginTop: '4px' }}>0.11 s</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>512k tokens indexed</div>
-        </div>
+        {/* Category Breakdown Table / Cards */}
+        <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: 700, color: 'var(--ink)' }}>
+          Category-by-Category Exam Breakdown
+        </h4>
 
-        <div style={{ background: 'var(--panel)', padding: '14px', borderRadius: '12px', border: '1px solid var(--line)' }}>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Speaker Traps</div>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: '#10b981', marginTop: '4px' }}>100.0%</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>14 / 14 zero attribution drift</div>
-        </div>
-      </div>
-
-      {/* Category Breakdown Table / Cards */}
-      <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: 700, color: 'var(--ink)' }}>
-        Category-by-Category Exam Breakdown
-      </h4>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {CATEGORIES.map((cat) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {categories.map((cat) => (
           <div
             key={cat.name}
             style={{

@@ -761,8 +761,8 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
                 if window.label() == "main" {
+                    api.prevent_close();
                     let _ = window.hide();
                     let app = window.app_handle();
                     if let Some(widget) = app.get_webview_window("widget") {
@@ -770,6 +770,7 @@ pub fn run() {
                         let _ = widget.unminimize();
                     }
                 } else if window.label() == "widget" {
+                    api.prevent_close();
                     let _ = window.hide();
                 }
             }

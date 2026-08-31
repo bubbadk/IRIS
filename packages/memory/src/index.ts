@@ -158,12 +158,19 @@ const ignoredTerms = new Set([
   'you',
 ]);
 
+function stemWord(word: string): string {
+  if (word.length <= 3) return word;
+  return word.replace(/(ing|edly|ingly|ed|es|s|ly|ment|ness|tion|able|ible)$/u, '');
+}
+
 function normalizedTerms(value: string): string[] {
   const terms = value
     .normalize('NFKC')
     .toLocaleLowerCase()
     .match(/[\p{L}\p{N}]+/gu);
-  return (terms ?? []).filter((term) => term.length > 1 && !ignoredTerms.has(term));
+  const base = (terms ?? []).filter((term) => term.length > 1 && !ignoredTerms.has(term));
+  const stems = base.map(stemWord).filter((stem) => stem.length > 1 && !ignoredTerms.has(stem));
+  return [...base, ...stems];
 }
 
 function newestFirst(left: MemoryRecord, right: MemoryRecord): number {
@@ -440,6 +447,54 @@ export class MemoryEmbeddingIndexService {
   }
 }
 
+interface CachedLexicalIndex {
+  totalDocs: number;
+  avgdl: number;
+  docLengths: number[];
+  invertedIndex: Map<string, Array<{ docIndex: number; tf: number }>>;
+}
+
+const lexicalIndexCache = new WeakMap<readonly MemoryRecord[], CachedLexicalIndex>();
+
+function getOrBuildLexicalIndex(records: readonly MemoryRecord[]): CachedLexicalIndex {
+  const cached = lexicalIndexCache.get(records);
+  if (cached) return cached;
+
+  const totalDocs = records.length;
+  const docLengths: number[] = new Array(totalDocs);
+  const invertedIndex = new Map<string, Array<{ docIndex: number; tf: number }>>();
+  let totalTokens = 0;
+
+  for (let docIdx = 0; docIdx < totalDocs; docIdx += 1) {
+    const terms = normalizedTerms(records[docIdx].content).slice(0, 512);
+    const len = terms.length;
+    docLengths[docIdx] = len;
+    totalTokens += len;
+
+    const counts = new Map<string, number>();
+    for (const t of terms) counts.set(t, (counts.get(t) ?? 0) + 1);
+
+    for (const [term, tf] of counts.entries()) {
+      let postings = invertedIndex.get(term);
+      if (!postings) {
+        postings = [];
+        invertedIndex.set(term, postings);
+      }
+      postings.push({ docIndex: docIdx, tf });
+    }
+  }
+
+  const avgdl = Math.max(1, totalTokens / totalDocs);
+  const built: CachedLexicalIndex = {
+    totalDocs,
+    avgdl,
+    docLengths,
+    invertedIndex,
+  };
+  lexicalIndexCache.set(records, built);
+  return built;
+}
+
 export class LocalLexicalMemoryRetriever implements MemoryRetriever {
   async retrieve(
     records: readonly MemoryRecord[],
@@ -449,32 +504,35 @@ export class LocalLexicalMemoryRetriever implements MemoryRetriever {
     const queryTerms = [...new Set(normalizedTerms(request.query).slice(0, 64))];
     if (!limit || !queryTerms.length || !records.length) return [];
 
-    const indexed = records.map((record) => ({
-      record,
-      terms: normalizedTerms(record.content).slice(0, 512),
-    }));
-    const documentFrequency = new Map<string, number>();
+    const { totalDocs, avgdl, docLengths, invertedIndex } = getOrBuildLexicalIndex(records);
+    const k1 = 1.2;
+    const b = 0.75;
+    const delta = 0.5;
+
+    const scores = new Map<number, number>();
+
     for (const term of queryTerms) {
-      documentFrequency.set(
-        term,
-        indexed.reduce((count, entry) => count + Number(entry.terms.includes(term)), 0),
-      );
+      const postings = invertedIndex.get(term);
+      if (!postings || !postings.length) continue;
+      const df = postings.length;
+      const idf = Math.log((totalDocs - df + 0.5) / (df + 0.5) + 1);
+
+      for (const { docIndex, tf } of postings) {
+        const len = docLengths[docIndex] ?? avgdl;
+        const tfNorm = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (len / avgdl)));
+        const termScore = idf * (tfNorm + delta);
+        scores.set(docIndex, (scores.get(docIndex) ?? 0) + termScore);
+      }
     }
 
-    return indexed
-      .map(({ record, terms }) => {
-        const termCounts = new Map<string, number>();
-        for (const term of terms) termCounts.set(term, (termCounts.get(term) ?? 0) + 1);
-        const score = queryTerms.reduce((total, term) => {
-          const frequency = termCounts.get(term) ?? 0;
-          if (!frequency) return total;
-          const inverseDocumentFrequency =
-            Math.log((records.length + 1) / ((documentFrequency.get(term) ?? 0) + 1)) + 1;
-          return total + inverseDocumentFrequency * (1 + Math.log(frequency));
-        }, 0);
-        return { record, score };
-      })
-      .filter((match) => match.score > 0)
+    if (!scores.size) return [];
+
+    const scoredEntries: Array<{ record: MemoryRecord; score: number }> = [];
+    for (const [docIndex, score] of scores.entries()) {
+      scoredEntries.push({ record: records[docIndex], score });
+    }
+
+    return scoredEntries
       .sort((left, right) => right.score - left.score || newestFirst(left.record, right.record))
       .slice(0, limit)
       .map((match) => match.record);
@@ -659,3 +717,6 @@ export class MemoryService {
     return this.repository.remove(id);
   }
 }
+
+export * from './benchmark';
+

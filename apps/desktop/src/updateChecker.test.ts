@@ -19,18 +19,18 @@ describe('updateChecker', () => {
     const mockFetcher = async () =>
       new Response(
         JSON.stringify({
-          tag_name: 'v0.3.0',
-          name: 'IRIS v0.3.0 · Autonomous Team Upgrade',
+          tag_name: 'v0.4.0',
+          name: 'IRIS v0.4.0 · Autonomous Team Upgrade',
           body: '- Added new live widget\n- Improved memory retrieval',
-          html_url: 'https://github.com/bubbadk/IRIS/releases/tag/v0.3.0',
+          html_url: 'https://github.com/bubbadk/IRIS/releases/tag/v0.4.0',
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
 
     const release = await checkLatestRelease('bubbadk/IRIS', mockFetcher as unknown as typeof fetch);
     expect(release).not.toBeNull();
-    expect(release?.version).toBe('0.3.0');
-    expect(release?.name).toBe('IRIS v0.3.0 · Autonomous Team Upgrade');
+    expect(release?.version).toBe('0.4.0');
+    expect(release?.name).toBe('IRIS v0.4.0 · Autonomous Team Upgrade');
     expect(release?.notes).toContain('Added new live widget');
   });
 

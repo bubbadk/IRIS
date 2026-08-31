@@ -162,4 +162,3 @@ export function SubtitlesIcon(props: IconProps) {
     </svg>
   );
 }
-

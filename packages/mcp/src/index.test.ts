@@ -791,7 +791,7 @@ describe('official MCP registry', () => {
       name: 'io.github.example/gmail',
       title: 'Local Gmail',
       description: 'Runs locally',
-      version: '0.3.0',
+      version: '0.2.5',
       packages: [{ registryType: 'npm', identifier: 'gmail-mcp', transport: { type: 'stdio' } }],
     },
   };
