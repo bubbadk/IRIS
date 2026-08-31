@@ -295,7 +295,7 @@ export function createWorkspacePatchTool(
     id: 'workspace.patch',
     name: 'Apply workspace patch',
     description:
-      'Applies a reviewed text change set only when the file still matches its original content.',
+      'Applies a text patch or snippet replacement to one file in the workspace. In expectedContent provide the target code snippet (or full file content) to replace, and in updatedContent provide the replacement.',
     risk: 'write',
     providerName: 'workspace_patch',
     manualExecution: false,
@@ -303,8 +303,14 @@ export function createWorkspacePatchTool(
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Workspace-relative text file path.' },
-        expectedContent: { type: 'string', description: 'Exact content reviewed before editing.' },
-        updatedContent: { type: 'string', description: 'Complete replacement text.' },
+        expectedContent: {
+          type: 'string',
+          description: 'The target code snippet to find and replace, or the full file content.',
+        },
+        updatedContent: {
+          type: 'string',
+          description: 'The new replacement content for the expected target snippet.',
+        },
       },
       required: ['path', 'expectedContent', 'updatedContent'],
       additionalProperties: false,

@@ -281,10 +281,40 @@ fn apply_patch_at(
     }
     let current = fs::read_to_string(&target)
         .map_err(|error| format!("Workspace patch target is not readable UTF-8 text: {error}"))?;
-    if current != expected_content {
-        return Err("Workspace patch is stale: the file changed after the preview. Read it again before applying.".to_string());
+
+    let final_content: String;
+
+    if current == expected_content {
+        final_content = updated_content.to_string();
+    } else if current.replace("\r\n", "\n").trim() == expected_content.replace("\r\n", "\n").trim() {
+        final_content = updated_content.to_string();
+    } else if current.contains(expected_content) {
+        let occurrences = current.matches(expected_content).count();
+        if occurrences == 1 {
+            final_content = current.replacen(expected_content, updated_content, 1);
+        } else {
+            return Err(format!(
+                "Workspace patch ambiguous: target snippet was found {occurrences} times in the file. Include more surrounding lines."
+            ));
+        }
+    } else {
+        let norm_current = current.replace("\r\n", "\n");
+        let norm_expected = expected_content.replace("\r\n", "\n");
+        if norm_current.contains(&norm_expected) {
+            let occurrences = norm_current.matches(&norm_expected).count();
+            if occurrences == 1 {
+                final_content = norm_current.replacen(&norm_expected, updated_content, 1);
+            } else {
+                return Err(format!(
+                    "Workspace patch ambiguous: target snippet was found {occurrences} times in the file. Include more surrounding lines."
+                ));
+            }
+        } else {
+            return Err("Workspace patch is stale: expectedContent was not found in the target file. Read the file again before patching.".to_string());
+        }
     }
-    if current == updated_content {
+
+    if current == final_content {
         return Ok(NativeWorkspacePatchResult {
             relative_path: normalized,
             kind: "file",
@@ -293,12 +323,13 @@ fn apply_patch_at(
             changed: false,
         });
     }
-    write_file_at(root, relative_path, updated_content, true)?;
+
+    write_file_at(root, relative_path, &final_content, true)?;
     Ok(NativeWorkspacePatchResult {
         relative_path: normalized,
         kind: "file",
         created: false,
-        bytes_written: Some(updated_content.as_bytes().len()),
+        bytes_written: Some(final_content.as_bytes().len()),
         changed: true,
     })
 }
@@ -957,7 +988,20 @@ mod tests {
             fs::read_to_string(root.join("src/main.ts")).expect("read"),
             "export const iris = false;\n"
         );
-        assert!(apply_patch_at(&root, "src/main.ts", "stale", "new").is_err());
+        // Test snippet replacement
+        let result_snippet = apply_patch_at(
+            &root,
+            "src/main.ts",
+            "iris = false",
+            "iris = true",
+        )
+        .expect("snippet patch file");
+        assert!(result_snippet.changed);
+        assert_eq!(
+            fs::read_to_string(root.join("src/main.ts")).expect("read"),
+            "export const iris = true;\n"
+        );
+        assert!(apply_patch_at(&root, "src/main.ts", "stale_snippet_not_found", "new").is_err());
         fs::remove_dir_all(root).expect("remove test workspace");
     }
 }
