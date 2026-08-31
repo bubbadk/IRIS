@@ -232,13 +232,23 @@ export const reasoningHygieneContext: AgentSystemContextBuilder = {
   },
 };
 
+export const memoryHygieneContext: AgentSystemContextBuilder = {
+  async build(agent) {
+    if (!agent.toolIds.includes('memory.remember')) return [];
+    return [
+      'Memory guidance: When the user establishes key project facts, environment details, server configs, preferences, or important technical decisions, proactively use the `memory_remember` tool to save concise, durable records for future reference.',
+    ];
+  },
+};
+
 const systemContext: AgentSystemContextBuilder = {
   async build(agent) {
-    const [reasoning, workspace] = await Promise.all([
+    const [reasoning, workspace, memory] = await Promise.all([
       reasoningHygieneContext.build(agent),
       agentWorkspaceContext.build(agent),
+      memoryHygieneContext.build(agent),
     ]);
-    return [...reasoning, ...workspace];
+    return [...reasoning, ...workspace, ...memory];
   },
 };
 

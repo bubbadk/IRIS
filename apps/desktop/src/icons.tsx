@@ -91,6 +91,36 @@ export function ConnectionsIcon(props: IconProps) {
     </svg>
   );
 }
+export function SchedulesIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5v4.8l3.2 1.9" />
+      <path d="M9 2.8h6M2.8 9v6M21.2 9v6" strokeWidth={1.3} opacity={0.6} />
+    </svg>
+  );
+}
+
+export function ChannelsIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+      <path d="M8 12h.01M12 12h.01M16 12h.01" strokeWidth={2.4} />
+    </svg>
+  );
+}
+
+export function SystemIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4 6h16M4 12h16M4 18h16" />
+      <circle cx="8" cy="6" r="2" fill="currentColor" />
+      <circle cx="16" cy="12" r="2" fill="currentColor" />
+      <circle cx="10" cy="18" r="2" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function SettingsIcon(props: IconProps) {
   return (
     <svg {...base} {...props}>
@@ -114,3 +144,4 @@ export function SearchIcon(props: IconProps) {
     </svg>
   );
 }
+

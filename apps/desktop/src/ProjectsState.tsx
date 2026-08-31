@@ -24,6 +24,84 @@ function formatProjectDateOrDash(value: string | undefined): string {
   return value ? formatProjectDate(value) : '—';
 }
 
+interface ProjectPreset {
+  title: string;
+  badge: string;
+  objective: string;
+  tasks: Array<{ title: string; description: string; depIndex?: number }>;
+}
+
+const projectPresets: ProjectPreset[] = [
+  {
+    title: 'Fuld Funktionsbygning',
+    badge: '4 trin',
+    objective: 'Byg en komplet softwarefunktion fra arkitektur til færdig UI og integration.',
+    tasks: [
+      {
+        title: '1. Arkitektur & Datamodel',
+        description: 'Analyser krav, definer datamodeller og tegn interfaces.',
+      },
+      {
+        title: '2. Backend Logik & Værktøjer',
+        description: 'Implementer kernetjenester og håndter forretningslogik.',
+        depIndex: 0,
+      },
+      {
+        title: '3. UI & Brugerflade',
+        description: 'Byg visuelle komponenter og forbind dem til datalaget.',
+        depIndex: 1,
+      },
+      {
+        title: '4. Test & Verifikation',
+        description: 'Kør enhedstests, fiks regressionsfejl og verificer funktionaliteten.',
+        depIndex: 2,
+      },
+    ],
+  },
+  {
+    title: 'Kode-audit & Testdækning',
+    badge: '3 trin',
+    objective: 'Gennemgå kodebasen for fejl, skriv enhedstests og dokumenter status.',
+    tasks: [
+      {
+        title: '1. Codebase Analyse',
+        description: 'Find ubehandlede edge-cases, manglende type safety og fejl.',
+      },
+      {
+        title: '2. Enhedstests',
+        description: 'Skriv grundige tests der afdækker kritiske funktioner.',
+        depIndex: 0,
+      },
+      {
+        title: '3. Fejlretning & Rapport',
+        description: 'Udbedr fundne mangler og generer en opsummering.',
+        depIndex: 1,
+      },
+    ],
+  },
+  {
+    title: 'Release & Pakkering',
+    badge: '3 trin',
+    objective: 'Klargør projektet til udrulning, byg eksekverbare filer og lav release notes.',
+    tasks: [
+      {
+        title: '1. Versionering & Changelog',
+        description: 'Opdater versionsnumre og skriv overskuelig changelog.',
+      },
+      {
+        title: '2. Kompiler Release Byg',
+        description: 'Kør build scripts og generer produktionsbinærer.',
+        depIndex: 0,
+      },
+      {
+        title: '3. Røgtest & Verifikation',
+        description: 'Start applikationen og verificer at alle kernefunktioner kører.',
+        depIndex: 1,
+      },
+    ],
+  },
+];
+
 export function ProjectsState() {
   const [projects, setProjects] = useState<ProjectGraph[]>([]);
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
@@ -41,6 +119,39 @@ export function ProjectsState() {
   const [launchingTaskId, setLaunchingTaskId] = useState<string | null>(null);
   const [cancellingRunId, setCancellingRunId] = useState<string | null>(null);
   const [error, setError] = useState('');
+
+  async function applyProjectPreset(preset: ProjectPreset) {
+    try {
+      const now = new Date().toISOString();
+      let graph = createProjectGraph({
+        id: `project-${crypto.randomUUID()}`,
+        title: preset.title,
+        objective: preset.objective,
+        createdAt: now,
+      });
+
+      const createdTaskIds: string[] = [];
+      for (const t of preset.tasks) {
+        const taskId = `task-${crypto.randomUUID()}`;
+        const depId = t.depIndex !== undefined ? createdTaskIds[t.depIndex] : undefined;
+        graph = addProjectTask(graph, {
+          id: taskId,
+          title: t.title,
+          description: t.description,
+          dependencyIds: depId ? [depId] : [],
+          createdAt: new Date().toISOString(),
+        });
+        createdTaskIds.push(taskId);
+      }
+
+      await projectGraphRepository.save(graph);
+      replaceProject(graph);
+      setShowProjectEditor(false);
+      setError('');
+    } catch (presetError) {
+      setError(presetError instanceof Error ? presetError.message : 'Could not create preset project.');
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -202,50 +313,78 @@ export function ProjectsState() {
       </header>
 
       {showProjectEditor && (
-        <form className="project-editor" onSubmit={(event) => void createProject(event)}>
-          <label>
-            Project title
-            <input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="e.g. Prepare the first release"
-            />
-          </label>
-          <label>
-            Objective
-            <textarea
-              value={objective}
-              onChange={(event) => setObjective(event.target.value)}
-              placeholder="Describe the concrete outcome this graph should reach…"
-              rows={2}
-            />
-          </label>
-          <div className="project-editor-actions">
-            {projects.length > 0 && (
-              <button
-                className="row-button"
-                type="button"
-                onClick={() => setShowProjectEditor(false)}
-              >
-                Cancel
-              </button>
-            )}
-            <button
-              className="soft-button primary-button"
-              disabled={!title.trim() || !objective.trim()}
-            >
-              Create graph
-            </button>
+        <div className="schedule-editor">
+          <div className="schedule-presets-section">
+            <div className="schedule-presets-header">
+              <span className="schedule-presets-title">⚡ Projekt-skabeloner</span>
+              <span className="schedule-presets-subtitle">Start hurtigt med en komplet opgavegraf og afhængigheder:</span>
+            </div>
+            <div className="schedule-presets-grid">
+              {projectPresets.map((preset) => (
+                <button
+                  type="button"
+                  key={preset.title}
+                  className="schedule-preset-card"
+                  onClick={() => void applyProjectPreset(preset)}
+                >
+                  <div className="preset-card-top">
+                    <strong className="preset-card-title">{preset.title}</strong>
+                    <span className="preset-card-badge">{preset.badge}</span>
+                  </div>
+                  <p className="preset-card-desc">{preset.objective}</p>
+                </button>
+              ))}
+            </div>
           </div>
-        </form>
+
+          <form className="project-editor" onSubmit={(event) => void createProject(event)}>
+            <label>
+              Projektnavn
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="f.eks. Byg ny feature eller modul"
+              />
+            </label>
+            <label>
+              Overordnet Mål (Objective)
+              <textarea
+                value={objective}
+                onChange={(event) => setObjective(event.target.value)}
+                placeholder="Beskriv det konkrete resultat som grafen skal opnå…"
+                rows={2}
+              />
+            </label>
+            <div className="project-editor-actions">
+              {projects.length > 0 && (
+                <button
+                  className="row-button"
+                  type="button"
+                  onClick={() => setShowProjectEditor(false)}
+                >
+                  Cancel
+                </button>
+              )}
+              <button
+                className="soft-button primary-button"
+                disabled={!title.trim() || !objective.trim()}
+              >
+                Opret projektgraf
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {!loaded ? (
-        <div className="projects-empty">Loading local projects…</div>
+        <div className="projects-empty">Indlæser lokale projekter…</div>
       ) : projects.length === 0 ? (
         <div className="projects-empty">
-          <strong>No project graphs yet</strong>
-          <p>Create one above. IRIS will not invent tasks or progress.</p>
+          <strong>Ingen projektgrafer endnu</strong>
+          <p>
+            Projekter lader dig definere trinvise opgaver, som agenter udfører i rækkefølge med
+            afhængighedskontrol. Vælg en skabelon ovenfor eller opret din egen.
+          </p>
         </div>
       ) : (
         <div className="projects-workspace">

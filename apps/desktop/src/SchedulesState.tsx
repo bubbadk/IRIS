@@ -48,6 +48,70 @@ export function scheduleDateLabel(value?: string, timeZone?: string): string {
   }).format(new Date(value));
 }
 
+interface SchedulePreset {
+  title: string;
+  badge: string;
+  description: string;
+  name: string;
+  recurrence: ScheduleRecurrence;
+  timeOfDay: string;
+  idleMinutes?: number;
+  prompt: string;
+}
+
+const schedulePresets: SchedulePreset[] = [
+  {
+    title: 'Morgen IT-Nyheder',
+    badge: 'Daglig 08:00',
+    description: 'Søger og opsummerer det seneste døgns vigtigste tech-, AI- og softwarenyheder.',
+    name: 'Morgen IT- & Tech-overblik',
+    recurrence: 'daily',
+    timeOfDay: '08:00',
+    prompt:
+      'Søg efter og opsummer de vigtigste IT-, software- og AI-nyheder fra det seneste døgn. Fremhæv kritiske sikkerhedsbulletiner, nye open source releases og AI-gennembrud i et klart punktformat.',
+  },
+  {
+    title: 'Indbakke & Mail Check',
+    badge: 'Daglig 09:00',
+    description: 'Gennemgår ulæste henvendelser og laver et handlingsresumé over vigtige punkter.',
+    name: 'Daglig Indbakke Opsummering',
+    recurrence: 'daily',
+    timeOfDay: '09:00',
+    prompt:
+      'Gennemgå ulæste meddelelser og kanaler. Udarbejd et kortfattet handlingsresumé over ting, der kræver svar eller opmærksomhed i dag, sorteret efter prioritet.',
+  },
+  {
+    title: 'Workspace Oprydning',
+    badge: 'Daglig 17:00',
+    description: 'Tjekker workspace-status, git-ændringer og rapporterer kodehelbred.',
+    name: 'Workspace Sundhedstjek',
+    recurrence: 'daily',
+    timeOfDay: '17:00',
+    prompt:
+      'Gennemgå det monterede workspace. Tjek git status, opsummer dagens kodeændringer, identificer midlertidige filer (.tmp, caches) og giv et kort statusoverblik.',
+  },
+  {
+    title: 'Aften Dreaming',
+    badge: 'Inaktivitet (60 min)',
+    description: 'Konsoliderer dagens viden og vigtige beslutninger til langtidshukommelsen.',
+    name: 'Aften Dreaming & Hukommelse',
+    recurrence: 'idle',
+    timeOfDay: '22:00',
+    idleMinutes: 60,
+    prompt: dreamingPromptSuggestion,
+  },
+  {
+    title: 'System- & Sikkerhedstjek',
+    badge: 'Ugentlig Mandag',
+    description: 'Ugentlig gennemgang af maskinstatus, diskforbrug og agentrettigheder.',
+    name: 'Ugentlig Systemaudit',
+    recurrence: 'weekly',
+    timeOfDay: '09:00',
+    prompt:
+      'Kør en system- og værktøjsaudit. Evaluer diskforbrug, CPU, aktive forbindelser og verificer at agent-rettigheder er opdaterede.',
+  },
+];
+
 export function SchedulesState() {
   const [schedules, setSchedules] = useState<ScheduleDefinition[]>([]);
   const [runs, setRuns] = useState<ScheduledRun[]>([]);
@@ -66,6 +130,16 @@ export function SchedulesState() {
   const [maxAttempts, setMaxAttempts] = useState(1);
   const [error, setError] = useState('');
   const [selectedRunId, setSelectedRunId] = useState<string>();
+
+  function applyPreset(preset: SchedulePreset) {
+    setName(preset.name);
+    setPrompt(preset.prompt);
+    setRecurrence(preset.recurrence);
+    setTimeOfDay(preset.timeOfDay);
+    if (preset.idleMinutes) setIdleMinutes(preset.idleMinutes);
+    if (preset.recurrence === 'weekly') setWeekdays([1]);
+    setError('');
+  }
 
   async function refresh() {
     const [storedSchedules, storedRuns, storedAgents] = await Promise.all([
@@ -217,38 +291,65 @@ export function SchedulesState() {
       </header>
 
       {editing && (
-        <form className="project-editor" onSubmit={(event) => void save(event)}>
-          <label>
-            Schedule name
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Morning review"
-            />
-          </label>
-          <label>
-            Agent
-            <select value={agentId} onChange={(event) => setAgentId(event.target.value)}>
-              <option value="">Choose an agent…</option>
-              {agents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                </option>
+        <form className="schedule-editor" onSubmit={(event) => void save(event)}>
+          <div className="schedule-presets-section">
+            <div className="schedule-presets-header">
+              <span className="schedule-presets-title">⚡ Hurtige skabeloner</span>
+              <span className="schedule-presets-subtitle">Vælg et forudindstillet job for at udfylde felterne automatisk:</span>
+            </div>
+            <div className="schedule-presets-grid">
+              {schedulePresets.map((preset) => (
+                <button
+                  type="button"
+                  key={preset.title}
+                  className="schedule-preset-card"
+                  onClick={() => applyPreset(preset)}
+                >
+                  <div className="preset-card-top">
+                    <strong className="preset-card-title">{preset.title}</strong>
+                    <span className="preset-card-badge">{preset.badge}</span>
+                  </div>
+                  <p className="preset-card-desc">{preset.description}</p>
+                </button>
               ))}
-            </select>
-          </label>
-          <label>
-            Prompt
+            </div>
+          </div>
+
+          <div className="schedule-main-fields">
+            <label className="schedule-field-full">
+              Schedule name
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="f.eks. Morgen IT- & Tech-overblik"
+              />
+            </label>
+            <label className="schedule-field-full">
+              Agent
+              <select value={agentId} onChange={(event) => setAgentId(event.target.value)}>
+                <option value="">Choose an agent…</option>
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label className="schedule-prompt-field">
+            Prompt / Instruktion
             <textarea
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder="Review the mounted workspace and summarize changes…"
-              rows={3}
+              placeholder="Beskriv hvad agenten skal gøre ved hvert kørsel…"
+              rows={4}
             />
           </label>
-          <div className="schedule-form-grid">
+
+          <div className="schedule-timing-grid">
             <label>
-              Repeats
+              Gentagelse
               <select
                 value={recurrence}
                 onChange={(event) => {
@@ -257,27 +358,27 @@ export function SchedulesState() {
                   if (next === 'idle' && !prompt.trim()) setPrompt(dreamingPromptSuggestion);
                 }}
               >
-                <option value="once">Once</option>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="idle">When idle (Dreaming)</option>
+                <option value="once">Enkelt kørsel (Once)</option>
+                <option value="daily">Dagligt (Daily)</option>
+                <option value="weekly">Ugentligt (Weekly)</option>
+                <option value="idle">Ved inaktivitet (Dreaming)</option>
               </select>
             </label>
+
             {recurrence === 'idle' ? (
               <label>
-                Minutes of inactivity
+                Minutters inaktivitet
                 <input
                   type="number"
                   min="1"
                   value={idleMinutes}
                   onChange={(event) => setIdleMinutes(Math.max(1, Number(event.target.value) || 1))}
                 />
-                <small>Runs once you go quiet for this long, then waits for the next quiet spell.</small>
               </label>
             ) : (
               <>
                 <label>
-                  Time
+                  Klokkeslæt
                   <input
                     type="time"
                     value={timeOfDay}
@@ -285,7 +386,7 @@ export function SchedulesState() {
                   />
                 </label>
                 <label>
-                  Time zone
+                  Tidszone
                   <select value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>
                     {timeZones.map((zone) => (
                       <option key={zone}>{zone}</option>
@@ -294,8 +395,9 @@ export function SchedulesState() {
                 </label>
               </>
             )}
+
             <label>
-              Attempts
+              Maks forsøg
               <input
                 type="number"
                 min="1"
@@ -305,11 +407,11 @@ export function SchedulesState() {
                   setMaxAttempts(Math.min(10, Math.max(1, Number(event.target.value) || 1)))
                 }
               />
-              <small>Includes the first run; retries wait one minute per attempt.</small>
             </label>
+
             {recurrence === 'once' && (
-              <label>
-                Run at
+              <label className="schedule-field-span">
+                Kørselstidspunkt
                 <input
                   type="datetime-local"
                   value={runAt}
@@ -317,9 +419,10 @@ export function SchedulesState() {
                 />
               </label>
             )}
+
             {recurrence === 'weekly' && (
-              <fieldset className="weekday-picker">
-                <legend>Weekdays</legend>
+              <fieldset className="weekday-picker schedule-field-span">
+                <legend>Ugedage</legend>
                 {weekdayOptions.map(([label, day]) => (
                   <label key={day}>
                     <input
@@ -339,13 +442,14 @@ export function SchedulesState() {
               </fieldset>
             )}
           </div>
+
           {error && <p className="inline-error">{error}</p>}
-          <div className="project-editor-actions">
+          <div className="schedule-editor-actions">
             <button type="button" className="row-button" onClick={resetEditor}>
               Cancel
             </button>
             <button className="soft-button primary-button">
-              {editingId ? 'Update schedule' : 'Save schedule'}
+              {editingId ? 'Opdater tidsplan' : 'Gem tidsplan'}
             </button>
           </div>
         </form>

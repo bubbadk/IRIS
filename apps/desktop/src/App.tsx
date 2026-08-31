@@ -67,14 +67,17 @@ import {
 import { displayedAgentModel, selectableAgentModels } from './agentModelSelection';
 import {
   AgentsIcon,
+  ChannelsIcon,
   CloseIcon,
   HomeIcon,
   IrisMark,
   MemoryIcon,
   ModelsIcon,
   ProjectsIcon,
+  SchedulesIcon,
   SearchIcon,
   SettingsIcon,
+  SystemIcon,
   ConnectionsIcon,
   SkillsIcon,
   WorkspaceIcon,
@@ -149,7 +152,7 @@ const objects: Array<{
     type: 'schedules',
     label: 'Schedules',
     description: 'Plan agent runs with local, inspectable timing.',
-    Icon: SettingsIcon,
+    Icon: SchedulesIcon,
   },
   {
     type: 'workspace',
@@ -185,13 +188,13 @@ const objects: Array<{
     type: 'channels',
     label: 'Channels',
     description: 'Bridge Telegram and Discord messaging to IRIS.',
-    Icon: ConnectionsIcon,
+    Icon: ChannelsIcon,
   },
   {
     type: 'settings',
     label: 'System',
     description: 'Inspect tool authority and local permission decisions.',
-    Icon: SettingsIcon,
+    Icon: SystemIcon,
   },
 ];
 
@@ -672,6 +675,32 @@ function SubAgentCardView({
   );
 }
 
+interface PerAgentChatState {
+  messages: ConversationMessage[];
+  assistantDraft: string;
+  reasoningDraft: string;
+  busy: boolean;
+  activity: string;
+  error: string;
+  turnStartedAt: number | null;
+  approval: AgentToolApproval | null;
+  approvalInput: unknown;
+  activeTools: ActiveToolInvocation[];
+}
+
+const defaultAgentState: PerAgentChatState = {
+  messages: [],
+  assistantDraft: '',
+  reasoningDraft: '',
+  busy: false,
+  activity: '',
+  error: '',
+  turnStartedAt: null,
+  approval: null,
+  approvalInput: null,
+  activeTools: [],
+};
+
 function ChatDesklet({
   onStarted,
   onReset,
@@ -685,31 +714,36 @@ function ChatDesklet({
   const [selectedAgentId, setSelectedAgentId] = useState(
     () => agentRepository.listSync()[0]?.id || '',
   );
-  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [agentStates, setAgentStates] = useState<Record<string, PerAgentChatState>>({});
   const [draft, setDraft] = useState(initialQuery ?? '');
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [tools, setTools] = useState(() => toolRegistry.list());
-  const [busy, setBusy] = useState(false);
-  const [activity, setActivity] = useState('');
-  const [error, setError] = useState('');
-  const [assistantDraft, setAssistantDraft] = useState('');
-  const [reasoningDraft, setReasoningDraft] = useState('');
   const [showReasoning, setShowReasoning] = useState(true);
-  const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [approval, setApproval] = useState<AgentToolApproval | null>(null);
-  const [approvalInput, setApprovalInput] = useState<unknown>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
-  const [activeTools, setActiveTools] = useState<ActiveToolInvocation[]>([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [pendingLearnedSkill, setPendingLearnedSkill] = useState<LearnedSkillDraft | null>(null);
   const [reactions, setReactions] = useState<Record<string, Record<string, number>>>({});
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const abortControllersRef = useRef<Record<string, AbortController>>({});
   const chatBodyRef = useRef<HTMLDivElement | null>(null);
   const reasoningTextRef = useRef<HTMLParagraphElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId) ?? null;
+  const currentAgentState = agentStates[selectedAgentId] ?? defaultAgentState;
+  const {
+    messages,
+    assistantDraft,
+    reasoningDraft,
+    busy,
+    activity,
+    error,
+    turnStartedAt,
+    approval,
+    approvalInput,
+    activeTools,
+  } = currentAgentState;
+
   const slashMode = draft.startsWith('/') && !draft.includes(' ');
 
   useEffect(() => {
@@ -740,9 +774,6 @@ function ChatDesklet({
     setAttachments((current) => current.filter((attachment) => attachment.id !== id));
   }
 
-  // A ticking elapsed-time readout so a long "Thinking…" stretch reads as progress, not a hang —
-  // the reasoning trace itself covers most models, but this also carries the ones that don't
-  // stream one at all.
   useEffect(() => {
     if (turnStartedAt === null) return;
     const tick = () => setElapsedSeconds(Math.round((Date.now() - turnStartedAt) / 1000));
@@ -779,12 +810,22 @@ function ChatDesklet({
       agentRuntime.suspendedForAgent(selectedAgentId),
     ]).then(([history, suspended]) => {
       if (!active) return;
-      setMessages(history);
-      setApproval(suspended?.pending.approval ?? null);
-      setApprovalInput(suspended?.pending.call.input ?? null);
-      setActivity(
-        suspended ? `Permission required for ${suspended.pending.approval.toolName}` : '',
-      );
+      setAgentStates((prev) => {
+        const cur = prev[selectedAgentId] ?? defaultAgentState;
+        if (cur.busy) return prev;
+        return {
+          ...prev,
+          [selectedAgentId]: {
+            ...cur,
+            messages: history,
+            approval: suspended?.pending.approval ?? null,
+            approvalInput: suspended?.pending.call.input ?? null,
+            activity: suspended
+              ? `Permission required for ${suspended.pending.approval.toolName}`
+              : cur.activity,
+          },
+        };
+      });
     });
     return () => {
       active = false;
@@ -796,8 +837,6 @@ function ChatDesklet({
     if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
   }, [messages, approval, assistantDraft, reasoningDraft]);
 
-  // The reasoning box scrolls independently of the chat body (it has its own
-  // max-height/overflow), so it needs its own follow-the-tail effect.
   useEffect(() => {
     const node = reasoningTextRef.current;
     if (node) node.scrollTop = node.scrollHeight;
@@ -809,6 +848,12 @@ function ChatDesklet({
 
   async function send(event: React.FormEvent) {
     event.preventDefault();
+    const targetAgent = selectedAgent;
+    if (!targetAgent) return;
+    const targetAgentId = targetAgent.id;
+    const targetState = agentStates[targetAgentId] ?? defaultAgentState;
+    if (targetState.busy || targetState.approval) return;
+
     const usableAttachments = attachments.filter((attachment) => !attachment.error);
     const images: ModelImage[] = usableAttachments
       .filter((attachment) => attachment.kind === 'image' && attachment.base64Data)
@@ -818,121 +863,179 @@ function ChatDesklet({
       .map((attachment) => attachment.textContent)
       .join('\n\n');
     const content = [draft.trim(), attachedText].filter(Boolean).join('\n\n');
-    if ((!content && !images.length) || !selectedAgent || busy || approval) return;
+    if (!content && !images.length) return;
+
     recordUserActivity();
     setDraft('');
     setAttachments([]);
-    setAssistantDraft('');
-    setReasoningDraft('');
-    setError('');
-    setActivity('Thinking…');
-    setActiveTools([]);
-    setTurnStartedAt(Date.now());
     onStarted();
-    setBusy(true);
+
     const controller = new AbortController();
-    abortControllerRef.current = controller;
+    abortControllersRef.current[targetAgentId] = controller;
+
+    setAgentStates((prev) => ({
+      ...prev,
+      [targetAgentId]: {
+        messages: prev[targetAgentId]?.messages ?? [],
+        assistantDraft: '',
+        reasoningDraft: '',
+        error: '',
+        activity: 'Thinking…',
+        activeTools: [],
+        turnStartedAt: Date.now(),
+        busy: true,
+        approval: null,
+        approvalInput: null,
+      },
+    }));
+
     try {
       for await (const runtimeEvent of agentRuntime.send(
-        selectedAgent.id,
+        targetAgentId,
         content,
         controller.signal,
         images,
       )) {
-        if (runtimeEvent.type === 'user-message')
-          setMessages(await conversationRepository.list(selectedAgent.id));
-        else if (runtimeEvent.type === 'reasoning-chunk')
-          setReasoningDraft((current) => current + runtimeEvent.text);
-        else if (runtimeEvent.type === 'assistant-chunk')
-          setAssistantDraft((current) => current + runtimeEvent.text);
-        else if (runtimeEvent.type === 'tool-call') {
-          setActiveTools((current) => [
-            ...current,
-            {
-              id: runtimeEvent.call.id || Math.random().toString(),
-              name: runtimeEvent.call.name,
-              input: runtimeEvent.call.input,
-              status: 'running',
+        if (runtimeEvent.type === 'user-message') {
+          const history = await conversationRepository.list(targetAgentId);
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              messages: history,
             },
-          ]);
-          setActivity(`Running ${runtimeEvent.call.name.replaceAll('_', ' ')}…`);
+          }));
+        } else if (runtimeEvent.type === 'reasoning-chunk') {
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              reasoningDraft: (prev[targetAgentId]?.reasoningDraft ?? '') + runtimeEvent.text,
+            },
+          }));
+        } else if (runtimeEvent.type === 'assistant-chunk') {
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              assistantDraft: (prev[targetAgentId]?.assistantDraft ?? '') + runtimeEvent.text,
+            },
+          }));
+        } else if (runtimeEvent.type === 'tool-call') {
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              activeTools: [
+                ...(prev[targetAgentId]?.activeTools ?? []),
+                {
+                  id: runtimeEvent.call.id || Math.random().toString(),
+                  name: runtimeEvent.call.name,
+                  input: runtimeEvent.call.input,
+                  status: 'running',
+                },
+              ],
+              activity: `Running ${runtimeEvent.call.name.replaceAll('_', ' ')}…`,
+            },
+          }));
         } else if (runtimeEvent.type === 'tool-complete') {
-          setActiveTools((current) =>
-            current.map((tool) =>
-              tool.name === runtimeEvent.call.name && tool.status === 'running'
-                ? { ...tool, status: 'completed', output: runtimeEvent.output }
-                : tool,
-            ),
-          );
-          setActivity('Thinking…');
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              activeTools: (prev[targetAgentId]?.activeTools ?? []).map((tool) =>
+                tool.name === runtimeEvent.call.name && tool.status === 'running'
+                  ? { ...tool, status: 'completed', output: runtimeEvent.output }
+                  : tool,
+              ),
+              activity: 'Thinking…',
+            },
+          }));
         } else if (runtimeEvent.type === 'tool-denied') {
-          setActiveTools((current) =>
-            current.map((tool) =>
-              tool.name === runtimeEvent.call.name && tool.status === 'running'
-                ? { ...tool, status: 'denied', reason: runtimeEvent.reason }
-                : tool,
-            ),
-          );
-          setActivity('Thinking after tool result…');
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              activeTools: (prev[targetAgentId]?.activeTools ?? []).map((tool) =>
+                tool.name === runtimeEvent.call.name && tool.status === 'running'
+                  ? { ...tool, status: 'denied', reason: runtimeEvent.reason }
+                  : tool,
+              ),
+              activity: 'Thinking after tool result…',
+            },
+          }));
         } else if (runtimeEvent.type === 'tool-failed') {
-          setActiveTools((current) =>
-            current.map((tool) =>
-              tool.name === runtimeEvent.call.name && tool.status === 'running'
-                ? { ...tool, status: 'failed', reason: runtimeEvent.reason }
-                : tool,
-            ),
-          );
-          setActivity('Thinking after tool result…');
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              activeTools: (prev[targetAgentId]?.activeTools ?? []).map((tool) =>
+                tool.name === runtimeEvent.call.name && tool.status === 'running'
+                  ? { ...tool, status: 'failed', reason: runtimeEvent.reason }
+                  : tool,
+              ),
+              activity: 'Thinking after tool result…',
+            },
+          }));
         } else if (runtimeEvent.type === 'assistant-complete') {
-          const list = await conversationRepository.list(selectedAgent.id);
-          setMessages(list);
-          setAssistantDraft('');
-          setReasoningDraft('');
-          setActivity('');
-          setTurnStartedAt(null);
-
-          // Auto-learn skills heuristic from completed multi-step turn
-          const lastAssistant = list.filter((m) => m.role === 'assistant').slice(-1)[0];
-          const lastUser = list.filter((m) => m.role === 'user').slice(-1)[0];
-          if (lastUser && lastAssistant) {
-            const learned = analyzeTurnForSkill({
-              turnId: lastAssistant.turnId || `turn-${Date.now()}`,
-              userPrompt: lastUser.content,
-              assistantReply: lastAssistant.content,
-              toolSteps: activeTools.map((t) => ({
-                name: t.name,
-                input: (t.input as Record<string, unknown>) || {},
-                status: t.status,
-                output: typeof t.output === 'string' ? t.output : JSON.stringify(t.output),
-              })),
-            });
-            if (learned) {
-              setPendingLearnedSkill(learned);
-            }
-          }
+          const list = await conversationRepository.list(targetAgentId);
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              messages: list,
+              assistantDraft: '',
+              reasoningDraft: '',
+              activity: '',
+              turnStartedAt: null,
+            },
+          }));
         } else if (runtimeEvent.type === 'tool-approval-required') {
-          setApproval(runtimeEvent.approval);
-          setApprovalInput(runtimeEvent.call.input);
-          setActivity(`Permission required for ${runtimeEvent.approval.toolName}`);
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              approval: runtimeEvent.approval,
+              approvalInput: runtimeEvent.call.input,
+              activity: `Permission required for ${runtimeEvent.approval.toolName}`,
+            },
+          }));
         }
       }
     } catch (sendError) {
       if (controller.signal.aborted) {
-        setError('Turn stopped.');
-        setActivity('');
-        setTurnStartedAt(null);
+        setAgentStates((prev) => ({
+          ...prev,
+          [targetAgentId]: {
+            ...(prev[targetAgentId] ?? defaultAgentState),
+            error: 'Turn stopped.',
+            activity: '',
+            turnStartedAt: null,
+          },
+        }));
         return;
       }
-      setError(
-        sendError instanceof Error
-          ? sendError.message
-          : 'The agent could not complete the request.',
-      );
-      setActivity('');
-      setTurnStartedAt(null);
+      setAgentStates((prev) => ({
+        ...prev,
+        [targetAgentId]: {
+          ...(prev[targetAgentId] ?? defaultAgentState),
+          error:
+            sendError instanceof Error
+              ? sendError.message
+              : 'The agent could not complete the request.',
+          activity: '',
+          turnStartedAt: null,
+        },
+      }));
     } finally {
-      abortControllerRef.current = null;
-      setBusy(false);
+      delete abortControllersRef.current[targetAgentId];
+      setAgentStates((prev) => ({
+        ...prev,
+        [targetAgentId]: {
+          ...(prev[targetAgentId] ?? defaultAgentState),
+          busy: false,
+        },
+      }));
     }
   }
 
@@ -942,102 +1045,174 @@ function ChatDesklet({
     setAgents((current) => current.map((item) => (item.id === agent.id ? updated : item)));
     try {
       agentRuntime.refreshConfiguration(agent.id);
-      setError('');
+      setAgentStates((prev) => ({
+        ...prev,
+        [agent.id]: {
+          ...(prev[agent.id] ?? defaultAgentState),
+          error: '',
+        },
+      }));
     } catch {
-      setError('Thinking level was saved and will apply on the next turn.');
+      // Configuration refresh is defensive
     }
   }
 
   async function clearChat() {
-    if (!selectedAgent || busy) return;
-    await agentRuntime.clearConversation(selectedAgent.id);
-    setMessages([]);
-    setDraft('');
+    if (!selectedAgent) return;
+    const targetAgentId = selectedAgent.id;
+    await conversationRepository.clear(targetAgentId);
+    setAgentStates((prev) => ({
+      ...prev,
+      [targetAgentId]: {
+        ...defaultAgentState,
+      },
+    }));
     setAttachments([]);
-    setAssistantDraft('');
-    setReasoningDraft('');
-    setTurnStartedAt(null);
-    setApproval(null);
-    setApprovalInput(null);
-    setActivity('');
-    setError('');
     setShowHistory(false);
     onReset();
   }
 
   async function resolveApproval(decision: 'approve' | 'deny') {
-    if (!approval || !selectedAgent) return;
-    setBusy(true);
-    setReasoningDraft('');
-    setTurnStartedAt(Date.now());
+    const targetAgent = selectedAgent;
+    if (!targetAgent) return;
+    const targetAgentId = targetAgent.id;
+    const targetState = agentStates[targetAgentId] ?? defaultAgentState;
+    if (!targetState.approval) return;
+
     const controller = new AbortController();
-    abortControllerRef.current = controller;
+    abortControllersRef.current[targetAgentId] = controller;
+
+    setAgentStates((prev) => ({
+      ...prev,
+      [targetAgentId]: {
+        ...(prev[targetAgentId] ?? defaultAgentState),
+        busy: true,
+        reasoningDraft: '',
+        turnStartedAt: Date.now(),
+      },
+    }));
+
     try {
       for await (const runtimeEvent of agentRuntime.resolveApproval(
-        approval.id,
+        targetState.approval.id,
         decision,
         controller.signal,
       )) {
         if (runtimeEvent.type === 'tool-call') {
-          setActiveTools((current) => [
-            ...current,
-            {
-              id: runtimeEvent.call.id || Math.random().toString(),
-              name: runtimeEvent.call.name,
-              input: runtimeEvent.call.input,
-              status: 'running',
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              activeTools: [
+                ...(prev[targetAgentId]?.activeTools ?? []),
+                {
+                  id: runtimeEvent.call.id || Math.random().toString(),
+                  name: runtimeEvent.call.name,
+                  input: runtimeEvent.call.input,
+                  status: 'running',
+                },
+              ],
+              activity: `Running ${runtimeEvent.call.name.replaceAll('_', ' ')}…`,
             },
-          ]);
-          setActivity(`Running ${runtimeEvent.call.name.replaceAll('_', ' ')}…`);
-        }
-        if (runtimeEvent.type === 'tool-complete') {
-          setActiveTools((current) =>
-            current.map((tool) =>
-              tool.name === runtimeEvent.call.name && tool.status === 'running'
-                ? { ...tool, status: 'completed', output: runtimeEvent.output }
-                : tool,
+          }));
+        } else if (runtimeEvent.type === 'tool-complete') {
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              activeTools: (prev[targetAgentId]?.activeTools ?? []).map((tool) =>
+                tool.name === runtimeEvent.call.name && tool.status === 'running'
+                  ? { ...tool, status: 'completed', output: runtimeEvent.output }
+                  : tool,
             ),
-          );
-          setActivity('Thinking…');
-        }
-        if (runtimeEvent.type === 'reasoning-chunk')
-          setReasoningDraft((current) => current + runtimeEvent.text);
-        if (runtimeEvent.type === 'assistant-chunk')
-          setAssistantDraft((current) => current + runtimeEvent.text);
-        if (runtimeEvent.type === 'assistant-complete') {
-          setMessages(await conversationRepository.list(selectedAgent.id));
-          setAssistantDraft('');
-          setReasoningDraft('');
-          setActivity('');
-          setTurnStartedAt(null);
-        }
-        if (runtimeEvent.type === 'tool-approval-required') {
-          setApproval(runtimeEvent.approval);
-          setApprovalInput(runtimeEvent.call.input);
-          setActivity(`Permission required for ${runtimeEvent.approval.toolName}`);
+            activity: 'Thinking…',
+          },
+        }));
+        } else if (runtimeEvent.type === 'reasoning-chunk') {
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              reasoningDraft: (prev[targetAgentId]?.reasoningDraft ?? '') + runtimeEvent.text,
+            },
+          }));
+        } else if (runtimeEvent.type === 'assistant-chunk') {
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              assistantDraft: (prev[targetAgentId]?.assistantDraft ?? '') + runtimeEvent.text,
+            },
+          }));
+        } else if (runtimeEvent.type === 'assistant-complete') {
+          const list = await conversationRepository.list(targetAgentId);
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              messages: list,
+              assistantDraft: '',
+              reasoningDraft: '',
+              activity: '',
+              turnStartedAt: null,
+            },
+          }));
+        } else if (runtimeEvent.type === 'tool-approval-required') {
+          setAgentStates((prev) => ({
+            ...prev,
+            [targetAgentId]: {
+              ...(prev[targetAgentId] ?? defaultAgentState),
+              approval: runtimeEvent.approval,
+              approvalInput: runtimeEvent.call.input,
+              activity: `Permission required for ${runtimeEvent.approval.toolName}`,
+            },
+          }));
         }
       }
-      setApproval(null);
-      setApprovalInput(null);
+      setAgentStates((prev) => ({
+        ...prev,
+        [targetAgentId]: {
+          ...(prev[targetAgentId] ?? defaultAgentState),
+          approval: null,
+          approvalInput: null,
+        },
+      }));
     } catch (resolveError) {
       if (controller.signal.aborted) {
-        setError('Turn stopped.');
-        setActivity('');
-        setTurnStartedAt(null);
-        setApproval(null);
-        setApprovalInput(null);
+        setAgentStates((prev) => ({
+          ...prev,
+          [targetAgentId]: {
+            ...(prev[targetAgentId] ?? defaultAgentState),
+            error: 'Turn stopped.',
+            activity: '',
+            turnStartedAt: null,
+            approval: null,
+            approvalInput: null,
+          },
+        }));
         return;
       }
-      setError(
-        resolveError instanceof Error
-          ? resolveError.message
-          : 'The approval could not be resolved.',
-      );
-      setActivity('');
-      setTurnStartedAt(null);
+      setAgentStates((prev) => ({
+        ...prev,
+        [targetAgentId]: {
+          ...(prev[targetAgentId] ?? defaultAgentState),
+          error:
+            resolveError instanceof Error
+              ? resolveError.message
+              : 'The approval could not be resolved.',
+          activity: '',
+          turnStartedAt: null,
+        },
+      }));
     } finally {
-      abortControllerRef.current = null;
-      setBusy(false);
+      delete abortControllersRef.current[targetAgentId];
+      setAgentStates((prev) => ({
+        ...prev,
+        [targetAgentId]: {
+          ...(prev[targetAgentId] ?? defaultAgentState),
+          busy: false,
+        },
+      }));
     }
   }
 
@@ -1055,15 +1230,23 @@ function ChatDesklet({
 
   async function stopTurn() {
     if (!selectedAgent) return;
-    if (approval && !busy) {
-      await agentRuntime.cancelSuspended(selectedAgent.id);
-      setApproval(null);
-      setApprovalInput(null);
-      setActivity('Turn stopped.');
-      setTurnStartedAt(null);
+    const targetAgentId = selectedAgent.id;
+    const targetState = agentStates[targetAgentId] ?? defaultAgentState;
+    if (targetState.approval && !targetState.busy) {
+      await agentRuntime.cancelSuspended(targetAgentId);
+      setAgentStates((prev) => ({
+        ...prev,
+        [targetAgentId]: {
+          ...(prev[targetAgentId] ?? defaultAgentState),
+          approval: null,
+          approvalInput: null,
+          activity: 'Turn stopped.',
+          turnStartedAt: null,
+        },
+      }));
       return;
     }
-    abortControllerRef.current?.abort();
+    abortControllersRef.current[targetAgentId]?.abort();
   }
 
   const assignedSkills = selectedAgent
@@ -1104,12 +1287,11 @@ function ChatDesklet({
             <select
               value={selectedAgentId}
               onChange={(event) => setSelectedAgentId(event.target.value)}
-              disabled={busy}
             >
               <option value="">Choose agent…</option>
               {agents.map((agent) => (
                 <option key={agent.id} value={agent.id}>
-                  {agent.name}
+                  {agent.name} {agentStates[agent.id]?.busy ? '● (arbejder)' : ''}
                 </option>
               ))}
             </select>
@@ -1144,55 +1326,93 @@ function ChatDesklet({
         </div>
       )}
       <div className="desktop-chat-body" ref={chatBodyRef}>
-        {messages.length === 0 ? (
+        {messages.length === 0 && !assistantDraft && (
           <div className="desktop-chat-empty">
-            {selectedAgent
-              ? `Ask ${selectedAgent.name} anything.`
-              : 'Create an agent in Agents first.'}
+            <p className="eyebrow">{selectedAgent ? selectedAgent.name : 'IRIS agent'}</p>
+            <strong>
+              {selectedAgent
+                ? selectedAgent.description || 'What would you like to achieve today?'
+                : 'Choose an agent to start talking.'}
+            </strong>
+            {selectedAgent && (
+              <div className="desktop-chat-empty-meta">
+                <span>Model: {displayedAgentModel(selectedAgent, loadProviderConfigs())}</span>
+                <span>{assignedSkills.length} skills</span>
+                <span>{assignedTools.length} tools</span>
+              </div>
+            )}
           </div>
-        ) : (
-          messages.map((message, index) => (
-            <div
-              className={`message message-${message.role}`}
-              key={`${message.turnId ?? index}-${message.role}`}
-            >
-              <MessageImages images={message.images} />
-              <RichMessage content={message.content} />
-              {message.role === 'assistant' && (
-                <QuickReactionsBar
-                  activeReactions={reactions[message.turnId || String(index)] || {}}
-                  onReact={(emoji) => {
-                    const key = message.turnId || String(index);
-                    setReactions((prev) => {
-                      const msgReactions = prev[key] || {};
-                      const currentCount = msgReactions[emoji] || 0;
-                      return {
-                        ...prev,
-                        [key]: {
-                          ...msgReactions,
-                          [emoji]: currentCount > 0 ? 0 : 1,
-                        },
-                      };
-                    });
-                  }}
-                />
-              )}
-            </div>
-          ))
         )}
-        {reasoningDraft && (
-          <div className={`desktop-chat-reasoning ${showReasoning ? 'expanded' : ''}`}>
-            <button
-              type="button"
-              className="desktop-chat-reasoning-toggle"
-              onClick={() => setShowReasoning((current) => !current)}
-              aria-expanded={showReasoning}
+        {messages.map((message, index) => {
+          const isUser = message.role === 'user';
+          const msgKey = `${message.turnId ?? index}-${message.role}`;
+          const reactionKey = message.turnId || String(index);
+          const msgReactions = reactions[reactionKey] || {};
+          return (
+            <div
+              key={msgKey}
+              className={`desktop-chat-message-row ${isUser ? 'user-row' : 'agent-row'}`}
             >
-              <span>Reasoning</span>
-              <span className="desktop-chat-reasoning-caret" aria-hidden="true">
-                {showReasoning ? '▾' : '▸'}
-              </span>
-            </button>
+              <div className={`desktop-chat-message ${isUser ? 'user-message' : 'agent-message'}`}>
+                {message.role === 'assistant' && (
+                  <div className="message-header">
+                    <span className="agent-tag">{selectedAgent?.name || 'IRIS'}</span>
+                  </div>
+                )}
+                {message.images && message.images.length > 0 && (
+                  <MessageImages images={message.images} />
+                )}
+                <div className="message-text">
+                  <RichMessage content={message.content} />
+                </div>
+                {message.role === 'assistant' && (
+                  <div className="message-footer">
+                    <div className="reactions-container">
+                      {['👍', '🔥', '💡', '❤️', '🤖'].map((emoji) => {
+                        const count = msgReactions[emoji] || 0;
+                        return (
+                          <button
+                            key={emoji}
+                            className={`reaction-btn ${count > 0 ? 'reacted' : ''}`}
+                            onClick={() => {
+                              setReactions((prev) => {
+                                const currentMsg = prev[reactionKey] || {};
+                                const currentCount = currentMsg[emoji] || 0;
+                                return {
+                                  ...prev,
+                                  [reactionKey]: {
+                                    ...currentMsg,
+                                    [emoji]: currentCount > 0 ? currentCount - 1 : currentCount + 1,
+                                  },
+                                };
+                              });
+                            }}
+                          >
+                            <span>{emoji}</span>
+                            {count > 0 && <span className="count">{count}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {reasoningDraft && (
+          <div className="desktop-chat-reasoning" role="status" aria-live="polite">
+            <div className="desktop-chat-reasoning-head">
+              <span className="desktop-chat-reasoning-eyebrow">Thinking</span>
+              <button
+                type="button"
+                className="desktop-chat-reasoning-toggle"
+                onClick={() => setShowReasoning((current) => !current)}
+                aria-expanded={showReasoning}
+              >
+                {showReasoning ? 'Hide' : 'Show'}
+              </button>
+            </div>
             {showReasoning && (
               <p className="desktop-chat-reasoning-text" ref={reasoningTextRef}>
                 {reasoningDraft}
@@ -1200,38 +1420,35 @@ function ChatDesklet({
             )}
           </div>
         )}
+        {assistantDraft && (
+          <div className="desktop-chat-assistant-draft" role="status" aria-live="polite">
+            <RichMessage content={assistantDraft} />
+          </div>
+        )}
         {activeTools.length > 0 && (
-          <div className="desktop-chat-active-tools">
-            {activeTools.map((tool, idx) => (
-              <div key={`${tool.id}-${idx}`} className={`chat-tool-entry chat-tool-${tool.status}`}>
-                {tool.name === 'cortex_delegate_subagent' && tool.input && typeof tool.input === 'object' ? (
-                  <SubAgentCardView
-                    input={tool.input as Record<string, unknown>}
-                    output={tool.output}
-                    status={tool.status}
-                  />
-                ) : (
-                  <div className="generic-tool-card">
-                    <span className="generic-tool-icon" aria-hidden="true">⚡</span>
-                    <span className="generic-tool-name">{shortToolLabel({ name: tool.name })}</span>
-                    <span className={`generic-tool-status status-${tool.status}`}>
-                      {tool.status === 'running' ? 'Running…' : tool.status === 'completed' ? 'Done' : 'Failed'}
-                    </span>
-                  </div>
-                )}
+          <div className="desktop-chat-active-tools" aria-label="Running tools">
+            {activeTools.map((tool) => (
+              <div
+                key={tool.id}
+                className={`active-tool-item tool-${tool.status}`}
+                title={tool.reason || (typeof tool.output === 'string' ? tool.output : undefined)}
+              >
+                <span className="tool-status-icon" aria-hidden="true">
+                  {tool.status === 'running' && '⚡'}
+                  {tool.status === 'completed' && '✓'}
+                  {tool.status === 'failed' && '✕'}
+                  {tool.status === 'denied' && '✋'}
+                </span>
+                <span className="tool-name">{tool.name.replaceAll('_', ' ')}</span>
+                <span className="tool-badge">{tool.status}</span>
               </div>
             ))}
           </div>
         )}
-        {assistantDraft && (
-          <div className="message message-assistant">
-            <RichMessage content={assistantDraft} />
-            <i className="stream-cursor" />
-          </div>
-        )}
         {approval && (
-          <div className="desktop-chat-approval">
-            <strong>Permission required · {approval.toolName}</strong>
+          <div className="desktop-chat-approval" role="alert">
+            <p className="eyebrow">Permission requested</p>
+            <strong>{approval.toolName} requires your approval</strong>
             <p>{approval.reason}</p>
             <ToolRequestView input={approvalInput} />
             <div>
@@ -1275,37 +1492,6 @@ function ChatDesklet({
           </div>
         )}
       </div>
-      {pendingLearnedSkill && (
-        <div className="learned-skill-prompt-banner">
-          <div className="learned-skill-info">
-            <span className="learned-skill-badge">💡 Auto-Learned Skill</span>
-            <span>
-              Synthesized procedure for <strong>{pendingLearnedSkill.name}</strong>
-            </span>
-          </div>
-          <div className="learned-skill-actions">
-            <button
-              type="button"
-              className="learned-skill-btn-save"
-              onClick={async () => {
-                await saveLearnedSkill(pendingLearnedSkill);
-                setPendingLearnedSkill(null);
-                setActivity('✨ Saved new skill to your library!');
-                setTimeout(() => setActivity(''), 3000);
-              }}
-            >
-              Save to Skills
-            </button>
-            <button
-              type="button"
-              className="learned-skill-btn-dismiss"
-              onClick={() => setPendingLearnedSkill(null)}
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
       {slashMode && selectedAgent && (
         <div className="slash-palette" role="listbox" aria-label="Slash commands">
           <p>Skills</p>
