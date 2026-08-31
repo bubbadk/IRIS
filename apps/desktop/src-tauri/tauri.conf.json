@@ -45,6 +45,6 @@
     "category": "Utility",
     "shortDescription": "Intelligent Reasoning & Integration System",
     "longDescription": "A graphical desktop environment for creating, configuring and operating AI agents.",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png"]
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png", "icons/icon.ico"]
   }
 }
