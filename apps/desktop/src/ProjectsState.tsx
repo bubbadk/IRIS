@@ -102,7 +102,11 @@ const projectPresets: ProjectPreset[] = [
   },
 ];
 
-export function ProjectsState() {
+export function ProjectsState({
+  onOpenFlowStage,
+}: {
+  onOpenFlowStage?: (projectId: string) => void;
+} = {}) {
   const [projects, setProjects] = useState<ProjectGraph[]>([]);
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
   const [runs, setRuns] = useState<ProjectTaskRun[]>([]);
@@ -414,7 +418,19 @@ export function ProjectsState() {
             <section className="project-graph" aria-label={`${selected.title} task graph`}>
               <div className="project-summary">
                 <div>
-                  <p className="eyebrow">Active graph</p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <p className="eyebrow">Active graph</p>
+                    {onOpenFlowStage && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenFlowStage(selected.id)}
+                        className="stat-pill ready"
+                        style={{ cursor: 'pointer', border: '1px solid rgba(16,185,129,0.3)' }}
+                      >
+                        ⚡ Open Flow Reactor
+                      </button>
+                    )}
+                  </div>
                   <h3>{selected.title}</h3>
                   <p>{selected.objective}</p>
                 </div>

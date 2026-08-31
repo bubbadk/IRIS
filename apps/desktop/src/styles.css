@@ -8510,4 +8510,540 @@ input:checked + .channel-toggle-slider:before {
   border-top: 1px solid var(--line);
 }
 
+/* ==========================================================================
+   Project Flow Stream (HUD Live Section)
+   ========================================================================== */
+.panel-block-projects {
+  padding-top: 14px;
+}
+
+.project-stream-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.project-stream-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(80, 93, 83, 0.12);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.dark-mode .project-stream-card {
+  background: rgba(30, 32, 34, 0.6);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.project-stream-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.project-stream-card.is-working {
+  border-color: rgba(94, 143, 119, 0.4);
+  background: rgba(94, 143, 119, 0.04);
+}
+
+.project-stream-card.is-suspended {
+  border-color: rgba(217, 119, 6, 0.4);
+  background: rgba(217, 119, 6, 0.04);
+}
+
+.project-stream-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.project-stream-title {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-stream-progress-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 12px;
+  background: rgba(80, 93, 83, 0.08);
+  color: var(--ink);
+}
+
+.project-stream-task-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.project-stream-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.project-stream-dot.working {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: pulse-dot 1.4s infinite;
+}
+
+.project-stream-dot.waiting {
+  background: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b;
+  animation: pulse-dot 1.2s infinite;
+}
+
+.project-stream-dot.ready {
+  background: var(--muted);
+}
+
+.project-stream-task-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-stream-approval-box {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.project-stream-approval-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.project-stream-approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.project-stream-btn-apply {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 650;
+  border-radius: 6px;
+  border: none;
+  background: #10b981;
+  color: #ffffff;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.project-stream-btn-apply:hover {
+  opacity: 0.9;
+}
+
+.project-stream-btn-deny {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 650;
+  border-radius: 6px;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.08);
+  color: #dc2626;
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   Project Flow Stage (Focused Spatial Window)
+   ========================================================================== */
+.project-flow-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(20, 24, 22, 0.45);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.project-flow-card {
+  width: 100%;
+  max-width: 960px;
+  max-height: 88vh;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  padding: 22px 26px;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.project-flow-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+}
+
+.project-flow-icon {
+  font-size: 14px;
+  color: #f59e0b;
+}
+
+.project-flow-title {
+  margin: 2px 0 4px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.project-flow-subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.project-flow-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.project-flow-stats {
+  display: flex;
+  gap: 6px;
+}
+
+.stat-pill {
+  font-size: 10.5px;
+  font-weight: 650;
+  padding: 3px 8px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+}
+
+.stat-pill.ready {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.stat-pill.blocked {
+  background: rgba(107, 114, 128, 0.1);
+  color: var(--muted);
+  border-color: rgba(107, 114, 128, 0.2);
+}
+
+.stat-pill.done {
+  background: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+.project-flow-worker-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(80, 93, 83, 0.04);
+  padding: 8px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+
+.project-worker-select {
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.project-running-pulse {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #10b981;
+}
+
+.project-approval-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 14px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 12px;
+  animation: fadeIn 0.2s ease;
+}
+
+.project-approval-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.approval-warning-icon {
+  font-size: 18px;
+}
+
+.project-approval-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.approval-deny-btn {
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
+.approval-apply-btn {
+  background: #10b981 !important;
+  color: #ffffff !important;
+  border-color: #10b981 !important;
+}
+
+.project-add-step-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: rgba(80, 93, 83, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.project-add-step-form input,
+.project-add-step-form select,
+.project-add-step-form textarea {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11.5px;
+}
+
+.project-flow-body {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.project-flow-matrix {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.flow-matrix-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.flow-matrix-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.flow-node-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.flow-node-card {
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.flow-node-card:hover {
+  border-color: var(--accent);
+  transform: translateX(2px);
+}
+
+.flow-node-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(94, 143, 119, 0.2);
+}
+
+.flow-node-card.running {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.04);
+}
+
+.flow-node-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.flow-node-badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+
+.flow-node-badge.state-completed {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+}
+
+.flow-node-badge.state-ready {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+}
+
+.flow-node-badge.state-blocked {
+  background: rgba(107, 114, 128, 0.1);
+  color: var(--muted);
+}
+
+.flow-node-index {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.flow-node-title {
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.flow-node-desc {
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.flow-connector-arrow {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.project-worker-feed {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(80, 93, 83, 0.02);
+  overflow: hidden;
+}
+
+.project-worker-feed-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+  background: rgba(80, 93, 83, 0.03);
+}
+
+.project-worker-stream {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.project-msg {
+  display: flex;
+  flex-direction: column;
+}
+
+.project-msg.user {
+  align-items: flex-end;
+}
+
+.project-msg.assistant {
+  align-items: flex-start;
+}
+
+.project-msg-bubble {
+  max-width: 90%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.project-msg.user .project-msg-bubble {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.project-msg.assistant .project-msg-bubble {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.project-flow-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  gap: 6px;
+}
+
 

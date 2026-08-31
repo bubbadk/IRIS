@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { subscribeAgentActivity, subscribeAgentRuntime, type AgentActivityLogEntry } from './agentRuntime';
-import { cortexTurnRepository } from './persistence';
+import { cortexTurnRepository, projectGraphRepository, projectTaskRunRepository } from './persistence';
+import {
+  projectProgress,
+  projectTaskState,
+  type ProjectGraph,
+  type ProjectTaskRun,
+} from '@iris/workflows';
+import { resolveProjectWorkerApproval, subscribeProjectRuntime } from './projectRuntime';
+import { sortProjectTaskRuns } from './projectRunHistory';
 import {
   formatBytes,
   formatCount,
@@ -168,7 +176,131 @@ function ActivityConsole({ log }: { log: AgentActivityLogEntry[] }) {
   );
 }
 
-export function SystemPanel() {
+function ProjectStreamConsole({
+  onOpenProject,
+}: {
+  onOpenProject?: (projectId: string) => void;
+}) {
+  const [projects, setProjects] = useState<ProjectGraph[]>([]);
+  const [runs, setRuns] = useState<ProjectTaskRun[]>([]);
+  const [busyRunId, setBusyRunId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function loadProjects() {
+      try {
+        const [gList, rList] = await Promise.all([
+          projectGraphRepository.list(),
+          projectTaskRunRepository.list(),
+        ]);
+        if (!active) return;
+        setProjects(gList);
+        setRuns(rList);
+      } catch {
+        // Defensive
+      }
+    }
+    void loadProjects();
+    const unsub = subscribeProjectRuntime(() => void loadProjects());
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, []);
+
+  async function handleInlineApproval(e: React.MouseEvent, run: ProjectTaskRun, decision: 'approve' | 'deny') {
+    e.stopPropagation();
+    if (!run.approval || busyRunId) return;
+    setBusyRunId(run.id);
+    try {
+      await resolveProjectWorkerApproval(run, decision);
+      const rList = await projectTaskRunRepository.list();
+      setRuns(rList);
+    } catch {
+      // Handled
+    } finally {
+      setBusyRunId(null);
+    }
+  }
+
+  if (projects.length === 0) return null;
+
+  return (
+    <section className="panel-block panel-block-projects">
+      <div className="panel-block-header">
+        <p className="panel-eyebrow">Project Flow Stream</p>
+        <span className="panel-live-badge">Live</span>
+      </div>
+      <div className="project-stream-list">
+        {projects.map((project) => {
+          const progress = projectProgress(project);
+          const projectRuns = runs.filter((r) => r.projectId === project.id);
+          const latestRun = sortProjectTaskRuns(projectRuns)[0] ?? null;
+          const isWorking = latestRun?.status === 'running' || latestRun?.status === 'queued';
+          const isSuspended = latestRun?.status === 'suspended' && latestRun?.approval;
+          const activeTask = isWorking || isSuspended
+            ? project.tasks.find((t) => t.id === latestRun.taskId)
+            : project.tasks.find((t) => projectTaskState(project, t.id) === 'ready');
+
+          return (
+            <div
+              key={project.id}
+              onClick={() => onOpenProject?.(project.id)}
+              className={`project-stream-card ${isWorking ? 'is-working' : ''} ${isSuspended ? 'is-suspended' : ''}`}
+            >
+              <div className="project-stream-card-top">
+                <strong className="project-stream-title">{project.title}</strong>
+                <span className="project-stream-progress-pill">
+                  {progress.completed}/{progress.total}
+                </span>
+              </div>
+
+              {activeTask && (
+                <div className="project-stream-task-line">
+                  <span className={`project-stream-dot ${isWorking ? 'working' : isSuspended ? 'waiting' : 'ready'}`} />
+                  <span className="project-stream-task-name">{activeTask.title}</span>
+                </div>
+              )}
+
+              {/* Inline Approval Card */}
+              {isSuspended && latestRun?.approval && (
+                <div className="project-stream-approval-box">
+                  <span className="project-stream-approval-label">
+                    🛡️ Needs Approval: {latestRun.approval.toolName}
+                  </span>
+                  <div className="project-stream-approval-actions">
+                    <button
+                      type="button"
+                      onClick={(e) => handleInlineApproval(e, latestRun, 'deny')}
+                      disabled={busyRunId === latestRun.id}
+                      className="project-stream-btn-deny"
+                    >
+                      Deny
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleInlineApproval(e, latestRun, 'approve')}
+                      disabled={busyRunId === latestRun.id}
+                      className="project-stream-btn-apply"
+                    >
+                      ✓ Apply
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+export function SystemPanel({
+  onOpenProject,
+}: {
+  onOpenProject?: (projectId: string) => void;
+}) {
   const [metrics, setMetrics] = useState<HostMetrics | null>(null);
   const [nativeAvailable, setNativeAvailable] = useState(true);
   const [usage, setUsage] = useState<UsageSummary>(emptyUsage);
@@ -315,6 +447,7 @@ export function SystemPanel() {
       </section>
 
       <ActivityConsole log={activity} />
+      <ProjectStreamConsole onOpenProject={onOpenProject} />
     </aside>
   );
 }

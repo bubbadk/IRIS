@@ -103,6 +103,7 @@ import {
 import { formatCount } from './systemTelemetry';
 import { PermissionsState } from './PermissionsState';
 import { ProjectsState } from './ProjectsState';
+import { ProjectFlowStage } from './ProjectFlowStage';
 import { SchedulesState } from './SchedulesState';
 import { GitHubState } from './GitHubState';
 import { SystemPanel } from './SystemPanel';
@@ -4218,11 +4219,13 @@ function WindowFrame({
   onClose,
   onFocus,
   onChange,
+  onOpenProject,
 }: {
   win: DesktopWindow;
   onClose: () => void;
   onFocus: () => void;
   onChange: (next: DesktopWindow) => void;
+  onOpenProject?: (id: string) => void;
 }) {
   const frameRef = useRef<HTMLElement | null>(null);
   const interactionRef = useRef<{
@@ -4381,7 +4384,7 @@ function WindowFrame({
         ) : win.objectType === 'agents' ? (
           <AgentsState />
         ) : win.objectType === 'projects' ? (
-          <ProjectsState />
+          <ProjectsState onOpenFlowStage={onOpenProject} />
         ) : win.objectType === 'github' ? (
           <GitHubState />
         ) : win.objectType === 'schedules' ? (
@@ -4474,6 +4477,7 @@ export function App() {
   const [sudoPasswordRequest, setSudoPasswordRequest] = useState<SudoPasswordRequest | null>(
     null,
   );
+  const [focusedProjectId, setFocusedProjectId] = useState<string | null>(null);
   const topZ = useMemo(
     () => windows.reduce((max, win) => Math.max(max, win.z), windowLayerBase),
     [windows],
@@ -4586,7 +4590,7 @@ export function App() {
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
 
-      <SystemPanel />
+      <SystemPanel onOpenProject={(id) => setFocusedProjectId(id)} />
 
       <section className="command-stage">
         <div className="stage-mark">
@@ -4638,6 +4642,7 @@ export function App() {
         <WindowFrame
           key={win.id}
           win={win}
+          onOpenProject={(id) => setFocusedProjectId(id)}
           onClose={() => setWindows((current) => current.filter((item) => item.id !== win.id))}
           onFocus={() => focus(win.id)}
           onChange={(next) =>
@@ -4703,6 +4708,13 @@ export function App() {
             setAvailableUpdate(null);
           }}
           darkMode={darkMode}
+        />
+      )}
+
+      {focusedProjectId && (
+        <ProjectFlowStage
+          projectId={focusedProjectId}
+          onClose={() => setFocusedProjectId(null)}
         />
       )}
     </main>
