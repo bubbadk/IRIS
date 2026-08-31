@@ -20,12 +20,15 @@ jobs:
           - platform: 'linux-x86_64'
             os: ubuntu-22.04
             rust_target: x86_64-unknown-linux-gnu
+            args: ''
           - platform: 'macos-universal'
             os: macos-latest
-            rust_target: universal-apple-darwin
+            rust_target: x86_64-apple-darwin,aarch64-apple-darwin
+            args: '--target universal-apple-darwin'
           - platform: 'windows-x86_64'
             os: windows-latest
             rust_target: x86_64-pc-windows-msvc
+            args: ''
 
     steps:
       - name: Checkout repository
@@ -38,8 +41,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -77,3 +78,4 @@ jobs:
           releaseName: 'IRIS v__VERSION__'
           releaseDraft: false
           prerelease: false
+          args: ${{ matrix.args }}
