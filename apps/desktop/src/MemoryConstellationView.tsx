@@ -10,6 +10,7 @@ import { contextPackRepository } from './persistence';
 interface MemoryConstellationViewProps {
   records: MemoryRecord[];
   agentId: string | null;
+  agentName?: string;
 }
 
 interface Star {
@@ -27,16 +28,18 @@ interface Star {
 
 const POLL_MS = 2500;
 const STAR_COLORS = {
-  fresh: '#d9a441',
-  old: '#71879c',
+  fresh: '#d9962e',
+  mid: '#b0771f',
+  old: '#5f7a94',
   glow: '#ffd98a',
-  link: 'rgba(113, 135, 156, 0.28)',
+  link: 'rgba(122, 106, 66, 0.45)',
+  linkLit: 'rgba(255, 217, 138, 0.75)',
 };
 
 function ageColor(bornMs: number, newestMs: number, oldestMs: number): string {
   if (newestMs <= oldestMs) return STAR_COLORS.fresh;
   const age = (newestMs - bornMs) / Math.max(1, newestMs - oldestMs);
-  return age < 0.25 ? STAR_COLORS.fresh : age < 0.6 ? '#a68f6f' : STAR_COLORS.old;
+  return age < 0.25 ? STAR_COLORS.fresh : age < 0.6 ? STAR_COLORS.mid : STAR_COLORS.old;
 }
 
 /**
@@ -47,7 +50,8 @@ function ageColor(bornMs: number, newestMs: number, oldestMs: number): string {
  * honest view of the retrieval engine at work. No simulated data: everything
  * comes from the persisted memory records and context packs.
  */
-export function MemoryConstellationView({ records, agentId }: MemoryConstellationViewProps) {
+export function MemoryConstellationView({ records, agentId, agentName }: MemoryConstellationViewProps) {
+  const [scopeAll, setScopeAll] = useState(true);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const starsRef = useRef<Map<string, Star>>(new Map());
@@ -69,13 +73,16 @@ export function MemoryConstellationView({ records, agentId }: MemoryConstellatio
   // agent; with none, the whole workspace is shown.
   const agentIdRef = useRef(agentId);
   agentIdRef.current = agentId;
+  const scopeAllRef = useRef(scopeAll);
+  scopeAllRef.current = scopeAll;
   useEffect(() => {
     let disposed = false;
     const load = async () => {
       const all = await contextPackRepository.listAll();
-      const scoped = agentIdRef.current
-        ? all.filter((pack) => pack.agentId === agentIdRef.current)
-        : all;
+      const scoped =
+        !scopeAllRef.current && agentIdRef.current
+          ? all.filter((pack) => pack.agentId === agentIdRef.current)
+          : all;
       if (!disposed) setPacks(scoped);
     };
     void load();
@@ -135,7 +142,7 @@ export function MemoryConstellationView({ records, agentId }: MemoryConstellatio
     constellation.nodes.forEach((node, index) => {
       const existing = stars.get(node.memoryId);
       if (existing) {
-        existing.radius = 2.5 + Math.min(9, node.usageCount * 1.6);
+        existing.radius = 4 + Math.min(10, node.usageCount * 1.8) + Math.min(3, node.content.length / 400);
         existing.usageCount = node.usageCount;
         return;
       }
@@ -148,7 +155,7 @@ export function MemoryConstellationView({ records, agentId }: MemoryConstellatio
         y: height / 2 + Math.sin(golden) * radius,
         vx: 0,
         vy: 0,
-        radius: 2.5 + Math.min(9, node.usageCount * 1.6),
+        radius: 4 + Math.min(10, node.usageCount * 1.8) + Math.min(3, node.content.length / 400),
         bornMs: Date.parse(node.createdAt) || 0,
         usageCount: node.usageCount,
         phase: Math.random() * Math.PI * 2,
@@ -221,8 +228,8 @@ export function MemoryConstellationView({ records, agentId }: MemoryConstellatio
         if (!a || !b) continue;
         const lit = time < (litUntilRef.current.get(link.fromId) ?? 0)
           || time < (litUntilRef.current.get(link.toId) ?? 0);
-        ctx.strokeStyle = lit ? 'rgba(255, 217, 138, 0.55)' : STAR_COLORS.link;
-        ctx.lineWidth = Math.min(3, 0.6 + link.weight * 0.5);
+        ctx.strokeStyle = lit ? STAR_COLORS.linkLit : STAR_COLORS.link;
+        ctx.lineWidth = Math.min(3.5, 0.9 + link.weight * 0.6);
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
@@ -248,7 +255,16 @@ export function MemoryConstellationView({ records, agentId }: MemoryConstellatio
           ctx.fill();
         }
 
-        ctx.globalAlpha = star.usageCount === 0 && !lit ? 0.55 : 1;
+        if (!lit) {
+          const halo = ctx.createRadialGradient(star.x, star.y, 0, star.x, star.y, star.radius * 2.8);
+          halo.addColorStop(0, 'rgba(217, 150, 46, 0.22)');
+          halo.addColorStop(1, 'rgba(217, 150, 46, 0)');
+          ctx.fillStyle = halo;
+          ctx.beginPath();
+          ctx.arc(star.x, star.y, star.radius * 2.8, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = star.usageCount === 0 && !lit ? 0.8 : 1;
         ctx.fillStyle = lit ? STAR_COLORS.glow : ageColor(star.bornMs, newestMs, oldestMs);
         ctx.beginPath();
         ctx.arc(star.x, star.y, star.radius * (hover ? 1.35 : 1) * twinkle, 0, Math.PI * 2);
@@ -342,8 +358,30 @@ export function MemoryConstellationView({ records, agentId }: MemoryConstellatio
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-        <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: 'var(--ink)' }}>🌌 Memory Constellation</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: 'var(--ink)' }}>🌌 Memory Constellation</h3>
+          {agentId && (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                type="button"
+                className={`button ${scopeAll ? 'button-primary' : 'button-secondary'}`}
+                style={{ fontSize: '11px', padding: '3px 10px' }}
+                onClick={() => setScopeAll(true)}
+              >
+                All agents
+              </button>
+              <button
+                type="button"
+                className={`button ${!scopeAll ? 'button-primary' : 'button-secondary'}`}
+                style={{ fontSize: '11px', padding: '3px 10px' }}
+                onClick={() => setScopeAll(false)}
+              >
+                {agentName || 'Selected agent'}
+              </button>
+            </div>
+          )}
+        </div>
         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
           {stats.stars} memories · {stats.links} co-retrieval links · {stats.retrievals} recorded retrievals
         </span>
@@ -401,6 +439,21 @@ export function MemoryConstellationView({ records, agentId }: MemoryConstellatio
           </div>
         )}
       </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: '11px', color: 'var(--text-muted)' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#d9962e', display: 'inline-block' }} /> retrieved recently
+          <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#5f7a94', display: 'inline-block', marginLeft: 10 }} /> older
+          <span style={{ display: 'inline-block', width: 22, height: 0, borderTop: '2px solid rgba(122, 106, 66, 0.45)', marginLeft: 10 }} /> retrieved together
+        </span>
+        <span>Larger stars are retrieved more often. Click a star for its provenance.</span>
+      </div>
+
+      {stats.retrievals === 0 && (
+        <div style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'var(--panel)', border: '1px dashed var(--line)', borderRadius: '8px', padding: '8px 12px' }}>
+          No recorded retrievals in this view yet. Run an agent with memory access on a prompt that matches your saved memories — the stars it uses will light up here, and stars retrieved together connect with lines.
+        </div>
+      )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>

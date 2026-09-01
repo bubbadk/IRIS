@@ -3347,7 +3347,7 @@ function MemoryState() {
       {memoryTab === 'benchmark' ? (
         <MemoryBenchmarkView />
       ) : memoryTab === 'constellation' ? (
-        <MemoryConstellationView records={records} agentId={selectedId} />
+        <MemoryConstellationView records={records} agentId={selectedId} agentName={agents.find((agent) => agent.id === selectedId)?.name} />
       ) : (
         <>
       <section className="memory-retrieval" aria-label="Memory retrieval">
