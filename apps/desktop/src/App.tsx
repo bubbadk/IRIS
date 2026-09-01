@@ -29,6 +29,7 @@ import { OnboardingWizard, isOnboardingNeeded } from './OnboardingWizard';
 import { checkLatestRelease, type ReleaseInfo } from './updateChecker';
 import { UpdateNotificationModal } from './UpdateNotificationModal';
 import { MemoryBenchmarkView } from './MemoryBenchmarkView';
+import { MemoryConstellationView } from './MemoryConstellationView';
 import {
   createProviderConfig,
   loadProviderCatalog,
@@ -3033,7 +3034,7 @@ function TurnStepRow({ step }: { step: CortexTurnStep }) {
 }
 
 function MemoryState() {
-  const [memoryTab, setMemoryTab] = useState<'records' | 'benchmark'>('records');
+  const [memoryTab, setMemoryTab] = useState<'records' | 'benchmark' | 'constellation'>('records');
   const [records, setRecords] = useState<MemoryRecord[]>([]);
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -3333,10 +3334,20 @@ function MemoryState() {
         >
           🏆 FP-AMB Benchmark
         </button>
+        <button
+          type="button"
+          className={`button ${memoryTab === 'constellation' ? 'button-primary' : 'button-secondary'}`}
+          onClick={() => setMemoryTab('constellation')}
+          style={{ fontSize: '12px', padding: '6px 14px' }}
+        >
+          🌌 Constellation
+        </button>
       </div>
 
       {memoryTab === 'benchmark' ? (
         <MemoryBenchmarkView />
+      ) : memoryTab === 'constellation' ? (
+        <MemoryConstellationView records={records} agentId={selectedId} />
       ) : (
         <>
       <section className="memory-retrieval" aria-label="Memory retrieval">

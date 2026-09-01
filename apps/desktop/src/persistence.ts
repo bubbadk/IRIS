@@ -743,6 +743,10 @@ export class LocalContextPackRepository implements ContextPackRepository {
       .map(cloneContextPack);
   }
 
+  async listAll(): Promise<ContextPack[]> {
+    return this.read().map(cloneContextPack);
+  }
+
   async latest(agentId: string): Promise<ContextPack | null> {
     const pack = (await this.list(agentId))[0];
     return pack ? cloneContextPack(pack) : null;

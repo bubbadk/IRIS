@@ -90,6 +90,8 @@ export interface ContextPackBuilder {
 
 export interface ContextPackRepository {
   list(agentId: string): Promise<ContextPack[]>;
+  /** All stored packs across agents, for cross-agent views. */
+  listAll(): Promise<ContextPack[]>;
   latest(agentId: string): Promise<ContextPack | null>;
   save(pack: ContextPack): Promise<void>;
   clear(agentId: string): Promise<void>;

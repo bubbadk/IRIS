@@ -1371,6 +1371,7 @@ describe('agent session', () => {
     let savedContextPack: ContextPack | null = null;
     const contextPacks: ContextPackRepository = {
       list: async () => (savedContextPack ? [savedContextPack] : []),
+      listAll: async () => (savedContextPack ? [savedContextPack] : []),
       latest: async () => savedContextPack,
       save: async (pack) => {
         savedContextPack = pack;
