@@ -5,7 +5,7 @@
   <h3>The Spatial Operating Environment for Autonomous AI Agents</h3>
   <p>An object-oriented, local-first desktop OS for creating, operating, and orchestrating autonomous AI agent systems.</p>
 
-  [![Version](https://img.shields.io/badge/Version-0.2.5-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
+  [![Version](https://img.shields.io/badge/Version-0.2.7-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
   [![FP-AMB Memory Benchmark](https://img.shields.io/badge/FP--AMB%20(verified)-69.7%25%20(154%2F221%20gradeable)-success.svg?style=flat-square)](#-memory-benchmark-verified-results)
   [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg?style=flat-square)](LICENSE)
   [![Platform](https://img.shields.io/badge/Platform-Linux%20(CachyOS%2FArch%20%7C%20Ubuntu)%20%7C%20macOS%20%7C%20Windows-amber.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
@@ -50,6 +50,7 @@ IRIS is a **graphical agent operating environment**. It treats agents, workspace
 - 💬 **Subtitle Studio**: Chunked SRT/VTT subtitle translator with zero timestamp drift and natural colloquial phrasing.
 - 🛸 **Project Flow Reactor (The Anti-Kanban)**: Live animated task matrices with visual step dependency chains and inline **`[ ✓ Apply ]`** / **`[ ✕ Deny ]`** approval gates.
 - 🧠 **Local Memory Engine**: BM25+ lexical retrieval with optional provider-backed embeddings, hybrid Reciprocal Rank Fusion, temporal query windows, multi-query recall, and duplicate-on-save protection. Measured at **1.63 ms/query** on local CPU.
+- 🌌 **Memory Constellation**: A living star-map of what your agents actually remember — every memory is a star sized by retrieval frequency, memories retrieved together connect, and when an agent works, the memories it uses light up in rank order. Includes a timeline scrubber and click-through provenance.
 - ⚡ **Dual-Tier AI Architecture**: Run fast, affordable flash models for daily tasks, and seamlessly escalate to expert frontier models with instant **⚡ Takeover**.
 - 🐙 **Live GitHub Release Engineering**: Issue triage, SemVer versioning, and CI/CD workflow automation that generates ready-to-run release binaries.
 - 🛡️ **Zero-Surprise Security**: Interactive visual diff viewers, granular tool permission gating, and local OS Keyring credential storage.
@@ -120,7 +121,7 @@ IRIS is evaluated against the [FP-AMB question suite](https://github.com/munch2u
 
 ### Download Standalone Release
 Grab the latest pre-built binaries from [GitHub Releases](https://github.com/bubbadk/IRIS/releases):
-- **Linux**: standalone binary (`iris-linux-x86_64-v0.2.5.tar.gz`)
+- **Linux**: standalone binary (`iris-linux-x86_64-v0.2.7.tar.gz`)
 - **macOS**: `.dmg` (Universal binary)
 - **Windows**: `.msi` / `.exe` installer
 

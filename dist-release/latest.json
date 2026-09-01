@@ -1,10 +1,10 @@
 {
-  "version": "0.2.6",
-  "notes": "IRIS v0.2.6 - Integrity & Verified Memory Release. Retracts the fabricated FP-AMB benchmark scores and ships only measured, reproducible results (69.7% on 221 gradeable questions, strict auditable grading). Adds temporal query windows, hybrid BM25+embeddings retrieval, multi-query recall, duplicate-on-save memory protection, honest tool behavior, and major runtime hardening (janitor timeout/guardrails, sudo askpass security, MCP stdio robustness, subtitle batch retries).",
-  "pub_date": "2026-09-01T19:41:01Z",
+  "version": "0.2.7",
+  "notes": "IRIS v0.2.7 - Memory Constellation Release. A living star-map of what your agents actually remember: memories as stars sized by retrieval frequency, co-retrieval links, live rank-order retrieval glow, timeline scrubber and provenance on click. Derived purely from real records and context packs. Also ships the verified memory retrieval stack (temporal query windows, hybrid BM25+embeddings fusion, multi-query recall) and the honest, reproducible 69.7% FP-AMB scorecard.",
+  "pub_date": "2026-09-01T20:23:27Z",
   "platforms": {
     "linux-x86_64": {
-      "url": "https://github.com/bubbadk/IRIS/releases/download/v0.2.6/iris-linux-x86_64-v0.2.6.tar.gz"
+      "url": "https://github.com/bubbadk/IRIS/releases/download/v0.2.7/iris-linux-x86_64-v0.2.7.tar.gz"
     }
   }
 }
