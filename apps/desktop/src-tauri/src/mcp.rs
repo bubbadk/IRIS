@@ -1,15 +1,19 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::process::{Child, Command, Stdio};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::process::{Child, ChildStdout, Command, Stdio};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Mutex,
+    Arc, Mutex,
 };
 use std::time::Duration;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+/// Cap on captured stderr per session. The pipe is always drained (a chatty
+/// server that filled the OS pipe buffer would otherwise block mid-request and
+/// look dead), but stored bytes are bounded; beyond the cap output is discarded.
+const MAX_STDERR_BYTES: usize = 256 * 1024;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,8 +35,15 @@ pub struct McpStdioRequest {
     payload: String,
 }
 
+struct McpStdioSession {
+    child: Child,
+    /// True while a request/response exchange owns the session's stdout pipe.
+    busy: bool,
+    stderr: Arc<Mutex<Vec<u8>>>,
+}
+
 pub struct McpStdioState {
-    sessions: Mutex<HashMap<String, Child>>,
+    sessions: Mutex<HashMap<String, McpStdioSession>>,
     next_id: AtomicU64,
 }
 
@@ -122,114 +133,157 @@ pub fn mcp_stdio_request(
 ) -> Result<McpHttpResponse, String> {
     validate_stdio(&request)?;
     let session_id = session_id.filter(|id| !id.trim().is_empty());
-    let mut sessions = state
-        .sessions
-        .lock()
-        .map_err(|_| "IRIS could not lock local MCP sessions.")?;
-    let id = session_id
-        .unwrap_or_else(|| format!("stdio-{}", state.next_id.fetch_add(1, Ordering::Relaxed)));
-    if !sessions.contains_key(&id) {
-        let mut command = prepare_stdio_command(&request);
-        sessions.insert(
-            id.clone(),
-            command
+    let id = {
+        let mut sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "IRIS could not lock local MCP sessions.")?;
+        let id = session_id
+            .unwrap_or_else(|| format!("stdio-{}", state.next_id.fetch_add(1, Ordering::Relaxed)));
+        if !sessions.contains_key(&id) {
+            let mut command = prepare_stdio_command(&request);
+            let mut child = command
                 .spawn()
-                .map_err(|error| format!("IRIS could not start the local MCP server: {error}"))?,
-        );
+                .map_err(|error| format!("IRIS could not start the local MCP server: {error}"))?;
+            // Drain stderr for the lifetime of the session. Without this, a
+            // server that logs more than the pipe buffer blocks on its next
+            // write and stops answering requests entirely.
+            let stderr_buffer: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+            if let Some(stderr) = child.stderr.take() {
+                let sink = Arc::clone(&stderr_buffer);
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stderr);
+                    let mut chunk = [0u8; 4096];
+                    loop {
+                        match reader.read(&mut chunk) {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => {
+                                let mut stored = match sink.lock() {
+                                    Ok(stored) => stored,
+                                    Err(_) => break,
+                                };
+                                if stored.len() < MAX_STDERR_BYTES {
+                                    let remaining = MAX_STDERR_BYTES - stored.len();
+                                    stored.extend_from_slice(&chunk[..n.min(remaining)]);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            sessions.insert(
+                id.clone(),
+                McpStdioSession {
+                    child,
+                    busy: false,
+                    stderr: stderr_buffer,
+                },
+            );
+        }
+        let session = sessions
+            .get_mut(&id)
+            .ok_or("IRIS lost the local MCP session.")?;
+        // One request/response exchange at a time per session: the stdout pipe
+        // is physically taken for the duration, so a concurrent second request
+        // to the same server would otherwise fail confusingly or desynchronize
+        // the request/response pairing.
+        if session.busy {
+            return Err(
+                "This local MCP session is still processing a previous request.".to_string(),
+            );
+        }
+        session.busy = true;
+        id
+    };
+
+    let (stdout, write_error) = {
+        let mut sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "IRIS could not lock local MCP sessions.")?;
+        let session = sessions.get_mut(&id);
+        match session {
+            Some(session) => {
+                let taken = session.child.stdout.take();
+                let write_result = match session.child.stdin.as_mut() {
+                    Some(stdin) => stdin
+                        .write_all(format!("{}\n", request.payload).as_bytes())
+                        .and_then(|()| stdin.flush()),
+                    None => Err(std::io::Error::other("stdin unavailable")),
+                };
+                let error = write_result
+                    .err()
+                    .map(|error| format!("IRIS could not write to the local MCP server: {error}"));
+                (taken, error)
+            }
+            None => (None, Some("IRIS lost the local MCP session.".to_string())),
+        }
+    };
+    if let Some(error) = write_error {
+        release_session_busy(&state, &id);
+        return Err(error);
     }
-    let child = sessions
-        .get_mut(&id)
-        .ok_or("IRIS lost the local MCP session.")?;
-    child
-        .stdin
-        .as_mut()
-        .ok_or("IRIS could not open local MCP stdin.")?
-        .write_all(format!("{}\n", request.payload).as_bytes())
-        .map_err(|error| format!("IRIS could not write to the local MCP server: {error}"))?;
-    child
-        .stdin
-        .as_mut()
-        .unwrap()
-        .flush()
-        .map_err(|error| format!("IRIS could not flush local MCP stdin: {error}"))?;
+    let stdout: ChildStdout = match stdout {
+        Some(stdout) => stdout,
+        None => {
+            release_session_busy(&state, &id);
+            return Err("IRIS could not open local MCP stdout.".to_string());
+        }
+    };
     // Read the reply off the locked session so a hung server cannot block every other MCP
     // session forever: take the pipe, release the lock, and read under a deadline in a helper
     // thread. On timeout the server is killed and the detached read unblocks on the closed pipe.
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or("IRIS could not open local MCP stdout.")?;
-    drop(sessions);
-
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
+        // The take() wrapper bounds memory even if the server never sends a
+        // newline; read_until would otherwise buffer an unbounded line.
+        let mut reader = BufReader::new(stdout.take((MAX_RESPONSE_BYTES + 1) as u64));
         let mut bytes = Vec::new();
-        let mut one = [0_u8; 1];
-        loop {
-            match stdout.read(&mut one) {
-                Ok(0) => break,
-                Ok(_) => {
-                    if one[0] == b'\n' {
-                        break;
-                    }
-                    if bytes.len() >= MAX_RESPONSE_BYTES {
-                        let _ = sender.send(Err("size".to_string()));
-                        return;
-                    }
-                    bytes.push(one[0]);
-                }
-                Err(error) => {
-                    let _ = sender.send(Err(format!("read:{error}")));
-                    return;
-                }
+        match reader.read_until(b'\n', &mut bytes) {
+            Ok(0) => {
+                let _ = sender.send(Err("read:the server closed stdout without a reply".to_string()));
+                return;
+            }
+            Ok(_) => {}
+            Err(error) => {
+                let _ = sender.send(Err(format!("read:{error}")));
+                return;
             }
         }
-        let _ = sender.send(Ok((stdout, bytes)));
+        if bytes.len() > MAX_RESPONSE_BYTES {
+            let _ = sender.send(Err("size".to_string()));
+            return;
+        }
+        if bytes.last() == Some(&b'\n') {
+            bytes.pop();
+        }
+        let _ = sender.send(Ok((reader.into_inner().into_inner(), bytes)));
     });
 
     let (stdout, bytes) = match receiver.recv_timeout(REQUEST_TIMEOUT) {
         Ok(Ok(result)) => result,
         Ok(Err(reason)) => {
-            let mut sessions = state
-                .sessions
-                .lock()
-                .map_err(|_| "IRIS could not lock local MCP sessions.")?;
-            if let Some(mut child) = sessions.remove(&id) {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-            return Err(if reason == "size" {
+            let base = if reason == "size" {
                 "The local MCP server response exceeded the size IRIS will read.".to_string()
             } else {
                 format!(
                     "IRIS could not read the local MCP server: {}",
                     reason.strip_prefix("read:").unwrap_or(&reason)
                 )
-            });
+            };
+            return Err(with_stderr_tail(&state, &id, base));
         }
         Err(_) => {
-            let mut sessions = state
-                .sessions
-                .lock()
-                .map_err(|_| "IRIS could not lock local MCP sessions.")?;
-            if let Some(mut child) = sessions.remove(&id) {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-            return Err("The local MCP server did not respond in time.".to_string());
+            return Err(with_stderr_tail(
+                &state,
+                &id,
+                "The local MCP server did not respond in time.".to_string(),
+            ));
         }
     };
 
     // Return the pipe to the session so the next request can reuse the running server.
-    {
-        let mut sessions = state
-            .sessions
-            .lock()
-            .map_err(|_| "IRIS could not lock local MCP sessions.")?;
-        if let Some(child) = sessions.get_mut(&id) {
-            child.stdout = Some(stdout);
-        }
-    }
+    release_session_stdout(&state, &id, stdout);
 
     let body = String::from_utf8(bytes)
         .map_err(|_| "The local MCP server returned a non-UTF-8 response.".to_string())?;
@@ -243,6 +297,73 @@ pub fn mcp_stdio_request(
     })
 }
 
+fn with_session_mut(
+    state: &tauri::State<'_, McpStdioState>,
+    id: &str,
+    action: impl FnOnce(&mut McpStdioSession),
+) {
+    let mut sessions = match state.sessions.lock() {
+        Ok(sessions) => sessions,
+        Err(_) => return,
+    };
+    if let Some(session) = sessions.get_mut(id) {
+        action(session);
+    }
+}
+
+fn release_session_busy(state: &tauri::State<'_, McpStdioState>, id: &str) {
+    with_session_mut(state, id, |session| session.busy = false);
+}
+
+fn release_session_stdout(
+    state: &tauri::State<'_, McpStdioState>,
+    id: &str,
+    stdout: ChildStdout,
+) {
+    with_session_mut(state, id, |session| {
+        session.busy = false;
+        session.child.stdout = Some(stdout);
+    });
+}
+
+fn kill_session(state: &tauri::State<'_, McpStdioState>, id: &str) {
+    let mut sessions = match state.sessions.lock() {
+        Ok(sessions) => sessions,
+        Err(_) => return,
+    };
+    if let Some(mut session) = sessions.remove(id) {
+        let _ = session.child.kill();
+        let _ = session.child.wait();
+    }
+}
+
+/// Attaches the captured stderr tail of the session to an error message, so a
+/// failing local MCP server reports its actual output instead of a bare error.
+fn with_stderr_tail(state: &tauri::State<'_, McpStdioState>, id: &str, base: String) -> String {
+    let tail = {
+        let sessions = match state.sessions.lock() {
+            Ok(sessions) => sessions,
+            Err(_) => return base,
+        };
+        match sessions.get(id) {
+            Some(session) => match session.stderr.lock() {
+                Ok(buffer) => {
+                    let start = buffer.len().saturating_sub(2000);
+                    String::from_utf8_lossy(&buffer[start..]).trim().to_string()
+                }
+                Err(_) => String::new(),
+            },
+            None => String::new(),
+        }
+    };
+    kill_session(state, id);
+    if tail.is_empty() {
+        base
+    } else {
+        format!("{base}\n[server stderr] {tail}")
+    }
+}
+
 #[tauri::command]
 pub fn mcp_close_stdio_session(
     state: tauri::State<'_, McpStdioState>,
@@ -252,9 +373,9 @@ pub fn mcp_close_stdio_session(
         .sessions
         .lock()
         .map_err(|_| "IRIS could not lock local MCP sessions.")?;
-    if let Some(mut child) = sessions.remove(&session_id) {
-        let _ = child.kill();
-        let _ = child.wait();
+    if let Some(mut session) = sessions.remove(&session_id) {
+        let _ = session.child.kill();
+        let _ = session.child.wait();
     }
     Ok(())
 }

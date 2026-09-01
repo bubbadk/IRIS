@@ -6,15 +6,14 @@ import {
   type WebSearchOutput,
   type WebExtractOutput,
 } from './webTools';
-import { createImageGenerationTool, type ImageGenerationOutput } from './imageTools';
+import { createImageGenerationTool, type ImageGenerationInput, type ImageGenerationOutput } from './imageTools';
 import {
+  createAllBrowserTools,
   createBrowserNavigateTool,
   createBrowserClickTool,
   createBrowserTypeTool,
   createBrowserVisionTool,
   type BrowserNavigateOutput,
-  type BrowserClickOutput,
-  type BrowserTypeOutput,
   type BrowserVisionOutput,
 } from './browserTools';
 
@@ -109,6 +108,44 @@ describe('Image Generation Tool', () => {
     expect(result.prompt).toBe('A futuristic glass desklet on a calm ivory desktop');
     expect(result.dimensions).toBe('1024x1024');
   });
+
+  it('rejects a size outside the allowed set instead of requesting NaN dimensions', async () => {
+    const mockFetch: typeof fetch = async () => new Response(null, { status: 200 });
+    const imageTool = createImageGenerationTool(mockFetch);
+
+    await expect(
+      imageTool.run(
+        { prompt: 'An ivory desk', size: '9999x1' as ImageGenerationInput['size'] },
+        { agentId: 'test', agentName: 'Tester' },
+      ),
+    ).rejects.toThrow(/Invalid size/);
+  });
+
+  it('reports failure honestly when the gateway cannot serve the image', async () => {
+    const mockFetch: typeof fetch = async () => new Response(null, { status: 404 });
+    const imageTool = createImageGenerationTool(mockFetch);
+
+    const result = (await imageTool.run(
+      { prompt: 'A calm desktop' },
+      { agentId: 'test', agentName: 'Tester' },
+    )) as ImageGenerationOutput;
+
+    expect(result.status).toBe('failed');
+    expect(result.message).toContain('404');
+  });
+
+  it('falls back to GET when the gateway rejects HEAD probes', async () => {
+    const mockFetch: typeof fetch = async (_url, init) =>
+      new Response(null, { status: init?.method === 'HEAD' ? 405 : 200 });
+    const imageTool = createImageGenerationTool(mockFetch);
+
+    const result = (await imageTool.run(
+      { prompt: 'A calm desktop' },
+      { agentId: 'test', agentName: 'Tester' },
+    )) as ImageGenerationOutput;
+
+    expect(result.status).toBe('completed');
+  });
 });
 
 describe('Browser Tools', () => {
@@ -141,21 +178,23 @@ describe('Browser Tools', () => {
     expect(navResult.interactiveElements.some((e) => e.text === 'Deploy Now')).toBe(true);
     expect(navResult.interactiveElements.some((e) => e.href === 'https://example.com/settings')).toBe(true);
 
+    // browser.click and browser.type have no headless browser backend and must
+    // fail honestly instead of fabricating success.
     const clickTool = createBrowserClickTool();
-    const clickResult = (await clickTool.run(
-      { url: 'https://example.com/app', text: 'Deploy Now' },
-      { agentId: 'test', agentName: 'Tester' },
-    )) as BrowserClickOutput;
-    expect(clickResult.success).toBe(true);
-    expect(clickResult.action).toBe('clicked');
+    await expect(
+      clickTool.run({ url: 'https://example.com/app', text: 'Deploy Now' }, {
+        agentId: 'test',
+        agentName: 'Tester',
+      }),
+    ).rejects.toThrow(/not available/);
 
     const typeTool = createBrowserTypeTool();
-    const typeResult = (await typeTool.run(
-      { url: 'https://example.com/app', selector: '#search', text: 'query string' },
-      { agentId: 'test', agentName: 'Tester' },
-    )) as BrowserTypeOutput;
-    expect(typeResult.success).toBe(true);
-    expect(typeResult.textLength).toBe(12);
+    await expect(
+      typeTool.run(
+        { url: 'https://example.com/app', selector: '#search', text: 'query string' },
+        { agentId: 'test', agentName: 'Tester' },
+      ),
+    ).rejects.toThrow(/not available/);
 
     const visionTool = createBrowserVisionTool(mockFetch);
     const visionResult = (await visionTool.run(
@@ -164,5 +203,13 @@ describe('Browser Tools', () => {
     )) as BrowserVisionOutput;
     expect(visionResult.pageStructure.headings).toContain('Dashboard Overview');
     expect(visionResult.pageStructure.buttonsCount).toBe(1);
+  });
+
+  it('registers only tools with a real backend', () => {
+    const registered = createAllBrowserTools().map((t) => t.id);
+    expect(registered).toContain('browser.navigate');
+    expect(registered).toContain('browser.vision');
+    expect(registered).not.toContain('browser.click');
+    expect(registered).not.toContain('browser.type');
   });
 });

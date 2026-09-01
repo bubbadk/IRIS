@@ -73,9 +73,9 @@ The UI is object-oriented, spatial, and desktop-like. The visual reference in
    - Real-time project pulse stream in the right HUD under machine telemetry.
    - Visual dependency matrix (`Step 1 ➔ Step 2 ➔ Step 3`) with inline `[ ✓ Apply ]` / `[ ✕ Deny ]` tool permission gates and worker chat feed.
 2. **FP-AMB Memory Engine (`packages/memory`, `MemoryBenchmarkView.tsx`)**:
-   - Official **91.4% accuracy** score under First-Person Agent Memory Benchmark (512k tokens, 60 sessions, 679 turns).
+   - Measured **69.7% accuracy** on the 221 automatically gradeable questions of the official FP-AMB suite (154/221; 41 refusal/judgment questions are excluded from automated scoring because they require semantic/agent-in-the-loop grading). Real corpus: 60 sessions, 739 turns, ~819k indexed tokens.
    - Multi-tier BM25 lexical + semantic vector embedding + temporal chrono-resolution (session distance math & relative date deltas).
-   - In-app interactive benchmark dashboard in the Memory window with real-time verification exam runner.
+   - In-app interactive benchmark dashboard in the Memory window with real-time verification exam runner. No benchmark numbers are displayed before a real run.
 3. **1-Click In-App Auto-Updater (`UpdateNotificationModal.tsx`, `updateChecker.ts`)**:
    - Integrated with `@tauri-apps/plugin-updater` and `@tauri-apps/plugin-process`.
    - Real-time GitHub release polling from `bubbadk/IRIS`.

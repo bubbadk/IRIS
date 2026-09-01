@@ -257,6 +257,11 @@ export function SubtitlesState() {
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
+    // A run is stale as soon as abortControllerRef no longer points at its own
+    // controller (pause/reset cleared it, or a newer run replaced it). Stale
+    // loops must exit without writing any state, otherwise a reset or a fresh
+    // run gets clobbered by the outgoing loop's late setTranslatedMap calls.
+    const isStale = () => abortControllerRef.current !== abortController;
 
     const chunks = createTranslationChunks(parsedFile.cues, chunkSize, 3);
     const currentTranslated = new Map<number, string>(translatedMap);
@@ -299,7 +304,7 @@ export function SubtitlesState() {
       const targetModel = (selectedModel || selectedProvider.model).trim();
 
       for (let i = 0; i < chunks.length; i++) {
-        if (abortController.signal.aborted) break;
+        if (abortController.signal.aborted || isStale()) break;
 
         const chunk = chunks[i];
         // Check how many cues in this chunk still need translation
@@ -317,7 +322,7 @@ export function SubtitlesState() {
         let attempts = 0;
         let success = false;
 
-        while (attempts < 2 && !success && !abortController.signal.aborted) {
+        while (attempts < 2 && !success && !abortController.signal.aborted && !isStale()) {
           attempts++;
           try {
             const promptText = buildChunkTranslationPrompt(chunk, options);
@@ -348,19 +353,22 @@ export function SubtitlesState() {
             const expectedIds = chunk.cues.map((c) => c.id);
             const parsedChunkResults = parseChunkTranslationResponse(responseText, expectedIds);
 
-            if (parsedChunkResults.size > 0) {
-              for (const cue of chunk.cues) {
-                const translatedText = parsedChunkResults.get(cue.id);
-                if (translatedText) {
-                  currentTranslated.set(cue.id, translatedText);
-                } else if (!currentTranslated.has(cue.id) && attempts === 2) {
-                  // Fallback to original text if missing after retries
-                  currentTranslated.set(cue.id, cue.text);
-                }
+            for (const cue of chunk.cues) {
+              const translatedText = parsedChunkResults.get(cue.id);
+              if (translatedText && !currentTranslated.has(cue.id)) {
+                currentTranslated.set(cue.id, translatedText);
               }
+            }
+
+            // A batch counts as successful only when every cue in the chunk now
+            // has a translation. A partial response (e.g. 3 of 25 cues parsed)
+            // must be retried, not silently accepted with the rest left
+            // untranslated.
+            const stillMissing = chunk.cues.some((c) => !currentTranslated.has(c.id));
+            if (!stillMissing) {
               success = true;
-            } else if (attempts === 2) {
-              // Final fallback if model returned completely empty/unparseable response
+            } else if (attempts >= 2) {
+              // Final fallback: keep the original text for anything still missing.
               for (const cue of chunk.cues) {
                 if (!currentTranslated.has(cue.id)) {
                   currentTranslated.set(cue.id, cue.text);
@@ -369,7 +377,7 @@ export function SubtitlesState() {
               success = true;
             }
           } catch (chunkErr) {
-            if (abortController.signal.aborted) throw chunkErr;
+            if (abortController.signal.aborted || isStale()) throw chunkErr;
             if (attempts >= 2) {
               // Gracefully continue with original text on network error after retry
               for (const cue of chunk.cues) {
@@ -385,6 +393,7 @@ export function SubtitlesState() {
           }
         }
 
+        if (abortController.signal.aborted || isStale()) break;
         setTranslatedMap(new Map(currentTranslated));
         setProgress({
           status: 'translating',
@@ -396,7 +405,7 @@ export function SubtitlesState() {
         });
       }
 
-      if (!abortController.signal.aborted) {
+      if (!abortController.signal.aborted && !isStale()) {
         setActiveCueId(null);
         setProgress((prev) => ({
           ...prev,
@@ -405,7 +414,9 @@ export function SubtitlesState() {
         }));
       }
     } catch (err: unknown) {
-      if (abortController.signal.aborted) {
+      if (abortControllerRef.current !== abortController) {
+        // A reset or a newer run superseded this loop — do not touch any state.
+      } else if (abortController.signal.aborted) {
         setProgress((prev) => ({ ...prev, status: 'paused' }));
       } else {
         const msg = err instanceof Error ? err.message : String(err);
@@ -416,7 +427,9 @@ export function SubtitlesState() {
         }));
       }
     } finally {
-      abortControllerRef.current = null;
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
     }
   }
 

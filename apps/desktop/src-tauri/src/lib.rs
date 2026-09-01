@@ -2,6 +2,8 @@ use serde::Serialize;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::Manager;
 
@@ -328,23 +330,130 @@ fn command_needs_sudo(command: &str) -> bool {
     command.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-').any(|word| word == "sudo")
 }
 
+/// Collapse whitespace runs and strip quote/backslash characters so guardrail
+/// matching cannot be bypassed with `docker    rm`, tab separators, or
+/// `"docker ""rm"`-style quoting. Token-aware checks then work on the result.
+fn normalize_for_guardrail(command: &str) -> String {
+    let stripped: String = command
+        .chars()
+        .map(|c| if c == '"' || c == '\'' || c == '\\' { ' ' } else { c })
+        .collect();
+    stripped.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase()
+}
+
+/// Returns the guardrail reason when `command` tries to destroy a protected
+/// service or change network configuration, or None when allowed. Matching is
+/// token-aware: `ip addr show` must NOT trip the "add" mutator check (the old
+/// substring check blocked read-only diagnostics because "addr" contains "add").
+fn guardrail_violation(command: &str) -> Option<&'static str> {
+    let lowered = normalize_for_guardrail(command);
+    let padded = format!(" {lowered} ");
+    let protected_targets = [
+        "nginx-proxy-manager-official",
+        "unraid-cloudflared-tunnel",
+        "hermes-agent",
+        "litellm-proxy",
+        "postgresql18",
+        "mysql",
+        "dockersocket",
+    ];
+    let destructive = [
+        "docker stop",
+        "docker rm",
+        "docker rmi",
+        "docker kill",
+        "docker container stop",
+        "docker container rm",
+        "docker container kill",
+        "docker container rmi",
+    ];
+    if destructive.iter().any(|operation| lowered.contains(operation))
+        && protected_targets.iter().any(|target| lowered.contains(target))
+    {
+        return Some(
+            "Janitor guardrail blocked a destructive command against a protected service.",
+        );
+    }
+    // Prune commands cannot be scoped to a named container, so they can destroy
+    // stopped protected services invisibly — block them outright.
+    if lowered.contains("docker system prune") || lowered.contains("docker container prune") {
+        return Some(
+            "Janitor guardrail blocked an unscoped prune command that could destroy protected services.",
+        );
+    }
+    let network_objects = [
+        "ip addr",
+        "ip address",
+        "ip route",
+        "ip link",
+        "ip -6 addr",
+        "ip -6 route",
+        "nmcli",
+        "ifconfig",
+    ];
+    let mutators = [
+        " add ", " del ", " delete ", " replace ", " flush ", " set ", " modify ",
+    ];
+    if network_objects.iter().any(|object| lowered.contains(object))
+        && mutators.iter().any(|mutator| padded.contains(mutator))
+    {
+        return Some("Janitor guardrail blocked a network interface or route change.");
+    }
+    None
+}
+
 #[cfg(unix)]
-fn write_askpass_script() -> Result<std::path::PathBuf, String> {
+fn write_askpass_script(password: &str) -> Result<std::path::PathBuf, String> {
     let path = std::env::temp_dir().join(format!(
         "iris-askpass-{}-{}.sh",
         std::process::id(),
         Instant::now().elapsed().as_nanos()
     ));
-    std::fs::write(&path, "#!/bin/sh\nprintf '%s' \"$IRIS_SUDO_PW\"\n")
-        .map_err(|error| format!("Could not prepare the sudo password helper: {error}"))?;
+    // The password is embedded base64-encoded inside a 0700 script instead of a
+    // process environment variable: environments are inherited by every
+    // descendant process and readable via /proc/<pid>/environ, while this file
+    // is only readable by the owning user and is deleted after the run.
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(password.len().div_ceil(3) * 4);
+    for chunk in password.as_bytes().chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+        encoded.push(TABLE[(n >> 18) as usize & 63] as char);
+        encoded.push(TABLE[(n >> 12) as usize & 63] as char);
+        encoded.push(if chunk.len() > 1 { TABLE[(n >> 6) as usize & 63] as char } else { '=' });
+        encoded.push(if chunk.len() > 2 { TABLE[n as usize & 63] as char } else { '=' });
+    }
+    std::fs::write(
+        &path,
+        format!("#!/bin/sh\nprintf '%s' '{encoded}' | base64 -d\n"),
+    )
+    .map_err(|error| format!("Could not prepare the sudo password helper: {error}"))?;
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
         .map_err(|error| format!("Could not secure the sudo password helper: {error}"))?;
     Ok(path)
 }
 
 #[cfg(not(unix))]
-fn write_askpass_script() -> Result<std::path::PathBuf, String> {
+fn write_askpass_script(_password: &str) -> Result<std::path::PathBuf, String> {
     Err("SUDO askpass is only supported on Unix systems.".to_string())
+}
+
+#[cfg(unix)]
+fn kill_process_tree(pid: u32) {
+    // The child was started as its own process group leader (process_group(0)),
+    // so killing -pgid takes down wrappers and grandchildren that inherited the
+    // pipes — killing only the bash leader would leave those holding the pipe
+    // write ends and make the output collection below block forever.
+    unsafe {
+        libc::kill(-(pid as i32), libc::SIGKILL);
+    }
+}
+
+#[cfg(not(unix))]
+fn kill_process_tree(pid: u32) {
+    // On Windows the spawned process is not a job object; killing the direct
+    // child is the best available approximation here.
+    let _ = pid;
 }
 
 #[tauri::command]
@@ -362,58 +471,73 @@ fn run_janitor_command(
         return Err("Janitor command must contain 1-4000 characters.".to_string());
     }
     let sudo_password = sudo_password.filter(|value| !value.is_empty());
-    if target == "local" && command_needs_sudo(command) && sudo_password.is_none() {
+    let needs_sudo = command_needs_sudo(command);
+    // Applies to both targets now: on unraid, a passwordless remote sudo would
+    // otherwise silently block on the remote host until the timeout.
+    if needs_sudo && sudo_password.is_none() {
         return Err("SUDO_PASSWORD_REQUIRED".to_string());
     }
-    let lowered = command.to_ascii_lowercase();
-    let protected_targets = [
-        "nginx-proxy-manager-official",
-        "unraid-cloudflared-tunnel",
-        "hermes-agent",
-        "litellm-proxy",
-        "postgresql18",
-        "mysql",
-        "dockersocket",
-    ];
-    let destructive = ["docker stop", "docker rm", "docker rmi", "docker kill"];
-    if destructive
-        .iter()
-        .any(|operation| lowered.contains(operation))
-        && protected_targets
-            .iter()
-            .any(|target| lowered.contains(target))
-    {
-        return Err(
-            "Janitor guardrail blocked a destructive command against a protected service."
-                .to_string(),
-        );
+    if let Some(reason) = guardrail_violation(command) {
+        return Err(reason.to_string());
     }
-    if ["ip addr", "ip route", "nmcli", "ifconfig"]
-        .iter()
-        .any(|operation| lowered.contains(operation))
-        && ["set", "add", "del", "delete", "flush", "replace"]
-            .iter()
-            .any(|operation| lowered.contains(operation))
-    {
-        return Err("Janitor guardrail blocked a network interface or route change.".to_string());
-    }
-    // Bug this fixes: Command previously inherited stdin from the Tauri process. A `sudo`
-    // inside the command would then silently block waiting for a password on whatever
-    // terminal happened to launch IRIS — invisible from the GUI, and indistinguishable
-    // from a hang. stdin is now always Stdio::null() so nothing can block on it; a sudo
-    // password, when needed, is supplied via SUDO_ASKPASS instead (see below).
-    let askpass_script = if let Some(password) = sudo_password.as_deref() {
-        Some((write_askpass_script()?, password.to_string()))
-    } else {
-        None
+    // The sudo password is embedded inside a 0700 askpass script, never in a
+    // process environment variable (which every descendant would inherit and
+    // any same-user process could read via /proc/<pid>/environ).
+    let askpass_script = match sudo_password.as_deref() {
+        Some(password) => match write_askpass_script(password) {
+            Ok(path) => Some(path),
+            Err(error) => return Err(error),
+        },
+        None => None,
     };
     let wrapped_command = if askpass_script.is_some() {
-        // Force every `sudo` in the command through `-A` so it reads the password via
-        // SUDO_ASKPASS instead of trying (and failing, now that stdin is null) to read
-        // an interactive prompt.
+        // Force every `sudo` in the command through `-A` so it reads the password
+        // via SUDO_ASKPASS instead of trying (and failing, stdin is null) to
+        // prompt interactively.
         format!("sudo() {{ command sudo -A \"$@\"; }}; export -f sudo\n{command}")
     } else {
         command.to_string()
+    };
+    // For the unraid target with sudo, the remote command is piped as a bash
+    // script over ssh stdin (`unraid-ssh.sh bash -s`): the password preamble
+    // (`sudo -S -v`, which caches credentials for the session) never appears in
+    // any process argv on either machine, which passing it as an ssh argument
+    // would expose in the local process list.
+    let remote_script_file = if target == "unraid" && askpass_script.is_some() {
+        let password = sudo_password.clone().unwrap_or_default();
+        let encoded = {
+            const TABLE: &[u8; 64] =
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            let mut encoded = String::with_capacity(password.len().div_ceil(3) * 4);
+            for chunk in password.as_bytes().chunks(3) {
+                let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+                let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+                encoded.push(TABLE[(n >> 18) as usize & 63] as char);
+                encoded.push(TABLE[(n >> 12) as usize & 63] as char);
+                encoded.push(if chunk.len() > 1 { TABLE[(n >> 6) as usize & 63] as char } else { '=' });
+                encoded.push(if chunk.len() > 2 { TABLE[n as usize & 63] as char } else { '=' });
+            }
+            encoded
+        };
+        let script_path = std::env::temp_dir().join(format!(
+            "iris-unraid-{}-{}.sh",
+            std::process::id(),
+            Instant::now().elapsed().as_nanos()
+        ));
+        let script_content = format!(
+            "printf '%s' '{encoded}' | {{ base64 -d; printf '\\n'; }} | sudo -S -p '' -v\n{command}\n"
+        );
+        match std::fs::write(&script_path, script_content) {
+            Ok(()) => Some(script_path),
+            Err(error) => {
+                if let Some(path) = &askpass_script {
+                    let _ = std::fs::remove_file(path);
+                }
+                return Err(format!("Could not prepare the remote sudo script: {error}"));
+            }
+        }
+    } else {
+        None
     };
     let mut process_builder = if target == "local" {
         #[cfg(unix)]
@@ -432,7 +556,11 @@ fn run_janitor_command(
         #[cfg(unix)]
         {
             let mut builder = Command::new("/bin/bash");
-            builder.args(["/mnt/ai/handoff/unraid-ssh.sh", command]);
+            if remote_script_file.is_some() {
+                builder.args(["/mnt/ai/handoff/unraid-ssh.sh", "bash", "-s"]);
+            } else {
+                builder.args(["/mnt/ai/handoff/unraid-ssh.sh", command]);
+            }
             builder
         }
         #[cfg(windows)]
@@ -442,16 +570,36 @@ fn run_janitor_command(
             builder
         }
     };
-    process_builder.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    if let Some((script_path, password)) = &askpass_script {
-        process_builder
-            .env("SUDO_ASKPASS", script_path)
-            .env("IRIS_SUDO_PW", password);
+    let remote_stdin = match &remote_script_file {
+        Some(path) => match std::fs::File::open(path) {
+            Ok(file) => Stdio::from(file),
+            Err(error) => {
+                if let Some(path) = &askpass_script {
+                    let _ = std::fs::remove_file(path);
+                }
+                let _ = remote_script_file.as_ref().map(std::fs::remove_file);
+                return Err(format!("Could not read the remote sudo script: {error}"));
+            }
+        },
+        None => Stdio::null(),
+    };
+    process_builder.stdin(remote_stdin).stdout(Stdio::piped()).stderr(Stdio::piped());
+    if let Some(script_path) = &askpass_script {
+        process_builder.env("SUDO_ASKPASS", script_path);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Own process group so the timeout can kill the whole tree.
+        process_builder.process_group(0);
     }
     let spawn_result = process_builder.spawn();
     let cleanup_askpass = || {
-        if let Some((script_path, _)) = &askpass_script {
-            let _ = std::fs::remove_file(script_path);
+        if let Some(path) = &askpass_script {
+            let _ = std::fs::remove_file(path);
+        }
+        if let Some(path) = &remote_script_file {
+            let _ = std::fs::remove_file(path);
         }
     };
     let mut process = match spawn_result {
@@ -461,32 +609,98 @@ fn run_janitor_command(
             return Err(format!("Could not start Janitor command: {error}"));
         }
     };
+    // Drain stdout/stderr on dedicated threads. Reading in the wait loop itself
+    // would stall the poll while the child fills the 64 KiB pipe buffer; without
+    // draining, any command producing more output than that would hang until the
+    // deadline even though it is healthy. Each thread reports EOF via a flag so
+    // the collection step can distinguish "pipes closed" from "a grandchild is
+    // still holding the write end".
+    let (stdout_done, stderr_done) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    fn drain_pipe(
+        pipe: impl std::io::Read + Send + 'static,
+        done: Arc<AtomicBool>,
+    ) -> std::thread::JoinHandle<Vec<u8>> {
+        std::thread::spawn(move || {
+            let mut buffer = Vec::new();
+            let mut child_pipe = pipe;
+            let mut chunk = [0u8; 8192];
+            loop {
+                match child_pipe.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => buffer.extend_from_slice(&chunk[..n]),
+                    Err(_) => break,
+                }
+            }
+            done.store(true, Ordering::SeqCst);
+            buffer
+        })
+    }
+    let mut stdout_handle = process
+        .stdout
+        .take()
+        .map(|pipe| drain_pipe(pipe, Arc::clone(&stdout_done)));
+    let mut stderr_handle = process
+        .stderr
+        .take()
+        .map(|pipe| drain_pipe(pipe, Arc::clone(&stderr_done)));
     let deadline = Instant::now() + Duration::from_secs(60);
-    let timed_out = loop {
+    let mut timed_out = false;
+    loop {
         match process.try_wait() {
-            Ok(Some(_)) => break false,
+            Ok(Some(_)) => break,
             Ok(None) => {}
             Err(error) => {
+                kill_process_tree(process.id());
+                if let Some(handle) = stdout_handle.take() {
+                    let _ = handle.join();
+                }
+                if let Some(handle) = stderr_handle.take() {
+                    let _ = handle.join();
+                }
                 cleanup_askpass();
                 return Err(format!("Could not inspect Janitor command: {error}"));
             }
         }
         if Instant::now() >= deadline {
-            if let Err(error) = process.kill() {
-                cleanup_askpass();
-                return Err(format!("Could not stop Janitor command: {error}"));
+            timed_out = true;
+            kill_process_tree(process.id());
+            // SIGKILL closes every holder of the pipe write ends in the group,
+            // so the drain threads reach EOF and can be joined.
+            if let Some(handle) = stdout_handle.take() {
+                let _ = handle.join();
             }
-            break true;
+            if let Some(handle) = stderr_handle.take() {
+                let _ = handle.join();
+            }
+            let _ = process.wait();
+            break;
         }
         std::thread::sleep(Duration::from_millis(50));
-    };
-    let output = match process.wait_with_output() {
-        Ok(output) => output,
-        Err(error) => {
-            cleanup_askpass();
-            return Err(format!("Could not collect Janitor command output: {error}"));
+    }
+    if !timed_out {
+        // The main process exited but grandchildren may still hold the pipe
+        // write ends. Give well-behaved daemons a short grace period to close
+        // them, then force EOF by killing the (own) process group — otherwise
+        // output collection would block forever on a stray holder.
+        let drain_deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < drain_deadline
+            && !(stdout_done.load(Ordering::SeqCst) && stderr_done.load(Ordering::SeqCst))
+        {
+            std::thread::sleep(Duration::from_millis(10));
         }
-    };
+        if !(stdout_done.load(Ordering::SeqCst) && stderr_done.load(Ordering::SeqCst)) {
+            kill_process_tree(process.id());
+        }
+    }
+    let stdout_bytes = stdout_handle
+        .take()
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_default();
+    let stderr_bytes = stderr_handle
+        .take()
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_default();
+    let exit_code = process.try_wait().ok().flatten().and_then(|status| status.code());
     cleanup_askpass();
     let limit = 64 * 1024;
     let truncate = |bytes: Vec<u8>| {
@@ -500,17 +714,17 @@ fn run_janitor_command(
             text
         }
     };
-    let mut stderr = truncate(output.stderr);
+    let mut stderr = truncate(stderr_bytes);
     if timed_out {
         stderr.push_str("\n[command timed out after 60 seconds and was stopped]");
     }
-    if askpass_script.is_some() && output.status.code() == Some(1) && stderr.contains("incorrect password attempt") {
+    if askpass_script.is_some() && exit_code == Some(1) && stderr.contains("incorrect password attempt") {
         stderr.push_str("\n[the sudo password was incorrect]");
     }
     Ok(JanitorCommandResult {
         target,
-        exit_code: output.status.code(),
-        stdout: truncate(output.stdout),
+        exit_code,
+        stdout: truncate(stdout_bytes),
         stderr,
     })
 }
@@ -777,4 +991,61 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running IRIS");
+}
+
+#[cfg(test)]
+mod janitor_tests {
+    use super::{command_needs_sudo, guardrail_violation, normalize_for_guardrail};
+
+    #[test]
+    fn normalize_collapses_whitespace_and_quotes() {
+        assert_eq!(normalize_for_guardrail("Docker\t \"rm\"  \n nginx"), "docker rm nginx");
+        assert_eq!(normalize_for_guardrail("docker    rm"), "docker rm");
+    }
+
+    #[test]
+    fn guardrail_blocks_protected_service_destruction() {
+        for command in [
+            "docker rm -f nginx-proxy-manager-official",
+            "docker  rm  nginx-proxy-manager-official",
+            "docker\tcontainer\trm nginx-proxy-manager-official",
+            "docker stop hermes-agent",
+            "docker system prune -af",
+            "echo rm; docker rmi litellm-proxy",
+        ] {
+            assert!(
+                guardrail_violation(command).is_some(),
+                "should block: {command}"
+            );
+        }
+    }
+
+    #[test]
+    fn guardrail_blocks_quoting_bypass() {
+        assert!(guardrail_violation("\"docker \"\"rm\" nginx-proxy-manager-official").is_some());
+    }
+
+    #[test]
+    fn guardrail_blocks_network_changes_but_not_readonly_diagnostics() {
+        assert!(guardrail_violation("ip addr show").is_none());
+        assert!(guardrail_violation("ip route list").is_none());
+        assert!(guardrail_violation("nmcli device status").is_none());
+        assert!(guardrail_violation("ip addr add 192.168.1.5 dev eth0").is_some());
+        assert!(guardrail_violation("nmcli connection modify eth0 ipv4.dns 1.1.1.1").is_some());
+        assert!(guardrail_violation("ip route flush all").is_some());
+    }
+
+    #[test]
+    fn guardrail_allows_ordinary_janitor_work() {
+        assert!(guardrail_violation("docker ps -a --format '{{.Names}}'").is_none());
+        assert!(guardrail_violation("df -h && uptime").is_none());
+    }
+
+    #[test]
+    fn sudo_detection_matches_standalone_word() {
+        assert!(command_needs_sudo("sudo docker ps"));
+        assert!(command_needs_sudo("echo ok && sudo -v"));
+        assert!(!command_needs_sudo("sudoku --solve"));
+        assert!(!command_needs_sudo("docker ps"));
+    }
 }

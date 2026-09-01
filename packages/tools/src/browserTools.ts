@@ -75,7 +75,7 @@ export function createBrowserNavigateTool(
     id: 'browser.navigate',
     name: 'Browser Navigate',
     description:
-      'Navigates to a web URL in a headless browser session, inspects DOM structure, and returns interactive elements and content.',
+      'Fetches a web page over HTTP (no JavaScript execution) and parses the HTML for title, headings, interactive elements, and body text.',
     risk: 'read',
     inputSchema: {
       type: 'object',
@@ -194,7 +194,7 @@ export function createBrowserClickTool(): RegisteredTool {
     id: 'browser.click',
     name: 'Browser Click',
     description:
-      'Simulates clicking an interactive element (button, link, tab) in a headless browser session.',
+      'NOT AVAILABLE: IRIS has no headless browser backend, so elements cannot actually be clicked. Calling this tool always fails.',
     risk: 'execute',
     inputSchema: {
       type: 'object',
@@ -215,19 +215,10 @@ export function createBrowserClickTool(): RegisteredTool {
       required: ['url'],
       additionalProperties: false,
     },
-    async run(input: unknown): Promise<BrowserClickOutput> {
-      if (!input || typeof input !== 'object') {
-        throw new Error('Browser click requires an input object.');
-      }
-      const { url, selector, text } = input as BrowserClickInput;
-      const target = selector || text || 'unspecified element';
-      return {
-        url,
-        action: 'clicked',
-        target,
-        success: true,
-        message: `Successfully clicked target element "${target}" on ${url}.`,
-      };
+    async run(): Promise<BrowserClickOutput> {
+      throw new Error(
+        'browser.click is not available: IRIS has no headless browser backend. No element was clicked. Use browser.navigate to inspect page structure instead.',
+      );
     },
   };
 }
@@ -237,7 +228,7 @@ export function createBrowserTypeTool(): RegisteredTool {
     id: 'browser.type',
     name: 'Browser Type Text',
     description:
-      'Simulates keyboard typing into an input field or textarea in a headless browser session.',
+      'NOT AVAILABLE: IRIS has no headless browser backend, so text cannot actually be typed into fields. Calling this tool always fails.',
     risk: 'execute',
     inputSchema: {
       type: 'object',
@@ -258,18 +249,10 @@ export function createBrowserTypeTool(): RegisteredTool {
       required: ['url', 'selector', 'text'],
       additionalProperties: false,
     },
-    async run(input: unknown): Promise<BrowserTypeOutput> {
-      if (!input || typeof input !== 'object') {
-        throw new Error('Browser type requires an input object.');
-      }
-      const { url, selector, text } = input as BrowserTypeInput;
-      return {
-        url,
-        action: 'typed',
-        selector,
-        textLength: text?.length || 0,
-        success: true,
-      };
+    async run(): Promise<BrowserTypeOutput> {
+      throw new Error(
+        'browser.type is not available: IRIS has no headless browser backend. No text was typed. Use browser.navigate to inspect page structure instead.',
+      );
     },
   };
 }
@@ -283,7 +266,7 @@ export function createBrowserVisionTool(
     id: 'browser.vision',
     name: 'Browser Vision Snapshot',
     description:
-      'Captures an agent-readable visual layout and structure snapshot of a webpage for multimodal reasoning.',
+      'Fetches a web page over HTTP (no JavaScript execution) and returns a text-based structural snapshot (title, headings, element counts, body text) for reasoning. This is not a rendered visual screenshot.',
     risk: 'read',
     inputSchema: {
       type: 'object',
@@ -363,10 +346,10 @@ export function createBrowserVisionTool(
 export function createAllBrowserTools(
   customFetch?: (url: string, init?: RequestInit) => Promise<Response>,
 ): RegisteredTool[] {
+  // browser.click and browser.type are intentionally NOT registered: IRIS has no
+  // headless browser backend, and registering them would present fake affordances.
   return [
     createBrowserNavigateTool(customFetch),
-    createBrowserClickTool(),
-    createBrowserTypeTool(),
     createBrowserVisionTool(customFetch),
   ];
 }

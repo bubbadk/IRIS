@@ -16,7 +16,11 @@ export interface ImageGenerationOutput {
   revisedPrompt?: string;
   dimensions: string;
   status: 'completed' | 'failed';
+  /** Present when status is 'failed': why the gateway could not serve the image. */
+  message?: string;
 }
+
+const ALLOWED_SIZES = ['1024x1024', '1024x1792', '1792x1024', '512x512', '768x768'] as const;
 
 export function createImageGenerationTool(
   customFetch?: (url: string, init?: RequestInit) => Promise<Response>,
@@ -75,6 +79,14 @@ export function createImageGenerationTool(
 
       if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
         throw new Error('Prompt must be a non-empty string.');
+      }
+      // The schema constrains size, but input can arrive through paths that
+      // bypass schema validation — an invalid size would otherwise produce a
+      // width=NaN request URL.
+      if (size && !ALLOWED_SIZES.includes(size)) {
+        throw new Error(
+          `Invalid size "${size}". Allowed sizes: ${ALLOWED_SIZES.join(', ')}.`,
+        );
       }
 
       if (!fetchImpl) {
@@ -155,10 +167,22 @@ export function createImageGenerationTool(
         const encodedPrompt = encodeURIComponent(enhancedPrompt);
         const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width || 1024}&height=${height || 1024}&model=flux&nologo=true&seed=${Math.floor(Math.random() * 100000)}`;
 
-        // Verify image availability
-        const probe = await fetchImpl(imageUrl, { method: 'HEAD' });
-        if (!probe.ok && probe.status !== 405) {
-          // If HEAD blocked, the URL is still directly loadable by browser
+        // Verify image availability. HEAD can be rejected by method-restricting
+        // gateways (405/501), so fall back to a GET before claiming failure —
+        // but never report success for a URL the gateway cannot serve.
+        let probe = await fetchImpl(imageUrl, { method: 'HEAD' });
+        if (probe.status === 405 || probe.status === 501) {
+          probe = await fetchImpl(imageUrl, { method: 'GET' });
+        }
+        if (!probe.ok) {
+          return {
+            prompt: prompt.trim(),
+            url: imageUrl,
+            model: model || 'flux',
+            dimensions: size,
+            status: 'failed',
+            message: `The image gateway could not serve this image (HTTP ${probe.status}).`,
+          };
         }
 
         return {
