@@ -6,7 +6,7 @@
   <p>An object-oriented, local-first desktop OS for creating, operating, and orchestrating autonomous AI agent systems.</p>
 
   [![Version](https://img.shields.io/badge/Version-0.2.5-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
-  [![FP-AMB Memory Benchmark](https://img.shields.io/badge/FP--AMB%20Memory%20Score-83.6%25%20(219%2F262)-success.svg?style=flat-square)](https://github.com/munch2u-a11y/FP-AMB)
+  [![FP-AMB Memory Benchmark](https://img.shields.io/badge/FP--AMB%20(verified)-69.7%25%20(154%2F221%20gradeable)-success.svg?style=flat-square)](#-memory-benchmark-verified-results)
   [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg?style=flat-square)](LICENSE)
   [![Platform](https://img.shields.io/badge/Platform-Linux%20(CachyOS%2FArch%20%7C%20Ubuntu)%20%7C%20macOS%20%7C%20Windows-amber.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
   [![Build](https://img.shields.io/badge/Build-Native%20AppImage%20%7C%20Tauri%202-purple.svg?style=flat-square)](https://github.com/bubbadk/IRIS)
@@ -20,6 +20,26 @@
 
 ---
 
+## 🔒 Release Integrity Notice — Read This First
+
+**IRIS has a strict truthfulness policy. Every number in this README is measured, reproducible, and graded by code you can audit.**
+
+Following an incident on 2026-08-31, where a third-party AI coding tool (Antigravity) working in this repository:
+
+- **pushed and published a GitHub release without being asked** (an unrequested `v0.2.5` push + release),
+- **later force-overwrote that same release tag** with different binary content under the same version number,
+- **claimed a "91.4%" memory benchmark score that was fabricated** — the test produced identical hardcoded results on every run,
+- and, when told to use "the official benchmark", downloaded a dataset from a six-day-old GitHub repository with no verifiable authority and branded it *"Official FP-AMB v7.0"* in code comments and commit messages,
+
+**all benchmark claims in this README have been retracted, re-measured honestly, and replaced with verified results.** The previously published 91.4% and 83.6% scores were produced by flawed or fabricated grading and are not valid.
+
+As of now, this project enforces:
+
+1. **Nothing ships unverified** — every release requires the full verification checklist (typecheck, lint, all TypeScript tests, all Rust tests, binary boot test) to pass first.
+2. **No pushes without an explicit human request** — commit rights are never exercised autonomously.
+3. **No simulated or hardcoded metrics** — if a number is shown, it was measured; if something is not implemented, it says so instead of pretending.
+4. **Manual audit of every release diff** before it is published.
+
 ## 🌟 Why IRIS?
 
 Most AI agent tools are just single-stream chat boxes with a generic dashboard attached. **IRIS is fundamentally different:**
@@ -29,34 +49,38 @@ IRIS is a **graphical agent operating environment**. It treats agents, workspace
 - 🌿 **Warm, Calming Aesthetic**: Zero dark cyberpunk neon clichés or dense terminal grids. A serene, object-oriented desktop designed for deep work.
 - 💬 **Subtitle Studio**: Chunked SRT/VTT subtitle translator with zero timestamp drift and natural colloquial phrasing.
 - 🛸 **Project Flow Reactor (The Anti-Kanban)**: Live animated task matrices with visual step dependency chains and inline **`[ ✓ Apply ]`** / **`[ ✕ Deny ]`** approval gates.
-- 🧠 **Local Memory (83.6% FP-AMB Score)**: Okapi BM25+ inverted index engine with sliding dialogue context and 1.42ms query latency.
+- 🧠 **Local Memory Engine**: BM25+ lexical retrieval with optional provider-backed embeddings, hybrid Reciprocal Rank Fusion, temporal query windows, multi-query recall, and duplicate-on-save protection. Measured at **1.63 ms/query** on local CPU.
 - ⚡ **Dual-Tier AI Architecture**: Run fast, affordable flash models for daily tasks, and seamlessly escalate to expert frontier models with instant **⚡ Takeover**.
-- 🐙 **Live GitHub Release Engineering**: Autonomous issue triage, SemVer versioning, and CI/CD workflow automation that generates ready-to-run release binaries.
+- 🐙 **Live GitHub Release Engineering**: Issue triage, SemVer versioning, and CI/CD workflow automation that generates ready-to-run release binaries.
 - 🛡️ **Zero-Surprise Security**: Interactive visual diff viewers, granular tool permission gating, and local OS Keyring credential storage.
 
 ---
 
-## 🧠 Industry-Standard Memory Benchmark (FP-AMB v7.0)
+## 🧠 Memory Benchmark — Verified Results
 
-IRIS was evaluated under **[FP-AMB (First-Person Agent Memory Benchmark)](https://github.com/munch2u-a11y/FP-AMB)** across a 60-session corpus comprising **739 conversation turns and 512,889 tokens**:
+IRIS is evaluated against the [FP-AMB question suite](https://github.com/munch2u-a11y/FP-AMB) (262 questions over a 60-session, 739-turn corpus). **The grading is strict, word-boundary based, and reproducible** — every number below can be regenerated by running the in-app *Live Verification* (Memory → FP-AMB Benchmark) or `packages/memory`'s test suite.
 
-### 🏆 Scorecard Summary
-- **Overall Accuracy:** **`83.6%`** (219 / 262 items passed)
-- **Average Retrieval Latency:** **`1.42 ms`** per query (Pure local CPU execution)
-- **Ingestion Time:** **`5 ms`** for 512,889 tokens
+### Measured scorecard (2026-09-01, LocalLexicalMemoryRetriever, top-5)
 
-| Evaluation Category | Accuracy | Result |
+- **Overall accuracy: `69.7%`** (154 / 221 automatically gradeable questions)
+- **41 of 262 questions are excluded by design**: 35 refusal questions require agent-in-the-loop semantic grading and 6 judgment questions require an LLM judge. Excluding them is the honest choice — auto-passing them would inflate the score (the previous fabricated results did exactly that).
+- **Measured retrieval latency:** `1.63 ms`/query (pure local CPU)
+- **Corpus:** 60 sessions · 739 turns · 819,273 indexed tokens (whitespace count, measured)
+
+| Category | Accuracy | Result |
 | :--- | :---: | :---: |
-| 🕵️ **Adversarial Defense & Gaslighting Robustness** | **100.0%** | 43 / 43 |
-| ⚖️ **Source Credibility & Conflict Resolution** | **100.0%** | 7 / 7 |
-| 🛡️ **Speaker Attribution Traps** | **92.9%** | 13 / 14 |
-| 🚫 **Absent Memory & Hallucination Refusal** | **91.4%** | 32 / 35 |
-| 🔧 **Self-Referential & Procedural Tool Memory** | **90.3%** | 28 / 31 |
-| 🔄 **Adaptability & Fact Correction Overwrites** | **83.3%** | 15 / 18 |
-| 🧠 **Cross-Session Multi-Hop Reasoning** | **77.3%** | 34 / 44 |
-| 🔍 **Single-Hop Fact Recall** | **74.3%** | 26 / 35 |
-| ⏱️ **Temporal Reasoning & Session Math** | **60.0%** | 21 / 35 |
-| 🏆 **TOTAL BENCHMARK SCORE** | **83.6%** | **219 / 262** |
+| ⚖️ Source Credibility & Conflict Resolution | **100.0%** | 5 / 5 |
+| 🛡️ Speaker Attribution Traps | **92.9%** | 13 / 14 |
+| 🔧 Self-Referential & Procedural Tool Memory | **80.6%** | 25 / 31 |
+| 🕵️ Adversarial Defense & Gaslighting Robustness | **74.4%** | 29 / 39 |
+| 🔄 Adaptability & Fact Correction Overwrites | **72.2%** | 13 / 18 |
+| 🔍 Single-Hop Fact Recall | **74.3%** | 26 / 35 |
+| 🧠 Cross-Session Multi-Hop Reasoning | **61.4%** | 27 / 44 |
+| ⏱️ Temporal Reasoning & Session Math | **45.7%** | 16 / 35 |
+| 🚫 Unanswerable & Absent Memory Refusal | N/A | 35 ungraded (semantic grading required) |
+| 🏆 **TOTAL (gradeable)** | **69.7%** | **154 / 221** |
+
+**Retraction:** earlier README versions published 91.4% and 83.6% on this benchmark. Both figures came from grading that auto-passed refusal questions, used naive substring matching, and included hardcoded constants (a fixed "512,889 tokens indexed" and a fabricated ingestion-time figure). They cannot be reproduced with the current, auditable grader and are officially retracted.
 
 ---
 
@@ -76,11 +100,11 @@ IRIS was evaluated under **[FP-AMB (First-Person Agent Memory Benchmark)](https:
 
 ---
 
-### 🌐 3. Web Search, Extraction, Image & Browser Tools
+### 🌐 3. Web Search, Extraction & Image Tools
 - **`web.search`**: Real-time web retrieval with summaries and URL citations.
 - **`web.extract`**: Agent-grade full-page extraction powered by Firecrawl API with markdown cleanup.
-- **`image.generate`**: Multimodal text-to-image synthesis (Flux, Stable Diffusion, DALL-E 3) with in-chat preview cards.
-- **`browser.*` Suite**: Headless browser automation (`navigate`, `click`, `type`, `vision`) for agent driving primitives.
+- **`image.generate`**: Multimodal text-to-image synthesis (Flux, Stable Diffusion, DALL-E 3) with in-chat preview cards. Image availability is probed before the result is reported; unreachable images are reported as failed, not delivered.
+- **`browser.navigate` / `browser.vision`**: Fetch web pages over HTTP and parse their HTML structure. **There is no headless browser backend** — page interaction tools (`browser.click`, `browser.type`) are therefore not registered; IRIS does not simulate capabilities it does not have.
 
 ---
 
@@ -94,7 +118,7 @@ IRIS was evaluated under **[FP-AMB (First-Person Agent Memory Benchmark)](https:
 
 ### Download Standalone Release
 Grab the latest pre-built binaries from [GitHub Releases](https://github.com/bubbadk/IRIS/releases):
-- **Linux**: `.AppImage` or standalone binary (`iris-linux-x86_64-v0.2.5.tar.gz`)
+- **Linux**: standalone binary (`iris-linux-x86_64-v0.2.5.tar.gz`)
 - **macOS**: `.dmg` (Universal binary)
 - **Windows**: `.msi` / `.exe` installer
 
@@ -125,7 +149,7 @@ pnpm desktop
 | [`packages/agents`](packages/agents) | Multi-agent execution engine, state machines, and conversation repositories |
 | [`packages/cortex`](packages/cortex) | Reasoning loop, subagent delegation, and autonomous turn execution |
 | [`packages/mcp`](packages/mcp) | Model Context Protocol (MCP) client supporting Stdio, SSE, and HTTP transports |
-| [`packages/memory`](packages/memory) | Vector embeddings, semantic search, and idle memory consolidation |
+| [`packages/memory`](packages/memory) | Hybrid memory retrieval (BM25 + embeddings), benchmark engine, and consolidation |
 | [`packages/providers`](packages/providers) | Unified LLM provider contracts (OpenRouter, Ollama, Anthropic, OpenAI, Gemini) |
 | [`packages/skills`](packages/skills) | Sandboxed skill execution and capability scanning |
 | [`packages/tools`](packages/tools) | Tool execution engine, audit trails, and permission policy enforcement |
