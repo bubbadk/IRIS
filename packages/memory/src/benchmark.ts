@@ -11,19 +11,39 @@ export interface BenchmarkCategoryResult {
   icon: string;
   desc: string;
   passed: number;
+  /** Questions that were automatically gradeable in this category. */
   total: number;
   scorePct: number;
+  /** Questions excluded from automated scoring (semantic grading required). */
+  ungraded: number;
 }
 
 export interface BenchmarkRunResult {
   overallAccuracy: number;
   totalPassed: number;
+  /** Gradeable questions actually scored. */
   totalQuestions: number;
+  /** Questions excluded from automated scoring (judgment/refusal categories). */
+  ungradedQuestions: number;
+  gradingNotes: string[];
   averageLatencyMs: number;
   ingestionSpeedMs: number;
+  /** Whitespace-token count measured over the actually indexed records. */
   totalTokensIndexed: number;
+  sessionsIngested: number;
+  turnsIngested: number;
   categories: BenchmarkCategoryResult[];
   completedAt: string;
+}
+
+export interface BenchmarkOptions {
+  /**
+   * Optional agent-in-the-loop answer function. When provided, refusal
+   * (unanswerable) questions are answered semantically and graded against the
+   * official refusal answer key. Without it those questions are excluded from
+   * scoring because retrieval-only grading cannot verify a refusal.
+   */
+  answerQuestion?: (question: string, retrievedContext: string) => Promise<string>;
 }
 
 const CATEGORY_META: Record<string, { icon: string; desc: string }> = {
@@ -65,46 +85,95 @@ const CATEGORY_META: Record<string, { icon: string; desc: string }> = {
   },
 };
 
-function scoreOfficialQuestion(
-  q: FpAmbQuestion,
-  results: MemoryRecord[],
-): number {
-  const context = results.map((r) => r.content).join('\n').toLowerCase();
-  const cat = q.category;
+const UNANSWERABLE_CATEGORY = 'Unanswerable & Absent Memory Refusal';
 
-  if (cat === 'Unanswerable & Absent Memory Refusal' || cat.includes('Absent')) {
-    let distractor = false;
-    const qLower = q.question.toLowerCase();
-    if (qLower.includes('tokyo') && context.includes('tokyo') && !context.includes('vacation')) {
-      distractor = true;
-    } else if (qLower.includes('electric car') && context.includes('electric car') && !context.includes('purchased')) {
-      distractor = true;
-    } else if (qLower.includes('dog') && context.includes('dog') && !context.includes('sarah')) {
-      distractor = true;
-    }
-    return distractor ? 0 : 1;
+/** Lowercase, strip punctuation, and collapse whitespace so matching is token-based. */
+function normalize(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Space-padded haystack so `containsToken` only matches on token boundaries. */
+function paddedNormalized(text: string): string {
+  return ` ${normalize(text)} `;
+}
+
+function containsPhrase(haystack: string, phrase: string): boolean {
+  const needle = normalize(phrase);
+  if (!needle) return false;
+  return haystack.includes(` ${needle} `);
+}
+
+function isUnanswerable(q: FpAmbQuestion): boolean {
+  return (
+    q.category === UNANSWERABLE_CATEGORY ||
+    q.grading_mode === 'refusal' ||
+    /not mentioned|unknown/i.test(q.ground_truth_answer)
+  );
+}
+
+/**
+ * Grade one question against the retrieved records. Grading always uses the
+ * raw per-turn content (never the retrieval sliding-window expansion), so an
+ * accepted answer can only match a record it actually appears in.
+ */
+export function gradeOfficialQuestion(
+  q: FpAmbQuestion,
+  rawContext: string,
+): { score: 0 | 1; excluded: boolean } {
+  const normalizedRawContext = paddedNormalized(rawContext);
+
+  // "judgment" mode is graded semantically by the official benchmark (LLM
+  // judge). A keyword match would be a fabricated score, so exclude.
+  if (q.grading_mode === 'judgment') {
+    return { score: 0, excluded: true };
   }
 
-  const acceptedList = q.accepted_answers && q.accepted_answers.length > 0
-    ? q.accepted_answers
-    : [q.ground_truth_answer];
+  // List mode: every list_items group (a set of alternative phrasings for one
+  // required item) must be matched for the question to pass.
+  if (q.grading_mode === 'list' && q.list_items && q.list_items.length > 0) {
+    const allMatched = q.list_items.every((group) =>
+      group.some((alt) => containsPhrase(normalizedRawContext, alt)),
+    );
+    return { score: allMatched ? 1 : 0, excluded: false };
+  }
+
+  // Refusal questions need an agent answer, not retrieval, to verify.
+  if (isUnanswerable(q)) {
+    return { score: 0, excluded: true };
+  }
+
+  const acceptedList =
+    q.accepted_answers && q.accepted_answers.length > 0
+      ? q.accepted_answers
+      : [q.ground_truth_answer];
 
   const hasMatch = acceptedList.some((ans) => {
     if (!ans) return false;
-    const clean = ans.toLowerCase().trim();
-    if (!clean) return false;
-    return context.includes(clean);
+    return containsPhrase(normalizedRawContext, ans);
   });
-
-  return hasMatch ? 1 : 0;
+  return { score: hasMatch ? 1 : 0, excluded: false };
 }
 
-export async function runRealMemoryBenchmark(
-  retriever: MemoryRetriever = new LocalLexicalMemoryRetriever(),
-  onProgress?: (progressPct: number, currentCategory: string, partial?: Partial<BenchmarkRunResult>) => void,
-): Promise<BenchmarkRunResult> {
-  const tIngestStart = performance.now();
+export interface BenchmarkCorpus {
+  /** Sliding-window expanded records, used for retrieval. */
+  records: MemoryRecord[];
+  /** Raw per-turn content by record id, used for grading. */
+  rawContentById: Map<string, string>;
+  sessionsIngested: number;
+  turnsIngested: number;
+  totalTokensIndexed: number;
+}
 
+/**
+ * Builds the retrieval corpus (sliding-window expanded) plus the raw-content
+ * map used for grading. Exported so retrieval variants can be measured against
+ * the official grader without duplicating corpus construction.
+ */
+export function buildBenchmarkCorpus(): BenchmarkCorpus {
   const rawRecords = FP_AMB_OFFICIAL_CORPUS.map((turn, i) => {
     const text = turn.text || turn.content || '';
     const speaker = turn.speaker || 'User';
@@ -136,7 +205,9 @@ export async function runRealMemoryBenchmark(
     };
   });
 
-  // Conversation Sliding-Window: Include preceding and following dialogue cues
+  // Conversation sliding window: neighbors are copied in so lexical retrieval
+  // can see dialogue cues. These expanded records are used for retrieval only —
+  // grading uses the raw per-turn content.
   const records: MemoryRecord[] = rawRecords.map((r, i) => {
     const prev = i > 0 && rawRecords[i - 1].sessionId === r.sessionId ? rawRecords[i - 1].content : '';
     const next = i < rawRecords.length - 1 && rawRecords[i + 1].sessionId === r.sessionId ? rawRecords[i + 1].content : '';
@@ -150,10 +221,43 @@ export async function runRealMemoryBenchmark(
     };
   });
 
-  const totalTokensIndexed = 512889;
+  const rawContentById = new Map(rawRecords.map((r) => [r.id, r.content]));
+  const sessionsIngested = new Set(rawRecords.map((r) => r.sessionId)).size;
+  const turnsIngested = records.length;
+  const totalTokensIndexed = records.reduce(
+    (sum, r) => sum + r.content.split(/\s+/).filter(Boolean).length,
+    0,
+  );
+  return { records, rawContentById, sessionsIngested, turnsIngested, totalTokensIndexed };
+}
+
+const REFUSAL_KEY_PHRASES = [
+  'unknown',
+  'not mentioned',
+  'not discussed',
+  'no information',
+  'never mentioned',
+  'do not know',
+  "don't know",
+  'no record',
+  'cannot find',
+  'not in the memory',
+];
+
+export async function runRealMemoryBenchmark(
+  retriever: MemoryRetriever = new LocalLexicalMemoryRetriever(),
+  onProgress?: (progressPct: number, currentCategory: string, partial?: Partial<BenchmarkRunResult>) => void,
+  options: BenchmarkOptions = {},
+): Promise<BenchmarkRunResult> {
+  const tIngestStart = performance.now();
+  const { records, rawContentById, sessionsIngested, turnsIngested, totalTokensIndexed } =
+    buildBenchmarkCorpus();
   const ingestionSpeedMs = Math.max(1, performance.now() - tIngestStart);
 
-  onProgress?.(5, `Ingested 60 sessions (${records.length} turns, ~512k tokens)...`);
+  onProgress?.(
+    5,
+    `Ingested ${sessionsIngested} sessions (${turnsIngested} turns, ${totalTokensIndexed} tokens)...`,
+  );
 
   const categoryGroups = new Map<string, FpAmbQuestion[]>();
   for (const q of FP_AMB_OFFICIAL_QUESTIONS) {
@@ -163,8 +267,10 @@ export async function runRealMemoryBenchmark(
   }
 
   const categoryResults: BenchmarkCategoryResult[] = [];
+  const gradingNotes: string[] = [];
   let totalPassed = 0;
   let totalTestsRun = 0;
+  let totalUngraded = 0;
   let totalQueryTimeMs = 0;
   const totalQuestions = FP_AMB_OFFICIAL_QUESTIONS.length;
 
@@ -172,6 +278,8 @@ export async function runRealMemoryBenchmark(
 
   for (const [catName, questions] of categoryGroups.entries()) {
     let catPassed = 0;
+    let catGradeable = 0;
+    let catUngraded = 0;
 
     for (const q of questions) {
       const qStart = performance.now();
@@ -179,10 +287,34 @@ export async function runRealMemoryBenchmark(
       const qTime = performance.now() - qStart;
       totalQueryTimeMs += qTime;
 
-      const score = scoreOfficialQuestion(q, results);
-      catPassed += score;
-      totalPassed += score;
-      totalTestsRun++;
+      const rawContext = results
+        .map((r) => rawContentById.get(r.id) ?? r.content)
+        .join('\n');
+
+      if (catName === UNANSWERABLE_CATEGORY && options.answerQuestion) {
+        // Real agent-in-the-loop grading: answer the question from retrieved
+        // context and check the answer against the official refusal key.
+        const answer = await options.answerQuestion(q.question, rawContext);
+        const refusal = REFUSAL_KEY_PHRASES.some((phrase) =>
+          containsPhrase(paddedNormalized(answer), phrase),
+        );
+        const assertsFact = !refusal;
+        catPassed += assertsFact ? 0 : 1;
+        totalPassed += assertsFact ? 0 : 1;
+        catGradeable++;
+        totalTestsRun++;
+      } else {
+        const { score, excluded } = gradeOfficialQuestion(q, rawContext);
+        if (excluded) {
+          catUngraded++;
+          totalUngraded++;
+        } else {
+          catPassed += score;
+          totalPassed += score;
+          catGradeable++;
+          totalTestsRun++;
+        }
+      }
       processedCount++;
 
       if (processedCount % 10 === 0 || processedCount === totalQuestions) {
@@ -193,26 +325,40 @@ export async function runRealMemoryBenchmark(
     }
 
     const meta = CATEGORY_META[catName] ?? { icon: '🧠', desc: catName };
+    if (catUngraded > 0 && catGradeable === 0) {
+      gradingNotes.push(
+        `${catName}: all ${catUngraded} questions require semantic/agent-in-the-loop grading and are excluded from the automated score.`,
+      );
+    } else if (catUngraded > 0) {
+      gradingNotes.push(
+        `${catName}: ${catUngraded} of ${catUngraded + catGradeable} questions excluded (semantic grading required).`,
+      );
+    }
     categoryResults.push({
       name: catName,
       icon: meta.icon,
       desc: meta.desc,
       passed: catPassed,
-      total: questions.length,
-      scorePct: Math.round((catPassed / questions.length) * 1000) / 10,
+      total: catGradeable,
+      scorePct: catGradeable > 0 ? Math.round((catPassed / catGradeable) * 1000) / 10 : 0,
+      ungraded: catUngraded,
     });
   }
 
-  const overallAccuracy = Math.round((totalPassed / totalTestsRun) * 1000) / 10;
-  const averageLatencyMs = Math.round((totalQueryTimeMs / totalTestsRun) * 100) / 100;
+  const overallAccuracy = totalTestsRun > 0 ? Math.round((totalPassed / totalTestsRun) * 1000) / 10 : 0;
+  const averageLatencyMs = totalTestsRun > 0 ? Math.round((totalQueryTimeMs / totalTestsRun) * 100) / 100 : 0;
 
   const finalResult: BenchmarkRunResult = {
     overallAccuracy,
     totalPassed,
     totalQuestions: totalTestsRun,
+    ungradedQuestions: totalUngraded,
+    gradingNotes,
     averageLatencyMs,
     ingestionSpeedMs: Math.round(ingestionSpeedMs * 100) / 100,
     totalTokensIndexed,
+    sessionsIngested,
+    turnsIngested,
     categories: categoryResults,
     completedAt: new Date().toISOString(),
   };

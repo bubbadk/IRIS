@@ -317,3 +317,85 @@ describe('Cortex turn step trace', () => {
     ).toThrow('Cannot transition a denied Cortex turn step.');
   });
 });
+
+describe('multi-query memory recall', () => {
+  const memoryRecord = (id: string, content: string): MemoryRecord => ({
+    id,
+    content,
+    createdAt: '2026-08-27T10:00:00.000Z',
+    updatedAt: '2026-08-27T10:00:00.000Z',
+    provenance: {
+      source: 'user',
+      actorId: 'workspace-user',
+      actorName: 'Workspace user',
+      capturedAt: '2026-08-27T10:00:00.000Z',
+    },
+  });
+
+  it('queries the full prompt once when there are no separable questions', async () => {
+    const calls: string[] = [];
+    const builder = new MemoryContextPackBuilder({
+      recallForAgent: async (_agent, prompt) => {
+        calls.push(prompt);
+        return [];
+      },
+    });
+    await builder.contribute(agent, { prompt: 'What is the release artifact for Linux', turnId: 'turn-1' });
+    expect(calls).toEqual(['What is the release artifact for Linux']);
+  });
+
+  it('fuses sub-question retrievals with the full prompt', async () => {
+    const calls: string[] = [];
+    const builder = new MemoryContextPackBuilder(
+      {
+        recallForAgent: async (_agent, prompt) => {
+          calls.push(prompt);
+          if (prompt === 'Which database does the team run in production?') {
+            return [memoryRecord('db', 'The production database is PostgreSQL 18.')];
+          }
+          if (prompt === 'Who is on the on-call rotation?') {
+            return [memoryRecord('oncall', 'On-call rotation: Priya, then Marcus.')];
+          }
+          return [memoryRecord('db', 'The production database is PostgreSQL 18.'), memoryRecord('oncall', 'On-call rotation: Priya, then Marcus.')];
+        },
+      },
+      { limit: 4 },
+    );
+
+    const contribution = await builder.contribute(agent, {
+      prompt: 'Which database does the team run in production? Who is on the on-call rotation?',
+      turnId: 'turn-1',
+    });
+
+    // Full prompt plus each sub-question.
+    expect(calls).toEqual([
+      'Which database does the team run in production? Who is on the on-call rotation?',
+      'Which database does the team run in production?',
+      'Who is on the on-call rotation?',
+    ]);
+    // Both selections survive, deduplicated, within the limit.
+    const selectedIds = contribution.selections.map((selection) => selection.sourceId);
+    expect(selectedIds).toContain('db');
+    expect(selectedIds).toContain('oncall');
+    expect(selectedIds).toHaveLength(2);
+  });
+
+  it('degrades to the full-prompt result when a sub-question retrieval fails', async () => {
+    const builder = new MemoryContextPackBuilder(
+      {
+        recallForAgent: async (_agent, prompt) => {
+          if (prompt === 'Who is on the on-call rotation?') throw new Error('provider down');
+          return [memoryRecord('full', 'Full prompt result.')];
+        },
+      },
+      { limit: 4 },
+    );
+
+    const contribution = await builder.contribute(agent, {
+      prompt: 'What is the artifact policy? Who is on the on-call rotation?',
+      turnId: 'turn-1',
+    });
+
+    expect(contribution.selections.map((selection) => selection.sourceId)).toEqual(['full']);
+  });
+});

@@ -367,6 +367,23 @@ function memorySelection(record: MemoryRecord, index: number): MemoryContextSele
   };
 }
 
+/**
+ * Splits a prompt into retrieval queries: the full prompt first, then up to
+ * three distinct question segments (separated by question marks or line
+ * breaks, each with a few words). A prompt with no separable questions yields
+ * just itself, so single-question prompts do one retrieval exactly as before.
+ */
+export function extractSubQueries(prompt: string, maxSubQueries = 3): string[] {
+  const text = prompt.trim();
+  if (!text) return [];
+  const segments = text
+    .split(/\n+|(?<=\?)\s+/)
+    .map((segment) => segment.trim().replace(/\s+/g, ' '))
+    .filter((segment) => segment.split(' ').length >= 3);
+  const questions = segments.filter((segment) => segment !== text).slice(0, maxSubQueries);
+  return questions.length ? [text, ...questions] : [text];
+}
+
 export class MemoryContextPackBuilder implements ContextPackBuilder, ContextContributor {
   private readonly limit: number;
   private readonly createId: () => string;
@@ -402,7 +419,7 @@ export class MemoryContextPackBuilder implements ContextPackBuilder, ContextCont
     // agent to respond. Degrade to no memory context and report why, instead of throwing.
     let records: MemoryRecord[];
     try {
-      records = await this.memory.recallForAgent(agent, request.prompt.trim(), this.limit);
+      records = await this.recallWithSubQueries(agent, request.prompt.trim());
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       return {
@@ -423,6 +440,44 @@ export class MemoryContextPackBuilder implements ContextPackBuilder, ContextCont
           detail: 'No saved memory matched this prompt.',
         };
     return { sources: [source], selections };
+  }
+
+  /**
+   * Recalls memory with multi-query fusion: a long agent prompt dilutes
+   * retrieval (key facts compete with filler terms), and multi-part prompts
+   * often need different records for different parts. The full prompt is
+   * always queried; up to three distinct question segments are queried
+   * additionally, and results fuse with reciprocal rank fusion. A failing
+   * sub-query degrades to the full-prompt result instead of failing the turn.
+   */
+  private async recallWithSubQueries(
+    agent: AgentDefinition,
+    prompt: string,
+  ): Promise<MemoryRecord[]> {
+    const subQueries = extractSubQueries(prompt);
+    if (subQueries.length <= 1) {
+      return this.memory.recallForAgent(agent, prompt, this.limit);
+    }
+    const [primary, ...extra] = await Promise.all([
+      this.memory.recallForAgent(agent, prompt, this.limit),
+      ...subQueries.slice(1).map((query) =>
+        this.memory.recallForAgent(agent, query, this.limit).catch(() => []),
+      ),
+    ]);
+    if (!extra.length) return primary;
+
+    const fused = new Map<string, { record: MemoryRecord; score: number }>();
+    for (const list of [primary, ...extra]) {
+      list.forEach((record, index) => {
+        const entry = fused.get(record.id) ?? { record, score: 0 };
+        entry.score += 1 / (60 + index + 1);
+        fused.set(record.id, entry);
+      });
+    }
+    return [...fused.values()]
+      .sort((left, right) => right.score - left.score)
+      .slice(0, this.limit)
+      .map((entry) => entry.record);
   }
 
   async build(agent: AgentDefinition, request: ContextPackRequest): Promise<ContextPack> {

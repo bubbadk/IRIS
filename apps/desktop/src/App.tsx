@@ -345,7 +345,7 @@ function capabilityGroups(tools: readonly ToolDefinition[]): CapabilityGroup[] {
           : id === 'image'
             ? 'Multimodal image generation and synthesis tools.'
             : id === 'browser'
-              ? 'Headless browser automation and inspection primitives.'
+              ? 'Web page fetching and HTML structure inspection primitives.'
               : id === 'github'
                 ? 'GitHub release management and issue triage tools.'
                 : 'Built-in IRIS tools.',
@@ -3054,7 +3054,7 @@ function MemoryState() {
     | { state: 'rebuilding'; progress: MemoryEmbeddingIndexBuildProgress | null }
     | { state: 'error' }
     | null
-  >(retrievalConfig.strategy === 'embedding' ? { state: 'checking' } : null);
+  >(retrievalConfig.strategy !== 'lexical' ? { state: 'checking' } : null);
   const [embeddingModels, setEmbeddingModels] = useState<string[]>([]);
   const [embeddingModelsState, setEmbeddingModelsState] = useState<
     'idle' | 'loading' | 'ready' | 'error'
@@ -3110,7 +3110,7 @@ function MemoryState() {
   }, [records, retrievalConfig]);
 
   const draftEmbeddingProviderId =
-    retrievalDraft.strategy === 'embedding' ? retrievalDraft.providerId : '';
+    retrievalDraft.strategy !== 'lexical' ? retrievalDraft.providerId : '';
   // One fetch per selected provider; loadEmbeddingModels only prefills an empty model field.
   useEffect(() => {
     if (draftEmbeddingProviderId) void loadEmbeddingModels(draftEmbeddingProviderId);
@@ -3186,7 +3186,7 @@ function MemoryState() {
       setEmbeddingModelsState('ready');
       // The list is already filtered to embedding models, so prefill the first when empty.
       setRetrievalDraft((current) =>
-        current.strategy === 'embedding' && !current.model.trim() && models[0]
+        current.strategy !== 'lexical' && !current.model.trim() && models[0]
           ? { ...current, model: models[0] }
           : current,
       );
@@ -3206,13 +3206,17 @@ function MemoryState() {
       return;
     }
     const providerId = embeddingProviders[0]?.id ?? '';
-    setRetrievalDraft({ strategy: 'embedding', providerId, model: '' });
+    setRetrievalDraft(
+      strategy === 'hybrid'
+        ? { strategy: 'hybrid', providerId, model: '' }
+        : { strategy: 'embedding', providerId, model: '' },
+    );
     void loadEmbeddingModels(providerId);
   }
 
   function selectEmbeddingProvider(providerId: string) {
     setRetrievalDraft((current) =>
-      current.strategy === 'embedding' ? { ...current, providerId, model: '' } : current,
+      current.strategy !== 'lexical' ? { ...current, providerId, model: '' } : current,
     );
     void loadEmbeddingModels(providerId);
   }
@@ -3254,7 +3258,7 @@ function MemoryState() {
   }
 
   async function rebuildEmbeddingIndex() {
-    if (retrievalConfig.strategy !== 'embedding') return;
+    if (retrievalConfig.strategy === 'lexical') return;
     setRetrievalErrors([]);
     setEmbeddingIndexState({ state: 'rebuilding', progress: null });
     try {
@@ -3278,7 +3282,7 @@ function MemoryState() {
   }
 
   const configuredEmbeddingProvider =
-    retrievalConfig.strategy === 'embedding'
+    retrievalConfig.strategy !== 'lexical'
       ? embeddingProviders.find((provider) => provider.id === retrievalConfig.providerId)
       : undefined;
   const visibleIndexProgress =
@@ -3327,7 +3331,7 @@ function MemoryState() {
           onClick={() => setMemoryTab('benchmark')}
           style={{ fontSize: '12px', padding: '6px 14px' }}
         >
-          🏆 FP-AMB Benchmark (91.4%)
+          🏆 FP-AMB Benchmark
         </button>
       </div>
 
@@ -3460,9 +3464,10 @@ function MemoryState() {
             >
               <option value="lexical">Deterministic lexical</option>
               <option value="embedding">Provider embeddings</option>
+              <option value="hybrid">Hybrid (lexical + embeddings)</option>
             </select>
           </label>
-          {retrievalDraft.strategy === 'embedding' && (
+          {retrievalDraft.strategy !== 'lexical' && (
             <>
               <label>
                 Embedding provider
@@ -3536,7 +3541,7 @@ function MemoryState() {
             </>
           )}
         </div>
-        {retrievalDraft.strategy === 'embedding' && embeddingProviders.length === 0 && (
+        {retrievalDraft.strategy !== 'lexical' && embeddingProviders.length === 0 && (
           <div className="memory-retrieval-empty">
             No enabled provider supports embeddings yet. Add an OpenAI-compatible or Ollama provider
             in the Models object first.
@@ -3550,7 +3555,7 @@ function MemoryState() {
           </div>
         )}
         <div className="memory-retrieval-actions">
-          {retrievalDraft.strategy === 'embedding' && (
+          {retrievalDraft.strategy !== 'lexical' && (
             <button
               className="row-button"
               disabled={retrievalState === 'testing'}
@@ -3563,7 +3568,7 @@ function MemoryState() {
                   : 'Test embedding'}
             </button>
           )}
-          {retrievalConfig.strategy === 'embedding' && configuredEmbeddingProvider && (
+          {retrievalConfig.strategy !== 'lexical' && configuredEmbeddingProvider && (
             <button
               className="row-button"
               disabled={embeddingIndexState?.state === 'rebuilding'}

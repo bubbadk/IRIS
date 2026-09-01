@@ -1,4 +1,5 @@
 import {
+  HybridMemoryRetriever,
   IndexedEmbeddingMemoryRetriever,
   LocalLexicalMemoryRetriever,
   MemoryEmbeddingIndexService,
@@ -26,7 +27,8 @@ import { memoryEmbeddingIndexRepository } from './persistence';
 
 export type MemoryRetrievalConfig =
   | { strategy: 'lexical' }
-  | { strategy: 'embedding'; providerId: string; model: string };
+  | { strategy: 'embedding'; providerId: string; model: string }
+  | { strategy: 'hybrid'; providerId: string; model: string };
 
 const storageKey = 'iris.memory.retrieval.v1';
 export const defaultMemoryRetrievalConfig: MemoryRetrievalConfig = { strategy: 'lexical' };
@@ -42,14 +44,16 @@ export function loadMemoryRetrievalConfig(
     if (parsed.strategy === 'lexical') return defaultMemoryRetrievalConfig;
     // 'ollama-embedding' is the legacy name for the provider-backed embedding strategy.
     if (
-      (parsed.strategy === 'embedding' || parsed.strategy === 'ollama-embedding') &&
+      (parsed.strategy === 'embedding' ||
+        parsed.strategy === 'hybrid' ||
+        parsed.strategy === 'ollama-embedding') &&
       'providerId' in parsed &&
       typeof parsed.providerId === 'string' &&
       'model' in parsed &&
       typeof parsed.model === 'string'
     ) {
       return {
-        strategy: 'embedding',
+        strategy: parsed.strategy === 'hybrid' ? 'hybrid' : 'embedding',
         providerId: parsed.providerId,
         model: parsed.model,
       };
@@ -71,8 +75,7 @@ export function validateMemoryRetrievalConfig(
   config: MemoryRetrievalConfig,
   providers: readonly ProviderConfig[],
 ): string[] {
-  if (config.strategy === 'lexical') return [];
-  const errors: string[] = [];
+  if (config.strategy === 'lexical') return [];  const errors: string[] = [];
   const provider = providers.find(
     (candidate) => candidate.id === config.providerId && candidate.enabled,
   );
@@ -213,11 +216,17 @@ export class ConfiguredMemoryRetriever implements MemoryRetriever {
     if (errors.length) throw new Error(errors.join(' '));
     const provider = providers.find((candidate) => candidate.id === config.providerId);
     if (!provider) throw new Error('The configured embedding provider is unavailable.');
-    return new IndexedEmbeddingMemoryRetriever(
+    const embedding = new IndexedEmbeddingMemoryRetriever(
       this.createEmbedder(provider, config.model),
       this.indexRepository,
       { providerId: config.providerId, model: config.model },
-    ).retrieve(records, request);
+    );
+    if (config.strategy === 'embedding') return embedding.retrieve(records, request);
+
+    // Hybrid: lexical precision on names and terms, embedding recall on
+    // paraphrases, fused by reciprocal rank fusion. HybridMemoryRetriever
+    // degrades to lexical-only when the embedding provider is unreachable.
+    return new HybridMemoryRetriever(this.lexical, embedding).retrieve(records, request);
   }
 }
 
@@ -226,7 +235,7 @@ export async function getMemoryEmbeddingIndexStatus(
   records: readonly MemoryRecord[],
   indexRepository: MemoryEmbeddingIndexRepository = memoryEmbeddingIndexRepository,
 ): Promise<MemoryEmbeddingIndexStatus | null> {
-  if (config.strategy !== 'embedding') return null;
+  if (config.strategy !== 'embedding' && config.strategy !== 'hybrid') return null;
   return new MemoryEmbeddingIndexService(indexRepository).status(records, {
     providerId: config.providerId,
     model: config.model,
@@ -241,7 +250,7 @@ export async function rebuildMemoryEmbeddingIndex(
   createEmbedder: EmbedderFactory = defaultEmbedderFactory,
   onProgress?: (progress: MemoryEmbeddingIndexBuildProgress) => void,
 ): Promise<MemoryEmbeddingIndexStatus> {
-  if (config.strategy !== 'embedding') {
+  if (config.strategy !== 'embedding' && config.strategy !== 'hybrid') {
     throw new Error('Embedding retrieval is not selected.');
   }
   const errors = validateMemoryRetrievalConfig(config, providers);
@@ -259,7 +268,7 @@ export async function testMemoryRetrievalConfig(
   providers: readonly ProviderConfig[],
   createEmbedder: EmbedderFactory = defaultEmbedderFactory,
 ): Promise<void> {
-  if (config.strategy !== 'embedding') {
+  if (config.strategy !== 'embedding' && config.strategy !== 'hybrid') {
     throw new Error('Embedding retrieval is not selected.');
   }
   const errors = validateMemoryRetrievalConfig(config, providers);

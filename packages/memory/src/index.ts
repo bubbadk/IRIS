@@ -1,4 +1,5 @@
 import type { AgentDefinition } from '@iris/core';
+import { parseTemporalQuery, temporalBoostFactor } from './temporal';
 
 interface MemoryProvenanceBase {
   actorId: string;
@@ -114,6 +115,8 @@ export interface MemoryEmbeddingIndexBuildProgress extends MemoryEmbeddingIndexS
 
 export interface EmbeddingMemoryRetrieverOptions {
   minimumSimilarity?: number;
+  /** Max records embedded per self-heal rebuild, bounding agent-turn latency. */
+  maxRecordsPerRebuild?: number;
 }
 
 export interface MemoryServiceOptions {
@@ -175,6 +178,11 @@ function normalizedTerms(value: string): string[] {
 
 function newestFirst(left: MemoryRecord, right: MemoryRecord): number {
   return right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id);
+}
+
+/** Case- and whitespace-insensitive content identity for duplicate detection. */
+function canonicalContent(content: string): string {
+  return content.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 function cosineSimilarity(left: readonly number[], right: readonly number[]): number {
@@ -276,21 +284,44 @@ export function inspectMemoryEmbeddingIndex(
   if (entries.size !== index.entries.length || failures.size !== index.failures.length) {
     return pendingIndexStatus(records, 'invalid');
   }
-  let dimensions: number | undefined;
+  // Validate every matching entry against the dominant vector dimension of the
+  // matching set — not against the first entry's own length, which would let a
+  // corrupt first entry self-certify as ready.
+  const sourceFingerprints = new Map(records.map((record) => [record.id, sourceFingerprint(record)]));
+  const dimensionFrequency = new Map<number, number>();
+  for (const record of records) {
+    const entry = entries.get(record.id);
+    if (entry && entry.sourceFingerprint === sourceFingerprints.get(record.id)) {
+      dimensionFrequency.set(
+        entry.vector.length,
+        (dimensionFrequency.get(entry.vector.length) ?? 0) + 1,
+      );
+    }
+  }
+  const expectedDimensions = [...dimensionFrequency.entries()].sort(
+    ([leftDimension, leftCount], [rightDimension, rightCount]) =>
+      rightCount - leftCount || leftDimension - rightDimension,
+  )[0]?.[0];
   let invalid = false;
   const recordStatuses: MemoryEmbeddingRecordStatus[] = [];
   for (const record of records) {
     const entry = entries.get(record.id);
-    if (entry?.sourceFingerprint === sourceFingerprint(record)) {
-      dimensions ??= entry.vector.length;
-      if (validVector(entry.vector, dimensions)) {
-        recordStatuses.push({ memoryId: record.id, state: 'ready' });
-        continue;
-      }
+    if (
+      entry &&
+      entry.sourceFingerprint === sourceFingerprints.get(record.id) &&
+      validVector(entry.vector, expectedDimensions)
+    ) {
+      recordStatuses.push({ memoryId: record.id, state: 'ready' });
+      continue;
+    }
+    if (entry && entry.sourceFingerprint === sourceFingerprints.get(record.id)) {
+      // An entry exists but its vector is unusable (wrong dimensions or corrupt
+      // numbers). Flag the whole index so the next rebuild re-embeds it instead
+      // of silently reusing the stored vector.
       invalid = true;
     }
     const failure = failures.get(record.id);
-    if (failure?.sourceFingerprint === sourceFingerprint(record)) {
+    if (failure && failure.sourceFingerprint === sourceFingerprints.get(record.id)) {
       recordStatuses.push({
         memoryId: record.id,
         state: 'failed',
@@ -339,8 +370,9 @@ export class MemoryEmbeddingIndexService {
     scope: MemoryEmbeddingScope,
     embedder: MemoryEmbedder,
     onProgress?: (progress: MemoryEmbeddingIndexBuildProgress) => void,
+    options: { maxRecords?: number; discardRetained?: boolean } = {},
   ): Promise<MemoryEmbeddingIndex> {
-    const existing = await this.repository.get(scope);
+    const existing = options.discardRetained ? null : await this.repository.get(scope);
     const currentFingerprints = new Map(
       records.map((record) => [record.id, sourceFingerprint(record)]),
     );
@@ -402,8 +434,16 @@ export class MemoryEmbeddingIndexService {
     };
     reportProgress(null);
 
+    // Set-based membership lookups — the previous per-record
+    // `index.entries.some(...)` scan made rebuilds O(n²).
+    const indexedIds = new Set(index.entries.map((entry) => entry.memoryId));
+    const maxRecords = options.maxRecords ?? Number.POSITIVE_INFINITY;
+    let embeddedCount = 0;
     for (const record of records) {
-      if (index.entries.some((entry) => entry.memoryId === record.id)) continue;
+      if (embeddedCount >= maxRecords) break;
+      if (indexedIds.has(record.id)) continue;
+      indexedIds.add(record.id);
+      embeddedCount++;
       reportProgress(record.id);
       const previousFailure = index.failures.find((failure) => failure.memoryId === record.id);
       const attemptedAt = this.now().toISOString();
@@ -496,6 +536,12 @@ function getOrBuildLexicalIndex(records: readonly MemoryRecord[]): CachedLexical
 }
 
 export class LocalLexicalMemoryRetriever implements MemoryRetriever {
+  private readonly now: () => Date;
+
+  constructor(options: { now?: () => Date } = {}) {
+    this.now = options.now ?? (() => new Date());
+  }
+
   async retrieve(
     records: readonly MemoryRecord[],
     request: MemoryRetrievalRequest,
@@ -503,6 +549,11 @@ export class LocalLexicalMemoryRetriever implements MemoryRetriever {
     const limit = Math.max(0, Math.floor(request.limit));
     const queryTerms = [...new Set(normalizedTerms(request.query).slice(0, 64))];
     if (!limit || !queryTerms.length || !records.length) return [];
+
+    // A query that explicitly names a time ("in October", "last week", "day 12")
+    // boosts records inside that window. Queries without a time expression leave
+    // scoring completely unchanged.
+    const temporalWindow = parseTemporalQuery(request.query, this.now());
 
     const { totalDocs, avgdl, docLengths, invertedIndex } = getOrBuildLexicalIndex(records);
     const k1 = 1.2;
@@ -529,13 +580,79 @@ export class LocalLexicalMemoryRetriever implements MemoryRetriever {
 
     const scoredEntries: Array<{ record: MemoryRecord; score: number }> = [];
     for (const [docIndex, score] of scores.entries()) {
-      scoredEntries.push({ record: records[docIndex], score });
+      scoredEntries.push({
+        record: records[docIndex],
+        score: score * temporalBoostFactor(temporalWindow, records[docIndex]),
+      });
     }
 
+    scoredEntries.sort(
+      (left, right) => right.score - left.score || newestFirst(left.record, right.record),
+    );
+
     return scoredEntries
-      .sort((left, right) => right.score - left.score || newestFirst(left.record, right.record))
       .slice(0, limit)
       .map((match) => match.record);
+  }
+}
+
+export interface HybridMemoryRetrieverOptions {
+  /** RRF smoothing constant; 60 is the standard default. */
+  rankConstant?: number;
+}
+
+/**
+ * Fuses two retrievers with Reciprocal Rank Fusion: a record's fused score is
+ * the sum of 1 / (k + rank) across each retriever's ranking. Lexical retrieval
+ * is strong on exact names and terms, embedding retrieval on paraphrases — the
+ * fusion keeps whichever signal each list contributes.
+ *
+ * Stability contract: if the secondary retriever fails (e.g. the embedding
+ * provider is down), results degrade to the primary retriever instead of
+ * failing the agent turn.
+ */
+export class HybridMemoryRetriever implements MemoryRetriever {
+  private readonly rankConstant: number;
+
+  constructor(
+    private readonly primary: MemoryRetriever,
+    private readonly secondary: MemoryRetriever,
+    options: HybridMemoryRetrieverOptions = {},
+  ) {
+    this.rankConstant = options.rankConstant ?? 60;
+  }
+
+  async retrieve(
+    records: readonly MemoryRecord[],
+    request: MemoryRetrievalRequest,
+  ): Promise<MemoryRecord[]> {
+    const limit = Math.max(0, Math.floor(request.limit));
+    if (!limit) return [];
+
+    const depth = Math.max(limit, 10);
+    const [primary, secondary] = await Promise.all([
+      this.primary.retrieve(records, { ...request, limit: depth }),
+      this.secondary.retrieve(records, { ...request, limit: depth }).catch(() => []),
+    ]);
+
+    if (!secondary.length) return primary.slice(0, limit);
+    if (!primary.length) return secondary.slice(0, limit);
+
+    const fused = new Map<string, { record: MemoryRecord; score: number }>();
+    const add = (list: MemoryRecord[]) => {
+      list.forEach((record, index) => {
+        const entry = fused.get(record.id) ?? { record, score: 0 };
+        entry.score += 1 / (this.rankConstant + index + 1);
+        fused.set(record.id, entry);
+      });
+    };
+    add(primary);
+    add(secondary);
+
+    return [...fused.values()]
+      .sort((left, right) => right.score - left.score || newestFirst(left.record, right.record))
+      .slice(0, limit)
+      .map((entry) => entry.record);
   }
 }
 
@@ -579,6 +696,7 @@ export class EmbeddingMemoryRetriever implements MemoryRetriever {
 
 export class IndexedEmbeddingMemoryRetriever implements MemoryRetriever {
   private readonly minimumSimilarity: number;
+  private readonly maxRecordsPerRebuild: number;
 
   constructor(
     private readonly embedder: MemoryEmbedder,
@@ -587,6 +705,28 @@ export class IndexedEmbeddingMemoryRetriever implements MemoryRetriever {
     options: EmbeddingMemoryRetrieverOptions = {},
   ) {
     this.minimumSimilarity = options.minimumSimilarity ?? 0.2;
+    // Bounds how much embedding work a single retrieval may perform while
+    // self-healing, so a large stale index cannot block an agent turn for
+    // minutes. Remaining records are embedded on subsequent retrievals.
+    this.maxRecordsPerRebuild = options.maxRecordsPerRebuild ?? 64;
+  }
+
+  private async selfHeal(
+    records: readonly MemoryRecord[],
+    discardRetained: boolean,
+  ): Promise<MemoryEmbeddingIndex> {
+    // Self-heal: a memory written this session leaves the index stale.
+    // Incrementally embed new or changed records so recall keeps working
+    // without a manual rebuild. Per-record embedding failures are recorded
+    // inside the index rather than thrown, so a single bad record never blocks
+    // the agent turn. Work is capped per retrieval (maxRecordsPerRebuild).
+    return new MemoryEmbeddingIndexService(this.indexRepository).rebuild(
+      records,
+      this.scope,
+      this.embedder,
+      undefined,
+      { maxRecords: this.maxRecordsPerRebuild, discardRetained },
+    );
   }
 
   async retrieve(
@@ -598,25 +738,38 @@ export class IndexedEmbeddingMemoryRetriever implements MemoryRetriever {
     if (!limit || !query || !records.length) return [];
 
     let index = await this.indexRepository.get(this.scope);
-    if (inspectMemoryEmbeddingIndex(index, records, this.scope).state !== 'ready' || !index) {
-      // Self-heal: a memory written this session leaves the index stale. Incrementally embed the
-      // new or changed records so recall keeps working without a manual rebuild. Per-record
-      // embedding failures are recorded inside the index rather than thrown, so a single bad
-      // record never blocks the agent turn.
-      index = await new MemoryEmbeddingIndexService(this.indexRepository).rebuild(
-        records,
-        this.scope,
-        this.embedder,
-      );
+    if (!index || inspectMemoryEmbeddingIndex(index, records, this.scope).state !== 'ready') {
+      index = await this.selfHeal(records, false);
     }
     if (!index.entries.length) return [];
 
     const queryVectors = await this.embedder.embed([query]);
     const queryVector = queryVectors[0];
-    const dimensions = index.entries[0]?.vector.length;
+    let dimensions = index.entries[0]?.vector.length;
     if (queryVectors.length !== 1 || !queryVector || !validVector(queryVector, dimensions)) {
-      throw new Error('Embedding provider returned an invalid query vector.');
+      // The stored vectors are inconsistent with what the provider currently
+      // returns (e.g. the embedding model changed dimensions). Re-embed from
+      // scratch instead of failing the turn forever; once repaired, retry the
+      // query embedding.
+      index = await this.selfHeal(records, true);
+      if (!index.entries.length) return [];
+      dimensions = index.entries[0]?.vector.length;
+      const retryVectors = await this.embedder.embed([query]);
+      const retryVector = retryVectors[0];
+      if (retryVectors.length !== 1 || !retryVector || !validVector(retryVector, dimensions)) {
+        throw new Error('Embedding provider returned an invalid query vector.');
+      }
+      return this.rank(records, retryVector, index, limit);
     }
+    return this.rank(records, queryVector, index, limit);
+  }
+
+  private rank(
+    records: readonly MemoryRecord[],
+    queryVector: readonly number[],
+    index: MemoryEmbeddingIndex,
+    limit: number,
+  ): MemoryRecord[] {
     const indexedById = new Map(index.entries.map((entry) => [entry.memoryId, entry.vector]));
     return records
       // A record with no vector could not be embedded (e.g. a transient failure); skip it this
@@ -702,6 +855,24 @@ export class MemoryService {
   ): Promise<MemoryRecord> {
     const normalized = content.trim();
     if (!normalized) throw new Error('Memory content cannot be empty.');
+    // Re-saving a fact that already exists refreshes the original record
+    // (bumping updatedAt) instead of storing a duplicate. Corrections live
+    // alongside the original only when the wording actually differs, so the
+    // retriever never has to spend context slots on copies of the same fact.
+    const canonical = canonicalContent(normalized);
+    const existing = (await this.repository.list()).find(
+      (record) => canonicalContent(record.content) === canonical,
+    );
+    if (existing) {
+      const refreshed: MemoryRecord = {
+        ...existing,
+        content: normalized,
+        updatedAt: timestamp,
+        provenance,
+      };
+      await this.repository.save(refreshed);
+      return refreshed;
+    }
     const record: MemoryRecord = {
       id: this.createId(),
       content: normalized,
