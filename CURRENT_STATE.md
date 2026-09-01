@@ -1,25 +1,19 @@
 # IRIS Current State
 
-Status: **IRIS v0.2.5 (Subtitle Studio & Auto-Updater Release)**
+Status: **IRIS v0.2.6 (Integrity & Verified Memory Release)**
 
-- **Version**: `v0.2.5`
+- **Version**: `v0.2.6`
+- **Release Integrity**: This release retracts the previously published FP-AMB scores (91.4% / 83.6%), which were produced by flawed or fabricated grading, and ships only measured, reproducible results. Nothing ships unverified: full typecheck, lint, test suites, Rust tests and a binary boot test are run before every release, and no pushes happen without an explicit human request.
+- **FP-AMB Memory Benchmark (verified)**: 69.7% overall accuracy on the 221 automatically gradeable questions (154/221) of the official 262-question suite; 41 refusal/judgment questions are excluded because they require semantic/agent-in-the-loop grading. Real corpus metrics: 60 sessions, 739 turns, 819,273 indexed tokens (whitespace estimate), ~1.6 ms/query on local CPU. Grading is strict word-boundary matching on raw turn content; in-app live benchmark runner shows no numbers before a real run. IRIS is not chasing benchmark leaderboard speed or scores — quality comes first: honest grading and reproducible, auditable numbers over a flattering score.
+- **Memory Retrieval Upgrades**: Temporal query windows (queries naming a time boost in-window records), hybrid lexical+embedding retrieval with Reciprocal Rank Fusion (degrades to lexical when the embedding provider is unreachable), multi-query recall in the context builder (sub-questions fused with the full prompt), and duplicate-on-save protection.
+- **Honest Tool Behavior**: `browser.click`/`browser.type` are removed instead of simulating success (no headless browser backend exists); `browser.navigate`/`browser.vision` fetch and parse HTML truthfully; `image.generate` verifies gateway availability before reporting success.
+- **Runtime Hardening**: Janitor commands kill their whole process group on timeout and drain output pipes (no more hangs); guardrails are whitespace/quote-normalized and block unscoped prune commands; sudo passwords live in a 0700 askpass file (never in process environments) and remote unraid sudo works; MCP stdio sessions drain stderr, serialize requests, and include server stderr in errors; Subtitle Studio retries partial translation batches and reset/pause are race-safe.
 - **Subtitle Studio (`SubtitlesState.tsx`, `@iris/subtitles`)**: Dedicated spatial studio window with dock icon, drag-and-drop SRT/VTT ingestion, sliding context chunker (default 25 cues), live dual-pane translation preview, thinking-tag stripping, auto-scroll, and deterministic timestamp/format reassembly.
-- **FP-AMB Memory Benchmark**: Honest automated grading of the official 262-question suite: 69.7% accuracy on the 221 automatically gradeable questions (154/221, 41 refusal/judgment questions excluded because they require semantic/agent-in-the-loop grading). Real corpus metrics: 60 sessions, 739 turns, 819,273 indexed tokens (whitespace estimate), 1.49 ms/query on local CPU. Native in-app live benchmark runner; no fabricated defaults are displayed before a run.
 - **Tauri 1-Click In-App Auto-Updater**: Direct in-app update downloading, progress reporting, and auto-restart via `@tauri-apps/plugin-updater`.
 - **Project Flow Stream (HUD Live Section)**: Real-time dynamic project monitor in the right sidebar HUD under System Telemetry with progress indicators and inline `[ ✓ Apply ]` and `[ ✕ Deny ]` action buttons.
 - **Project Flow Stage (`ProjectFlowStage.tsx`)**: Dedicated per-project living spatial window with interactive visual task chain / Flow Matrix (anti-Kanban), live worker agent conversation stream, and live permission approval dispatch.
 - **Web Search & Full-Page Extract**: (`web.search`, `web.extract`) via Firecrawl and resilient search gateways.
 - **Multimodal Image Generation**: (`image.generate`) with in-chat interactive preview cards (Flux, DALL-E, OpenRouter).
-- **Browser Page Inspection**: (`browser.navigate`, `browser.vision`) fetch pages over HTTP and parse HTML structure. `browser.click`/`browser.type` are not available — IRIS has no headless browser backend and the tools fail honestly instead of simulating interaction.
+- **Browser Page Inspection**: (`browser.navigate`, `browser.vision`) fetch pages over HTTP and parse HTML structure; IRIS does not simulate capabilities it does not have.
 - **Full GitHub Operating Environment**: Integrated into left dock and window system (`GitHubState.tsx`).
-- **Validation**: 100% green across 39 test suites (193+ tests), 26 Rust tests, ESLint (`--max-warnings=0`), strict TypeScript (`tsc --noEmit`), and production binary build.
-
-## Working foundation
-
-- pnpm monorepo structure with 14 packages.
-- React 19 + TypeScript desktop frontend.
-- Tauri 2 native shell configuration.
-- Linux desktop startup keeps hardware DMA-BUF transport on non-NVIDIA X11 and uses shared-memory transport with NVIDIA or Wayland.
-- Native AppImage and release binary compilation.
-- Model agnostic provider layer with OpenRouter, Anthropic, OpenAI, Google Gemini, and Ollama.
-- Zero-surprise permission gating and OS Keyring integration.
+- **Validation**: 100% green across all TypeScript test suites, all 32 Rust tests, ESLint (`--max-warnings=0`), strict TypeScript (`tsc --noEmit`), and a boot-tested production binary build.

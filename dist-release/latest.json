@@ -1,11 +1,10 @@
 {
-  "version": "0.2.5",
-  "notes": "IRIS v0.2.5 introduces Subtitle Studio (intelligent SRT/VTT translation with timestamp preservation), FP-AMB Memory verification, and 1-Click In-App Auto-Updater.",
-  "pub_date": "2026-08-31T20:30:00Z",
+  "version": "0.2.6",
+  "notes": "IRIS v0.2.6 - Integrity & Verified Memory Release. Retracts the fabricated FP-AMB benchmark scores and ships only measured, reproducible results (69.7% on 221 gradeable questions, strict auditable grading). Adds temporal query windows, hybrid BM25+embeddings retrieval, multi-query recall, duplicate-on-save memory protection, honest tool behavior, and major runtime hardening (janitor timeout/guardrails, sudo askpass security, MCP stdio robustness, subtitle batch retries).",
+  "pub_date": "2026-09-01T19:41:01Z",
   "platforms": {
     "linux-x86_64": {
-      "signature": "",
-      "url": "https://github.com/bubbadk/IRIS/releases/download/v0.2.5/iris-linux-x86_64-v0.2.5.tar.gz"
+      "url": "https://github.com/bubbadk/IRIS/releases/download/v0.2.6/iris-linux-x86_64-v0.2.6.tar.gz"
     }
   }
 }
