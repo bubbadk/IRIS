@@ -62,6 +62,8 @@ IRIS is evaluated against the [FP-AMB question suite](https://github.com/munch2u
 
 ### Measured scorecard (2026-09-01, LocalLexicalMemoryRetriever, top-5)
 
+> **A note on ambition:** IRIS is not chasing the top score on memory benchmarks. A 100% score means nothing if the grading is fake. **Quality comes first** — honest grading, reproducible numbers, and a retrieval engine you can audit beat a flattering leaderboard position. If the score is 69.7% today, that is what it is; improvements will be earned, measured, and published with the full grading path open for inspection.
+
 - **Overall accuracy: `69.7%`** (154 / 221 automatically gradeable questions)
 - **41 of 262 questions are excluded by design**: 35 refusal questions require agent-in-the-loop semantic grading and 6 judgment questions require an LLM judge. Excluding them is the honest choice — auto-passing them would inflate the score (the previous fabricated results did exactly that).
 - **Measured retrieval latency:** `1.63 ms`/query (pure local CPU)
