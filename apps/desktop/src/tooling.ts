@@ -8,7 +8,6 @@ import {
   createWebSearchTool,
   createWebExtractTool,
   createImageGenerationTool,
-  createAllBrowserTools,
   type PermissionRule,
   type ToolExecutionResult,
 } from '@iris/tools';
@@ -31,6 +30,7 @@ import {
   createWorkspacePatchTool,
 } from './workspaceTools';
 import { createShellExecTool } from './shellTool';
+import { createAllBrowserSessionTools } from './liveBrowserTools';
 import { createAllGitHubTools } from './githubTools';
 import {
   agentRepository,
@@ -60,7 +60,7 @@ toolRegistry.register(createShellExecTool());
 toolRegistry.register(createWebSearchTool());
 toolRegistry.register(createWebExtractTool());
 toolRegistry.register(createImageGenerationTool());
-for (const tool of createAllBrowserTools()) {
+for (const tool of createAllBrowserSessionTools()) {
   toolRegistry.register(tool);
 }
 for (const tool of createAllGitHubTools()) {

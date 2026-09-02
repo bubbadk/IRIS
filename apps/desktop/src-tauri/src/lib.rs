@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use tauri::Manager;
 
 mod catalog;
+mod browser;
 mod mcp;
 mod sandbox_shell;
 mod oauth;
@@ -867,6 +868,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(workspace::WorkspaceState::default())
+        .manage(browser::BrowserState::default())
         .manage(mcp::McpStdioState::default())
         .invoke_handler(tauri::generate_handler![
             inspect_host,
@@ -875,6 +877,13 @@ pub fn run() {
             run_janitor_command,
             run_janitor_diagnostic,
             sandbox_shell::run_workspace_shell_command,
+            browser::browser_start,
+            browser::browser_navigate,
+            browser::browser_snapshot,
+            browser::browser_click,
+            browser::browser_type,
+            browser::browser_vision,
+            browser::browser_close,
             janitor_projectcockpit_request,
             set_provider_secret,
             get_provider_secret,

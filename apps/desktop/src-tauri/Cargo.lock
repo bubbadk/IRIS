@@ -2017,6 +2017,7 @@ checksum = "6a756c3fac73139e83f14c2d742155dd2b78d3ee56597b419a0579b7bdd6dd78"
 name = "iris"
 version = "0.2.7"
 dependencies = [
+ "base64 0.22.1",
  "keyring",
  "libc",
  "reqwest",
@@ -2028,6 +2029,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-process",
  "tauri-plugin-updater",
+ "tokio",
 ]
 
 [[package]]
