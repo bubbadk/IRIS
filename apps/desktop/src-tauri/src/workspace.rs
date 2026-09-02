@@ -449,7 +449,7 @@ fn write_file_at(
     })
 }
 
-fn mounted_root(state: &State<'_, WorkspaceState>) -> Result<PathBuf, String> {
+pub(crate) fn mounted_root(state: &State<'_, WorkspaceState>) -> Result<PathBuf, String> {
     state
         .0
         .read()

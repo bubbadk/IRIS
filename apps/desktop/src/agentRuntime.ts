@@ -25,7 +25,7 @@ import {
 } from './persistence';
 import { ensureAssignedToolsRequireApproval } from './agentPermissions';
 import { toolRegistry, agentToolRuntime, janitorHealthToolId } from './tooling';
-import { createSubAgentTool } from './subagentTool';
+import { createSubAgentTool, createSubAgentTeamTool } from './subagentTool';
 import { agentContextBuilder } from './memory';
 import { agentWorkspaceContext } from './workspace';
 
@@ -233,6 +233,13 @@ export const providerResolver: AgentProviderResolver = {
 
 toolRegistry.register(
   createSubAgentTool({
+    agentRepository,
+    providerResolver,
+    agentToolRuntime,
+  }),
+);
+toolRegistry.register(
+  createSubAgentTeamTool({
     agentRepository,
     providerResolver,
     agentToolRuntime,

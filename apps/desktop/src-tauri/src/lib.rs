@@ -9,6 +9,7 @@ use tauri::Manager;
 
 mod catalog;
 mod mcp;
+mod sandbox_shell;
 mod oauth;
 mod workspace;
 
@@ -439,7 +440,7 @@ fn write_askpass_script(_password: &str) -> Result<std::path::PathBuf, String> {
 }
 
 #[cfg(unix)]
-fn kill_process_tree(pid: u32) {
+pub(crate) fn kill_process_tree(pid: u32) {
     // The child was started as its own process group leader (process_group(0)),
     // so killing -pgid takes down wrappers and grandchildren that inherited the
     // pipes — killing only the bash leader would leave those holding the pipe
@@ -450,7 +451,7 @@ fn kill_process_tree(pid: u32) {
 }
 
 #[cfg(not(unix))]
-fn kill_process_tree(pid: u32) {
+pub(crate) fn kill_process_tree(pid: u32) {
     // On Windows the spawned process is not a job object; killing the direct
     // child is the best available approximation here.
     let _ = pid;
@@ -873,6 +874,7 @@ pub fn run() {
             provider_http_get_json,
             run_janitor_command,
             run_janitor_diagnostic,
+            sandbox_shell::run_workspace_shell_command,
             janitor_projectcockpit_request,
             set_provider_secret,
             get_provider_secret,

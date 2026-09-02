@@ -30,6 +30,7 @@ import {
   createWorkspaceDeleteTool,
   createWorkspacePatchTool,
 } from './workspaceTools';
+import { createShellExecTool } from './shellTool';
 import { createAllGitHubTools } from './githubTools';
 import {
   agentRepository,
@@ -55,6 +56,7 @@ toolRegistry.register(createWorkspaceWriteTool());
 toolRegistry.register(createWorkspaceMoveTool());
 toolRegistry.register(createWorkspaceDeleteTool());
 toolRegistry.register(createWorkspacePatchTool());
+toolRegistry.register(createShellExecTool());
 toolRegistry.register(createWebSearchTool());
 toolRegistry.register(createWebExtractTool());
 toolRegistry.register(createImageGenerationTool());

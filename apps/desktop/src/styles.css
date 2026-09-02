@@ -755,6 +755,81 @@ kbd {
   box-shadow: inset 0 -1px 0 rgba(68, 62, 52, 0.06);
 }
 
+.command-palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+  background: rgba(58, 52, 42, 0.28);
+  backdrop-filter: blur(3px);
+}
+.command-palette {
+  display: grid;
+  gap: 8px;
+  width: min(460px, 90vw);
+  padding: 12px;
+  border: 1px solid rgba(63, 58, 49, 0.14);
+  border-radius: 16px;
+  background: #fffefa;
+  box-shadow: 0 24px 60px rgba(74, 67, 53, 0.24);
+}
+.command-palette input {
+  padding: 10px 12px;
+  border: 1px solid rgba(63, 58, 49, 0.14);
+  border-radius: 10px;
+  background: #fdfcf8;
+  color: #45403a;
+  font-size: 13px;
+}
+.command-palette input:focus {
+  outline: none;
+  border-color: rgba(122, 158, 134, 0.55);
+}
+.command-palette-results {
+  display: grid;
+  gap: 2px;
+  max-height: 300px;
+  overflow: auto;
+}
+.command-palette-item {
+  display: grid;
+  gap: 1px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.command-palette-item.active {
+  background: #edf2eb;
+}
+.command-palette-label {
+  color: #45403a;
+  font-size: 12px;
+  font-weight: 650;
+}
+.command-palette-description {
+  color: #8b857b;
+  font-size: 10px;
+}
+.command-palette-empty {
+  padding: 8px 10px;
+  color: #99938a;
+  font-size: 11px;
+}
+.command-palette-footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #99938a;
+  font-size: 10px;
+}
+
+
 .desktop-objects {
   position: absolute;
   z-index: 2;

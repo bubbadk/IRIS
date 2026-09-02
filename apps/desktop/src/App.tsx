@@ -116,6 +116,7 @@ import { SkillsState } from './SkillsState';
 import { listSkills, subscribeSkills } from './skills';
 import { toolRegistry } from './tooling';
 import { WorkspaceState } from './WorkspaceState';
+import { CommandPalette } from './CommandPalette';
 import { startScheduledRuntime } from './scheduledRuntime';
 import { subscribeWorkspace } from './workspace';
 import { memoryService } from './memory';
@@ -734,6 +735,21 @@ function SubAgentCardView({
       ) : null}
     </div>
   );
+}
+
+/** Drop handlers so files dragged from the OS land in the composer like picked ones. */
+function composerDropHandlers(onFiles: (files: FileList) => void) {
+  return {
+    onDragOver: (event: React.DragEvent) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    },
+    onDrop: (event: React.DragEvent) => {
+      event.preventDefault();
+      const files = event.dataTransfer?.files;
+      if (files?.length) onFiles(files);
+    },
+  };
 }
 
 interface PerAgentChatState {
@@ -1576,7 +1592,11 @@ function ChatDesklet({
         </div>
       )}
       <AttachmentChips attachments={attachments} onRemove={removeAttachment} />
-      <form className="desktop-chat-composer" onSubmit={send}>
+      <form
+        className="desktop-chat-composer"
+        onSubmit={send}
+        {...composerDropHandlers((files) => void attachFiles(files))}
+      >
         <AttachButton onFiles={(files) => void attachFiles(files)} disabled={!selectedAgent || busy} />
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
           <button
@@ -2840,7 +2860,11 @@ function AgentsState() {
               )}
             </div>
             <AttachmentChips attachments={attachments} onRemove={removeAttachment} />
-            <form className="conversation-composer" onSubmit={sendMessage}>
+            <form
+              className="conversation-composer"
+              onSubmit={sendMessage}
+              {...composerDropHandlers((files) => void attachFiles(files))}
+            >
               <AttachButton
                 onFiles={(files) => void attachFiles(files)}
                 disabled={busy || !historyLoaded || Boolean(pendingApproval)}
@@ -4529,12 +4553,24 @@ export function App() {
     null,
   );
   const [focusedProjectId, setFocusedProjectId] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const topZ = useMemo(
     () => windows.reduce((max, win) => Math.max(max, win.z), windowLayerBase),
     [windows],
   );
 
   useEffect(() => saveWindows(windows), [windows]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('iris.theme', darkMode ? 'dark' : 'light');
@@ -4740,6 +4776,13 @@ export function App() {
           onCancel={() => resolveSudoPasswordRequest(null)}
         />
       )}
+
+      <CommandPalette
+        open={paletteOpen}
+        commands={objects.map(({ type, label, description }) => ({ type, label, description }))}
+        onClose={() => setPaletteOpen(false)}
+        onSelect={(type) => openObject(type)}
+      />
 
       {showOnboarding && (
         <OnboardingWizard
