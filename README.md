@@ -5,7 +5,7 @@
   <h3>The Spatial Operating Environment for Autonomous AI Agents</h3>
   <p>An object-oriented, local-first desktop OS for creating, operating, and orchestrating autonomous AI agent systems.</p>
 
-  [![Version](https://img.shields.io/badge/Version-0.2.7-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
+  [![Version](https://img.shields.io/badge/Version-0.2.8-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
   [![FP-AMB Memory Benchmark](https://img.shields.io/badge/FP--AMB%20(verified)-69.7%25%20(154%2F221%20gradeable)-success.svg?style=flat-square)](#-memory-benchmark-verified-results)
   [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg?style=flat-square)](LICENSE)
   [![Platform](https://img.shields.io/badge/Platform-Linux%20(CachyOS%2FArch%20%7C%20Ubuntu)%20%7C%20macOS%20%7C%20Windows-amber.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
@@ -53,6 +53,7 @@ IRIS is a **graphical agent operating environment**. It treats agents, workspace
 - 🌌 **Memory Constellation**: A living star-map of what your agents actually remember — every memory is a star sized by retrieval frequency, memories retrieved together connect, and when an agent works, the memories it uses light up in rank order. Includes a timeline scrubber and click-through provenance.
 - ⚡ **Dual-Tier AI Architecture**: Run fast, affordable flash models for daily tasks, and seamlessly escalate to expert frontier models with instant **⚡ Takeover**.
 - 🐙 **Live GitHub Release Engineering**: Issue triage, SemVer versioning, and CI/CD workflow automation that generates ready-to-run release binaries.
+- 🖥️ **Real Browser Automation**: Agents drive a genuine headless Chrome/Chromium session through the WebDriver protocol — trusted clicks, real keystrokes, element-ref snapshots, and PNG screenshots saved into the workspace.
 - 🛡️ **Zero-Surprise Security**: Interactive visual diff viewers, granular tool permission gating, and local OS Keyring credential storage.
 
 ---
@@ -87,33 +88,28 @@ IRIS is evaluated against the [FP-AMB question suite](https://github.com/munch2u
 
 ---
 
-## ✨ Key Features in v0.2.5
+## ✨ Key Features in v0.2.8
 
-### 💬 1. Subtitle Studio (Chunked Dialogue Translator)
-- **Sliding Context Window**: Slices large `.srt` and `.vtt` files into manageable batches while preserving dialogue context to maintain character voice and idioms.
-- **Timestamp Integrity**: Reassembles translated subtitles with exact millisecond start/end timestamps.
-- **Dual-Pane Live Stream**: Interactive side-by-side view with live progress, pause/resume, and direct 1-click download.
-
----
-
-### 🛸 2. Project Flow Reactor (The Anti-Kanban)
-- **Live HUD Stream**: Real-time project pulse in the right desktop sidebar under telemetry (`● Working`, `● Awaiting Decision`, `● Ready`, `✓ Done`).
-- **Inline Permission Approvals**: Direct **`[ ✓ Apply ]`** and **`[ ✕ Deny ]`** buttons right on the project card when an autonomous worker requests tool execution.
-- **Dedicated Project Flow Stage**: A focused spatial popup featuring an interactive task dependency chain (`Step 1 ➔ Step 2 ➔ Step 3`), dynamic step creation, and a live worker agent chat feed.
+### 🌐 1. Real Browser Automation (WebDriver)
+- **Genuine headless Chrome/Chromium session**: `browser.start` launches a real browser through chromedriver, managed from IRIS's Rust backend via the WebDriver protocol — no simulation anywhere.
+- **Trusted clicks & real keystrokes**: `browser.click` (by snapshot ref, CSS selector, or visible text) and `browser.type` (real send-keys) drive actual input events; `browser.snapshot` refreshes clickable element refs.
+- **Honest vision**: `browser.vision` saves a real PNG screenshot into the workspace (`iris-vision/`) — a file you can open, not base64 a model cannot see. Without a running session, `browser.navigate`/`browser.vision` fall back to plain HTTP fetching and say so in the result.
 
 ---
 
-### 🌐 3. Web Search, Extraction & Image Tools
-- **`web.search`**: Real-time web retrieval with summaries and URL citations.
-- **`web.extract`**: Agent-grade full-page extraction powered by Firecrawl API with markdown cleanup.
-- **`image.generate`**: Multimodal text-to-image synthesis (Flux, Stable Diffusion, DALL-E 3) with in-chat preview cards. Image availability is probed before the result is reported; unreachable images are reported as failed, not delivered.
-- **`browser.navigate` / `browser.vision`**: Fetch web pages over HTTP and parse their HTML structure. **There is no headless browser backend** — page interaction tools (`browser.click`, `browser.type`) are therefore not registered; IRIS does not simulate capabilities it does not have.
+### 🛠️ 2. Sandboxed Workspace Shell & Agent Teams
+- **`shell.exec`**: agents run one real shell command inside the mounted workspace root, gated by the standard `[ ✓ Apply ]` / `[ ✕ Deny ]` permission flow, with process-group timeouts (1–300 s) and 64 KiB output caps.
+- **`cortex.delegate-team`**: fan a task out to up to four specialist sub-agents running concurrently, with per-member reports and a `completed / partial / failed` rollup.
 
 ---
 
-### ⚡ 4. Native 1-Click In-App Auto-Updater
-- Real-time GitHub release discovery with live download progress bar.
-- One-click seamless update installation and automatic application restart via Tauri 2.
+### 💬 3. Composer & Desktop Polish
+- **Drag-and-drop attachments**: drop files from your file manager straight onto either chat composer (images become vision blocks, text files become fenced labeled blocks).
+- **Ctrl/Cmd+K command palette**: keyboard-first launcher that filters every desktop object and opens it as a window.
+- **Subtitle Studio (chunked dialogue translator)**: SRT/VTT ingestion with a sliding context window, dual-pane live preview, and zero timestamp drift.
+- **Project Flow Reactor (The Anti-Kanban)**: live task dependency chains, worker chat feed, and inline permission approvals.
+- **Web & image tools**: `web.search`, `web.extract` (Firecrawl), and `image.generate` with availability probing before success is reported.
+- **Native 1-click in-app auto-updater** with live download progress and automatic restart via Tauri 2.
 
 ---
 
@@ -121,9 +117,11 @@ IRIS is evaluated against the [FP-AMB question suite](https://github.com/munch2u
 
 ### Download Standalone Release
 Grab the latest pre-built binaries from [GitHub Releases](https://github.com/bubbadk/IRIS/releases):
-- **Linux**: standalone binary (`iris-linux-x86_64-v0.2.7.tar.gz`)
+- **Linux**: standalone binary (`iris-linux-x86_64-v0.2.8.tar.gz`) or `.AppImage`
 - **macOS**: `.dmg` (Universal binary)
 - **Windows**: `.msi` / `.exe` installer
+
+Existing installations update in-app: the built-in updater polls `latest.json` from the newest release.
 
 ### Build from Source
 

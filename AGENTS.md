@@ -58,11 +58,12 @@ The UI is object-oriented, spatial, and desktop-like. The visual reference in
      - `apps/desktop/src-tauri/Cargo.toml`
      - All 9 packages: `packages/{agents,core,cortex,github,mcp,memory,skills,tools,workflows,workspaces}/package.json`
      - `CURRENT_STATE.md`
-  2. Rebuild the release binary: `pnpm build:binary`.
-  3. Package tarball: `tar -czf dist-release/iris-linux-x86_64-vX.Y.Z.tar.gz -C apps/desktop/src-tauri/target/release iris`.
-  4. Generate updater manifest: `dist-release/latest.json` containing the new version and asset download URL.
-  5. Commit with message `chore(release): bump version to vX.Y.Z`, tag `vX.Y.Z`, push `main` and `vX.Y.Z`.
-  6. Publish release on GitHub with `latest.json` and the `.tar.gz` binary bundle attached.
+  2. Refresh `README.md` so nothing stale ships: version badge, the "Key Features in vX.Y.Z" section (headline features of THIS release; older features collapse into a summary), download filenames in Quickstart, and any capability claims the release changed (e.g. tool availability). No section may describe a feature as missing or removed if it now exists, or vice versa.
+  3. Rebuild the release binary: `pnpm build:binary`.
+  4. Package tarball: `tar -czf dist-release/iris-linux-x86_64-vX.Y.Z.tar.gz -C apps/desktop/src-tauri/target/release iris`.
+  5. Generate updater manifest: `dist-release/latest.json` containing the new version and asset download URL.
+  6. Commit with message `chore(release): bump version to vX.Y.Z`, tag `vX.Y.Z`, push `main` and `vX.Y.Z`.
+  7. Publish release on GitHub with `latest.json` and the `.tar.gz` binary bundle attached.
 
 ---
 
