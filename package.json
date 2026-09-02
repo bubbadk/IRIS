@@ -1,7 +1,7 @@
 {
   "name": "iris",
   "private": true,
-  "version": "0.2.7",
+  "version": "0.2.8",
   "packageManager": "pnpm@10.15.0",
   "scripts": {
     "dev": "pnpm --filter @iris/desktop dev",

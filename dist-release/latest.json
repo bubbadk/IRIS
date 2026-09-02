@@ -1,10 +1,10 @@
 {
-  "version": "0.2.7",
-  "notes": "IRIS v0.2.7 - Memory Constellation Release. A living star-map of what your agents actually remember: memories as stars sized by retrieval frequency, co-retrieval links, live rank-order retrieval glow, timeline scrubber and provenance on click. Derived purely from real records and context packs. Also ships the verified memory retrieval stack (temporal query windows, hybrid BM25+embeddings fusion, multi-query recall) and the honest, reproducible 69.7% FP-AMB scorecard.",
-  "pub_date": "2026-09-01T20:23:27Z",
+  "version": "0.2.8",
+  "notes": "IRIS v0.2.8 - Real Browser Automation Release. Agents can now drive a genuine headless Chrome/Chromium session: browser.start launches it through the WebDriver protocol, browser.click performs trusted element clicks (by snapshot ref, CSS selector or visible text), browser.type sends real keystrokes, browser.snapshot refreshes element refs, and browser.vision saves a real PNG screenshot into the workspace. browser.navigate executes page JavaScript when a session runs and honestly falls back to plain HTTP fetching when it does not. Also ships the sandboxed shell.exec tool (approval-gated command execution inside the mounted workspace with process-group timeouts and output caps), parallel sub-agent teams (cortex.delegate-team runs up to four specialists concurrently and reports completed/partial/failed), drag-and-drop file attachments in both chat composers, and a Ctrl/Cmd+K command palette. Everything is verified: 212 TypeScript tests, 40 Rust tests, a live end-to-end browser run (navigate, click, type, screenshot) and a boot-tested production binary.",
+  "pub_date": "2026-09-02T20:20:00Z",
   "platforms": {
     "linux-x86_64": {
-      "url": "https://github.com/bubbadk/IRIS/releases/download/v0.2.7/iris-linux-x86_64-v0.2.7.tar.gz"
+      "url": "https://github.com/bubbadk/IRIS/releases/download/v0.2.8/iris-linux-x86_64-v0.2.8.tar.gz"
     }
   }
 }
