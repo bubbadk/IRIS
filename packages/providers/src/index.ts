@@ -1992,6 +1992,12 @@ export interface ModelMessage {
   reasoningDetails?: unknown[];
   /** Vision-capable models only; providers that cannot accept images ignore this. */
   images?: ModelImage[];
+  /**
+   * Optional metadata for history management. `priority` controls trimming order when the
+   * context window is exceeded: 'pinned' messages are never trimmed, 'high' messages survive
+   * after all 'normal' messages have been dropped, and undefined defaults to 'normal'.
+   */
+  metadata?: { priority?: 'pinned' | 'high' | 'normal' };
 }
 
 export interface ModelRequest {

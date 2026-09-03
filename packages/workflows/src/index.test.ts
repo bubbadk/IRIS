@@ -389,19 +389,34 @@ describe('schedules', () => {
     expect(schedule.enabled).toBe(true); // stays enabled — unlike 'once', idle is recurring.
   });
 
-  it('reconciles interrupted queued and running runs as failed', async () => {
-    const run: ScheduledRun = {
+  it('reconciles a crashed running run as failed and re-queues a never-started queued run', async () => {
+    const crashedRun: ScheduledRun = {
       version: 1,
-      id: 'run-1',
+      id: 'run-crashed',
       scheduleId: 's',
       agentId: 'a',
       prompt: 'Do work',
       status: 'running',
+      startedAt: '2026-08-28T09:00:05.000Z',
       scheduledFor: '2026-08-28T09:00:00.000Z',
       createdAt: '2026-08-28T09:00:00.000Z',
       updatedAt: '2026-08-28T09:00:00.000Z',
     };
-    let saved = run;
+    const neverStartedRun: ScheduledRun = {
+      version: 1,
+      id: 'run-queued',
+      scheduleId: 's',
+      agentId: 'a',
+      prompt: 'Do other work',
+      status: 'queued',
+      scheduledFor: '2026-08-28T09:00:00.000Z',
+      createdAt: '2026-08-28T09:00:00.000Z',
+      updatedAt: '2026-08-28T09:00:00.000Z',
+    };
+    const saved: Record<string, ScheduledRun> = {
+      'run-crashed': crashedRun,
+      'run-queued': neverStartedRun,
+    };
     const schedules: ScheduleRepository = {
       list: async () => [],
       get: async () => null,
@@ -409,10 +424,10 @@ describe('schedules', () => {
       remove: async () => undefined,
     };
     const runs: ScheduledRunRepository = {
-      list: async () => [saved],
-      get: async () => saved,
+      list: async () => Object.values(saved),
+      get: async (id) => saved[id] ?? null,
       save: async (next) => {
-        saved = next;
+        saved[next.id] = next;
       },
     };
     const dispatcher = new ScheduleDispatcher(
@@ -422,8 +437,13 @@ describe('schedules', () => {
       { now: () => new Date('2026-08-28T10:00:00.000Z') },
     );
     await dispatcher.reconcile();
-    expect(saved.status).toBe('failed');
-    expect(saved.failure).toContain('stopped');
+    // A run that actually started before the crash is marked failed with a timestamp-enriched message.
+    expect(saved['run-crashed'].status).toBe('failed');
+    expect(saved['run-crashed'].failure).toContain('started at');
+    // A queued run that never began executing is re-queued so the next tick picks it up naturally.
+    expect(saved['run-queued'].status).toBe('queued');
+    expect(saved['run-queued'].failedAt).toBeUndefined();
+    expect(saved['run-queued'].failure).toBeUndefined();
   });
 
   it('persists retry timing and retries a failed run without duplicating its history row', async () => {

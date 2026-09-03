@@ -161,9 +161,48 @@ const ignoredTerms = new Set([
   'you',
 ]);
 
+/**
+ * Simple heuristic to detect whether a word is likely Danish rather than English.
+ * Checks for Danish-specific characters and common Danish suffix patterns that do not
+ * overlap with English morphology. This is intentionally lightweight — it only needs to
+ * route between two suffix-stripping tables, not be a full language classifier.
+ */
+function looksDanish(word: string): boolean {
+  // Danish-specific characters are a strong signal.
+  if (/[æøå]/u.test(word)) return true;
+  // Common Danish suffixes that are rare or absent in English. Order matters: longer suffixes
+  // first so the check short-circuits before shorter overlapping ones match by accident.
+  const danishSignals = [
+    'erne', 'eren', 'ende', 'eder', 'else', 'ning', 'hed', 'dom', 'sel',
+    'bar', 'lig', 'som', 'fuld', 'skel', 'mæssig',
+  ];
+  for (const suffix of danishSignals) {
+    if (word.endsWith(suffix)) return true;
+  }
+  return false;
+}
+
+const danishSuffixes = [
+  'erterne', 'ingerne', 'elserne', 'ningerne', 'hederne',
+  'elsen', 'ningen', 'heden', 'dommen', 'selen',
+  'erne', 'eren', 'ende', 'eder', 'else', 'ning', 'hed', 'dom', 'sel',
+  'bar', 'lig', 'som', 'fuld', 'ede', 'ene', 'ere', 'est', 'tet', 'ske',
+];
+
+const englishSuffixes = [
+  'ingly', 'edly', 'ment', 'ness', 'tion', 'able', 'ible',
+  'ing', 'ed', 'es', 'ly', 's',
+];
+
 function stemWord(word: string): string {
   if (word.length <= 3) return word;
-  return word.replace(/(ing|edly|ingly|ed|es|s|ly|ment|ness|tion|able|ible)$/u, '');
+  const suffixes = looksDanish(word) ? danishSuffixes : englishSuffixes;
+  for (const suffix of suffixes) {
+    if (word.endsWith(suffix) && word.length - suffix.length >= 2) {
+      return word.slice(0, -suffix.length);
+    }
+  }
+  return word;
 }
 
 function normalizedTerms(value: string): string[] {

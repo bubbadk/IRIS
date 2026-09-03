@@ -1,4 +1,30 @@
 import type { AgentDefinition } from '@iris/core';
+
+/**
+ * Runs items through an async mapper with at most `limit` concurrent in-flight promises.
+ * When limit is Infinity (or any non-finite value) this collapses to a plain Promise.all,
+ * preserving the existing zero-overhead path for agents without a concurrency cap.
+ */
+async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (!Number.isFinite(limit) || limit >= items.length) {
+    return Promise.all(items.map(fn));
+  }
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const runNext = async (): Promise<void> => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await fn(items[index]);
+    }
+  };
+  const workers = Array.from({ length: Math.max(1, Math.floor(limit)) }, () => runNext());
+  await Promise.all(workers);
+  return results;
+}
 import {
   attachContextPack,
   renderContextPack,
@@ -185,6 +211,17 @@ function messageChars(message: ModelMessage): number {
  * would otherwise be the very next one in line to be dropped — wiping out the model's only record
  * of the work it just did, right when the user asked it to pick that work back up.
  */
+/**
+ * Returns the trimming priority of a message. Pinned messages are never dropped, high-priority
+ * messages survive after all normal ones have been exhausted, and everything else (including
+ * messages without metadata) is treated as normal. System-role messages are automatically
+ * promoted to pinned so foundational instructions never get silently lost.
+ */
+function messagePriority(message: ModelMessage): 'pinned' | 'high' | 'normal' {
+  if (message.role === 'system') return 'pinned';
+  return message.metadata?.priority ?? 'normal';
+}
+
 export function trimModelHistory(
   history: ModelMessage[],
   maxChars = defaultHistoryCharBudget,
@@ -195,22 +232,61 @@ export function trimModelHistory(
   const starts = history.flatMap((message, index) => (message.role === 'user' ? [index] : []));
   if (starts.length <= 2) return { history, dropped: 0 };
 
-  let cutoff = 0;
-  let remaining = totalChars;
-  for (let boundary = 0; boundary < starts.length - 2; boundary += 1) {
-    if (remaining <= maxChars) break;
-    const from = starts[boundary];
-    const to = starts[boundary + 1];
-    for (let index = from; index < to; index += 1) remaining -= messageChars(history[index]);
-    cutoff = to;
+  // Build exchange groups between user-message boundaries. Each group starts at a user message
+  // and extends up to (but not including) the next user message, so tool calls and their results
+  // stay grouped with the user turn that triggered them. Messages before the first user message
+  // (typically system prompts) form their own leading exchange.
+  const exchanges: Array<{ from: number; to: number; priority: 'pinned' | 'high' | 'normal' }> = [];
+  const bounds = [0, ...starts, history.length];
+  for (let i = 0; i < bounds.length - 1; i += 1) {
+    const from = bounds[i];
+    const to = bounds[i + 1];
+    if (from === to) continue;
+    // An exchange inherits its highest member priority — a single pinned message in an exchange
+    // protects the whole group. This keeps tool results attached to pinned system context.
+    let priority: 'pinned' | 'high' | 'normal' = 'normal';
+    for (let j = from; j < to; j += 1) {
+      const p = messagePriority(history[j]);
+      if (p === 'pinned') {
+        priority = 'pinned';
+        break;
+      }
+      if (p === 'high' && priority === 'normal') priority = 'high';
+    }
+    exchanges.push({ from, to, priority });
   }
-  if (cutoff === 0) return { history, dropped: 0 };
 
+  // The last two user-originated exchanges are always preserved so the model retains its most
+  // recent conversational context. When there are fewer than three user turns total we already
+  // returned above, so this slice is always safe.
+  const trimmable = exchanges.slice(0, Math.max(0, exchanges.length - 2));
+  if (trimmable.length === 0) return { history, dropped: 0 };
+
+  // Drop normal-priority exchanges first (oldest first), then high. Pinned exchanges are
+  // never dropped regardless of budget pressure.
+  let remaining = totalChars;
+  let droppedCount = 0;
+  const droppedIndices = new Set<number>();
+  for (const tier of ['normal', 'high'] as const) {
+    for (let i = 0; i < trimmable.length && remaining > maxChars; i += 1) {
+      const exchange = trimmable[i];
+      if (exchange.priority !== tier) continue;
+      for (let j = exchange.from; j < exchange.to; j += 1) {
+        remaining -= messageChars(history[j]);
+        droppedIndices.add(j);
+      }
+      droppedCount += exchange.to - exchange.from;
+    }
+  }
+
+  if (droppedCount === 0) return { history, dropped: 0 };
+
+  const kept = history.filter((_, i) => !droppedIndices.has(i));
   const marker: ModelMessage = {
     role: 'assistant',
-    content: `[IRIS trimmed ${cutoff} earlier message${cutoff === 1 ? '' : 's'} to stay within the context window.]`,
+    content: `[IRIS trimmed ${droppedCount} earlier message${droppedCount === 1 ? '' : 's'} to stay within the context window. Pinned and high-priority messages were preserved where possible.]`,
   };
-  return { history: [marker, ...history.slice(cutoff)], dropped: cutoff };
+  return { history: [marker, ...kept], dropped: droppedCount };
 }
 
 function addUsage(total: TokenUsage | undefined, next: TokenUsage): TokenUsage {
@@ -516,19 +592,21 @@ export class AgentSession {
       // what makes them safe to batch instead of issuing one at a time across separate rounds), so
       // run them concurrently. `execute` never has a side effect for a call that turns out to need
       // approval — it only records the approval request — so it is safe to run unconditionally.
+      // When the agent defines a concurrency cap, an async semaphore gates how many calls actually
+      // start at once; the rest queue behind earlier ones. This prevents host overload or provider
+      // rate limits when a model requests many parallel tool calls in a single round.
       for (const call of calls) yield { type: 'tool-call', call };
-      const settled = await Promise.all(
-        calls.map(async (call) => ({
-          call,
-          result: await this.tools!.execute(
-            this.agent,
-            call.name,
-            call.input,
-            { turnId, toolCallId: call.id },
-            signal,
-          ),
-        })),
-      );
+      const concurrencyLimit = this.agent.maxConcurrentTools ?? Infinity;
+      const settled = await runWithConcurrency(calls, concurrencyLimit, async (call) => ({
+        call,
+        result: await this.tools!.execute(
+          this.agent,
+          call.name,
+          call.input,
+          { turnId, toolCallId: call.id },
+          signal,
+        ),
+      }));
 
       let paused: { call: ModelToolCall; approval: AgentToolApproval } | undefined;
       const queuedApprovals: { call: ModelToolCall; approval: AgentToolApproval }[] = [];

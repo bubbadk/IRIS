@@ -5,7 +5,7 @@
   <h3>The Spatial Operating Environment for Autonomous AI Agents</h3>
   <p>An object-oriented, local-first desktop OS for creating, operating, and orchestrating autonomous AI agent systems.</p>
 
-  [![Version](https://img.shields.io/badge/Version-0.2.8-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
+  [![Version](https://img.shields.io/badge/Version-0.2.9-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
   [![FP-AMB Memory Benchmark](https://img.shields.io/badge/FP--AMB%20(verified)-69.7%25%20(154%2F221%20gradeable)-success.svg?style=flat-square)](#-memory-benchmark-verified-results)
   [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg?style=flat-square)](LICENSE)
   [![Platform](https://img.shields.io/badge/Platform-Linux%20(CachyOS%2FArch%20%7C%20Ubuntu)%20%7C%20macOS%20%7C%20Windows-amber.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
@@ -55,6 +55,7 @@ IRIS is a **graphical agent operating environment**. It treats agents, workspace
 - 🐙 **Live GitHub Release Engineering**: Issue triage, SemVer versioning, and CI/CD workflow automation that generates ready-to-run release binaries.
 - 🖥️ **Real Browser Automation**: Agents drive a genuine headless Chrome/Chromium session through the WebDriver protocol — trusted clicks, real keystrokes, element-ref snapshots, and PNG screenshots saved into the workspace.
 - 🛡️ **Zero-Surprise Security**: Interactive visual diff viewers, granular tool permission gating, and local OS Keyring credential storage.
+- 🔧 **v0.2.9 Internal Hardening**: Priority-aware history trimming (pinned system prompts never get silently dropped), configurable per-agent tool concurrency limits with async semaphore, Danish-language stemming and temporal parsing for memory fallback retrieval, smarter schedule reconciliation that re-queues never-started runs instead of failing them, structured turn-trace observability for debugging agent decision paths, and a full App.tsx decomposition from 4816 lines to 487 across five extracted feature modules.
 
 ---
 

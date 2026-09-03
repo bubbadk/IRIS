@@ -9,6 +9,10 @@ import {
   type SkillRepository,
 } from '@iris/skills';
 
+import type { TurnTraceEvent } from './trace';
+export type { TurnTraceEvent, TurnTraceRecord } from './trace';
+export { appendTraceEvent } from './trace';
+
 const aliases: Record<IrisObjectType, string[]> = {
   agents: ['agent', 'agents', 'worker', 'workers'],
   projects: ['project', 'projects', 'task', 'tasks', 'plan', 'plans'],
@@ -115,6 +119,8 @@ interface CortexTurnBase {
   updatedAt: string;
   /** Token counts reported by the provider for this turn, when available. */
   usage?: CortexTurnUsage;
+  /** Optional structured decision-point log for debugging and observability. */
+  trace?: TurnTraceEvent[];
 }
 
 export type CortexTurnRecord =

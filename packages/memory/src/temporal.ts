@@ -66,27 +66,28 @@ export function parseTemporalQuery(
 
   const lowerNow = startOfDay(now);
 
-  // Relative expressions, resolved against the clock.
-  if (/\byesterday\b/.test(text)) return { ...dayRange(now, 1), boost: 1.6 };
-  if (/\btoday\b/.test(text)) return { ...dayRange(now, 0), boost: 1.6 };
-  if (/\blast month\b|\bprevious month\b/.test(text)) {
+  // Relative expressions, resolved against the clock. English and Danish variants are
+  // checked together so queries in either language resolve to the same window.
+  if (/\byesterday\b|\bi går\b|\bigår\b/.test(text)) return { ...dayRange(now, 1), boost: 1.6 };
+  if (/\btoday\b|\bi dag\b|\bidag\b/.test(text)) return { ...dayRange(now, 0), boost: 1.6 };
+  if (/\blast month\b|\bprevious month\b|\bsidste måned\b|\bsidste maaned\b/.test(text)) {
     const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const to = new Date(now.getFullYear(), now.getMonth(), 1);
     return { fromMs: from.getTime(), toMs: to.getTime() - 1, boost: 1.6 };
   }
-  if (/\bthis month\b/.test(text)) {
+  if (/\bthis month\b|\bdenne måned\b|\bdenne maaned\b|\bden her måned\b/.test(text)) {
     const from = new Date(now.getFullYear(), now.getMonth(), 1);
     return { fromMs: from.getTime(), toMs: now.getTime(), boost: 1.6 };
   }
-  if (/\blast week\b|\bprevious week\b|\bpast week\b/.test(text)) {
+  if (/\blast week\b|\bprevious week\b|\bpast week\b|\bi sidste uge\b|\bsidste uge\b/.test(text)) {
     return { ...dayRange(now, 7), boost: 1.6 };
   }
-  if (/\bthis week\b/.test(text)) {
+  if (/\bthis week\b|\bdenne uge\b|\bden her uge\b/.test(text)) {
     const weekday = (now.getDay() + 6) % 7; // Monday-based
     const from = new Date(lowerNow.getTime() - weekday * DAY_MS);
     return { fromMs: from.getTime(), toMs: now.getTime(), boost: 1.6 };
   }
-  if (/\blast year\b|\bprevious year\b/.test(text)) {
+  if (/\blast year\b|\bprevious year\b|\bsidste år\b|\bsidste aar\b/.test(text)) {
     const year = now.getFullYear() - 1;
     return {
       fromMs: new Date(year, 0, 1).getTime(),
@@ -94,7 +95,7 @@ export function parseTemporalQuery(
       boost: 1.6,
     };
   }
-  if (/\bthis year\b/.test(text)) {
+  if (/\bthis year\b|\bdette år\b|\bdette aar\b|\bi år\b|\biaar\b/.test(text)) {
     return {
       fromMs: new Date(now.getFullYear(), 0, 1).getTime(),
       toMs: now.getTime(),

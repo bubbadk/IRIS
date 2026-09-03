@@ -44,6 +44,12 @@ export interface AgentDefinition {
   reasoningEffort?: ReasoningEffort;
   skillIds: string[];
   toolIds: string[];
+  /**
+   * Maximum number of tool calls from a single model round that may execute concurrently.
+   * Undefined or omitted means unlimited (preserving existing behavior). Caps at 20 to prevent
+   * accidental host overload; values above 20 are clamped during validation.
+   */
+  maxConcurrentTools?: number;
 }
 
 /** Persistence/runtime boundary for user-authored agent configuration. */
@@ -81,13 +87,25 @@ export function validateAgentDefinition(value: unknown): value is AgentDefinitio
     Array.isArray(candidate.skillIds) &&
     candidate.skillIds.every((id) => typeof id === 'string') &&
     Array.isArray(candidate.toolIds) &&
-    candidate.toolIds.every((id) => typeof id === 'string')
+    candidate.toolIds.every((id) => typeof id === 'string') &&
+    (candidate.maxConcurrentTools === undefined ||
+      (typeof candidate.maxConcurrentTools === 'number' &&
+        Number.isInteger(candidate.maxConcurrentTools) &&
+        candidate.maxConcurrentTools >= 1))
   );
 }
 
 export function cloneAgentDefinition(agent: AgentDefinition): AgentDefinition {
-  return { ...agent, skillIds: [...agent.skillIds], toolIds: [...agent.toolIds] };
+  return {
+    ...agent,
+    skillIds: [...agent.skillIds],
+    toolIds: [...agent.toolIds],
+    ...(agent.maxConcurrentTools !== undefined
+      ? { maxConcurrentTools: Math.min(agent.maxConcurrentTools, 20) }
+      : {}),
+  };
 }
+
 
 export interface ProviderDefinition {
   id: string;

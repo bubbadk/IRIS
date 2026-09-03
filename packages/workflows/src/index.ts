@@ -177,13 +177,27 @@ export class ScheduleDispatcher {
     const timestamp = this.now().toISOString();
     for (const run of storedRuns) {
       if (run.status !== 'queued' && run.status !== 'running') continue;
-      await this.runs.save({
-        ...run,
-        status: 'failed',
-        failedAt: timestamp,
-        updatedAt: timestamp,
-        failure: 'IRIS stopped before this scheduled run reached a final state.',
-      });
+      // A run without startedAt was queued but never began executing — IRIS stopped between
+      // scheduling and dispatch. Re-queue it so the next tick picks it up naturally instead of
+      // forcing a manual retry. Only runs that actually started (and thus crashed mid-execution)
+      // are marked as failed.
+      if (!run.startedAt) {
+        await this.runs.save({
+          ...run,
+          status: 'queued',
+          updatedAt: timestamp,
+          failedAt: undefined,
+          failure: undefined,
+        });
+      } else {
+        await this.runs.save({
+          ...run,
+          status: 'failed',
+          failedAt: timestamp,
+          updatedAt: timestamp,
+          failure: `IRIS stopped while this run was executing (started at ${run.startedAt}).`,
+        });
+      }
       this.onChange();
     }
   }

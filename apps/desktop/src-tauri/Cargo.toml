@@ -1,6 +1,6 @@
 [package]
 name = "iris"
-version = "0.2.8"
+version = "0.2.9"
 description = "Intelligent Reasoning & Integration System"
 authors = ["IRIS"]
 edition = "2021"
