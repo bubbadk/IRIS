@@ -5,7 +5,7 @@
   <h3>The Spatial Operating Environment for Autonomous AI Agents</h3>
   <p>An object-oriented, local-first desktop OS for creating, operating, and orchestrating autonomous AI agent systems.</p>
 
-  [![Version](https://img.shields.io/badge/Version-0.2.9-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
+  [![Version](https://img.shields.io/badge/Version-0.2.10-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
   [![FP-AMB Memory Benchmark](https://img.shields.io/badge/FP--AMB%20(verified)-69.7%25%20(154%2F221%20gradeable)-success.svg?style=flat-square)](#-memory-benchmark-verified-results)
   [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg?style=flat-square)](LICENSE)
   [![Platform](https://img.shields.io/badge/Platform-Linux%20(CachyOS%2FArch%20%7C%20Ubuntu)%20%7C%20macOS%20%7C%20Windows-amber.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
@@ -55,7 +55,7 @@ IRIS is a **graphical agent operating environment**. It treats agents, workspace
 - 🐙 **Live GitHub Release Engineering**: Issue triage, SemVer versioning, and CI/CD workflow automation that generates ready-to-run release binaries.
 - 🖥️ **Real Browser Automation**: Agents drive a genuine headless Chrome/Chromium session through the WebDriver protocol — trusted clicks, real keystrokes, element-ref snapshots, and PNG screenshots saved into the workspace.
 - 🛡️ **Zero-Surprise Security**: Interactive visual diff viewers, granular tool permission gating, and local OS Keyring credential storage.
-- 🔧 **v0.2.9 Internal Hardening**: Priority-aware history trimming (pinned system prompts never get silently dropped), configurable per-agent tool concurrency limits with async semaphore, Danish-language stemming and temporal parsing for memory fallback retrieval, smarter schedule reconciliation that re-queues never-started runs instead of failing them, structured turn-trace observability for debugging agent decision paths, and a full App.tsx decomposition from 4816 lines to 487 across five extracted feature modules.
+- 🔎 **Auditable Agent Continuity**: One shared, attributed workspace-change stream for every agent, plus durable model-handoff boundaries that preserve a truthful transcript when an agent escalates to another model.
 
 ---
 
@@ -89,22 +89,30 @@ IRIS is evaluated against the [FP-AMB question suite](https://github.com/munch2u
 
 ---
 
-## ✨ Key Features in v0.2.8
+## ✨ Key Features in v0.2.10
 
-### 🌐 1. Real Browser Automation (WebDriver)
+### 🔎 1. Unified Parallel-Agent Change Stream
+- **One workspace timeline, not one pane per agent**: successful `workspace.mkdir`, `workspace.write`, `workspace.move`, `workspace.delete`, and `workspace.patch` operations land in one local, bounded stream in the Workspace object.
+- **Attribution you can inspect**: every recorded entry identifies the agent, optional turn, time, target path, and source path for moves. Writes and patches offer a bounded expandable diff. Changes made outside IRIS are intentionally not presented as agent work.
+
+### ⚡ 2. Auditable Model Handoffs
+- **A clear takeover boundary**: when the next turn resolves to a different provider or model, IRIS saves a visible “Model handoff” marker with the source model, destination model, and time.
+- **History stays useful without misleading the model**: the complete transcript remains visible across the agent, desklet, and GitHub conversations; the marker itself is transcript metadata and is excluded from provider input.
+
+### 🌐 3. Real Browser Automation (WebDriver)
 - **Genuine headless Chrome/Chromium session**: `browser.start` launches a real browser through chromedriver, managed from IRIS's Rust backend via the WebDriver protocol — no simulation anywhere.
 - **Trusted clicks & real keystrokes**: `browser.click` (by snapshot ref, CSS selector, or visible text) and `browser.type` (real send-keys) drive actual input events; `browser.snapshot` refreshes clickable element refs.
 - **Honest vision**: `browser.vision` saves a real PNG screenshot into the workspace (`iris-vision/`) — a file you can open, not base64 a model cannot see. Without a running session, `browser.navigate`/`browser.vision` fall back to plain HTTP fetching and say so in the result.
 
 ---
 
-### 🛠️ 2. Sandboxed Workspace Shell & Agent Teams
+### 🛠️ 4. Sandboxed Workspace Shell & Agent Teams
 - **`shell.exec`**: agents run one real shell command inside the mounted workspace root, gated by the standard `[ ✓ Apply ]` / `[ ✕ Deny ]` permission flow, with process-group timeouts (1–300 s) and 64 KiB output caps.
 - **`cortex.delegate-team`**: fan a task out to up to four specialist sub-agents running concurrently, with per-member reports and a `completed / partial / failed` rollup.
 
 ---
 
-### 💬 3. Composer & Desktop Polish
+### 💬 5. Composer & Desktop Polish
 - **Drag-and-drop attachments**: drop files from your file manager straight onto either chat composer (images become vision blocks, text files become fenced labeled blocks).
 - **Ctrl/Cmd+K command palette**: keyboard-first launcher that filters every desktop object and opens it as a window.
 - **Subtitle Studio (chunked dialogue translator)**: SRT/VTT ingestion with a sliding context window, dual-pane live preview, and zero timestamp drift.
@@ -118,7 +126,7 @@ IRIS is evaluated against the [FP-AMB question suite](https://github.com/munch2u
 
 ### Download Standalone Release
 Grab the latest pre-built binaries from [GitHub Releases](https://github.com/bubbadk/IRIS/releases):
-- **Linux**: standalone binary (`iris-linux-x86_64-v0.2.8.tar.gz`) or `.AppImage`
+- **Linux**: standalone binary (`iris-linux-x86_64-v0.2.10.tar.gz`) or `.AppImage`
 - **macOS**: `.dmg` (Universal binary)
 - **Windows**: `.msi` / `.exe` installer
 

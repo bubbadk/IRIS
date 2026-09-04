@@ -16,6 +16,7 @@ import {
   LocalSuspendedAgentTurnRepository,
   LocalToolApprovalRepository,
   LocalWorkspaceRepository,
+  LocalWorkspaceChangeRepository,
 } from './persistence';
 
 function memoryStorage(): Storage {
@@ -466,6 +467,26 @@ describe('local agent persistence', () => {
     expect(await repository.listForAgent('agent-1')).toHaveLength(2);
     await repository.clear('agent-1');
     await expect(repository.list('turn-1')).resolves.toEqual([]);
+  });
+});
+
+describe('workspace change persistence', () => {
+  it('round-trips bounded diffs and returns a safe clone', async () => {
+    const repository = new LocalWorkspaceChangeRepository(storage);
+    await repository.append({
+      version: 1,
+      id: 'change-1',
+      timestamp: '2026-09-04T10:00:00.000Z',
+      workspaceId: 'workspace-1',
+      agentId: 'agent-1',
+      agentName: 'Operator',
+      kind: 'patched',
+      path: 'README.md',
+      diff: { changed: true, truncated: false, lines: [{ kind: 'addition', text: '+ New line' }] },
+    });
+    const changes = await repository.list('workspace-1');
+    changes[0].diff!.lines[0].text = 'mutated';
+    expect((await repository.list('workspace-1'))[0].diff!.lines[0].text).toBe('+ New line');
   });
 });
 

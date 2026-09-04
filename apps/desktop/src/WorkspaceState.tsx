@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import type {
   WorkspaceGitStatus,
+  WorkspaceChange,
   WorkspaceListing,
   WorkspaceMount,
   WorkspaceSearchResult,
   WorkspaceTextFile,
 } from '@iris/workspaces';
+import { DiffViewer } from './DiffViewer';
+import { workspaceChangeRepository } from './persistence';
 import { isTauriRuntime } from './credentials';
 import {
   chooseWorkspaceFolder,
@@ -26,11 +29,23 @@ function parentPath(path: string): string {
   return path.split('/').slice(0, -1).join('/');
 }
 
+function changeLabel(change: WorkspaceChange): string {
+  switch (change.kind) {
+    case 'directory-created': return 'Created directory';
+    case 'file-written': return 'Wrote file';
+    case 'moved': return 'Moved entry';
+    case 'deleted': return 'Deleted entry';
+    case 'patched': return 'Patched file';
+  }
+}
+
 export function WorkspaceState() {
   const native = isTauriRuntime();
   const [mount, setMount] = useState<WorkspaceMount | null>(null);
   const [listing, setListing] = useState<WorkspaceListing | null>(null);
   const [gitStatus, setGitStatus] = useState<WorkspaceGitStatus | null>(null);
+  const [changes, setChanges] = useState<WorkspaceChange[]>([]);
+  const [expandedChangeId, setExpandedChangeId] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<WorkspaceTextFile | null>(null);
   const [search, setSearch] = useState<WorkspaceSearchResult | null>(null);
   const [query, setQuery] = useState('');
@@ -45,6 +60,7 @@ export function WorkspaceState() {
         const configured = await workspaceService.current();
         if (!active) return;
         setMount(configured);
+        setChanges(configured ? await workspaceChangeRepository.list(configured.id) : []);
         if (configured && native) {
           setListing(await workspaceService.list());
           try {
@@ -81,6 +97,7 @@ export function WorkspaceState() {
       if (!selected) return;
       const connected = await mountWorkspace(selected);
       setMount(connected);
+      setChanges(await workspaceChangeRepository.list(connected.id));
       setListing(await workspaceService.list());
       setSelectedFile(null);
       setSearch(null);
@@ -99,6 +116,8 @@ export function WorkspaceState() {
     try {
       await unmountWorkspace();
       setMount(null);
+      setChanges([]);
+      setExpandedChangeId(null);
       setListing(null);
       setSelectedFile(null);
       setSearch(null);
@@ -206,7 +225,48 @@ export function WorkspaceState() {
           <p>Choose a folder above. Nothing outside it will be exposed through workspace tools.</p>
         </div>
       ) : (
-        <div className="workspace-browser">
+        <>
+          <section className="workspace-change-feed" aria-label="Combined agent changes">
+            <div className="workspace-change-heading">
+              <div>
+                <p className="section-label">Combined agent changes</p>
+                <strong>One live diff stream, across every agent.</strong>
+              </div>
+              <small>{changes.length} recorded</small>
+            </div>
+            {changes.length === 0 ? (
+              <p className="workspace-change-empty">
+                Changes made through workspace tools will appear here with their agent and turn.
+              </p>
+            ) : (
+              <ol className="workspace-change-list">
+                {changes.map((change) => {
+                  const expanded = expandedChangeId === change.id;
+                  return (
+                    <li key={change.id}>
+                      <button
+                        type="button"
+                        className="workspace-change-row"
+                        onClick={() => setExpandedChangeId(expanded ? null : change.id)}
+                        aria-expanded={expanded}
+                      >
+                        <span className="workspace-change-kind">{changeLabel(change)}</span>
+                        <strong>{change.path}</strong>
+                        <small>
+                          {change.agentName} · {new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(new Date(change.timestamp))}
+                          {change.previousPath ? ` · from ${change.previousPath}` : ''}
+                        </small>
+                      </button>
+                      {expanded && change.diff && (
+                        <DiffViewer diff={change.diff} title={`${changeLabel(change)} · ${change.path}`} maxLines={160} />
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </section>
+          <div className="workspace-browser">
           <aside className="workspace-mount-card">
             <span className="workspace-folder-mark">⌁</span>
             <div>
@@ -363,7 +423,8 @@ export function WorkspaceState() {
               <p className="workspace-limit-note">Only the first 500 entries are shown.</p>
             )}
           </section>
-        </div>
+          </div>
+        </>
       )}
       {error && <p className="workspace-error">{error}</p>}
     </div>

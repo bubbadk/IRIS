@@ -1,8 +1,10 @@
 # IRIS Current State
 
-Status: **IRIS v0.2.8 (Real Browser Automation Release)**
+Status: **IRIS v0.2.10 (Auditable Agent Continuity Release)**
 
-- **Version**: `v0.2.8`
+- **Version**: `v0.2.10`
+- **Unified Parallel-Agent Change Stream**: Workspace now records successful agent-driven directory creation, file writes, moves, deletes, and patches in one bounded local feed. Each entry carries the real agent, optional turn, timestamp, path and a bounded diff when applicable; it does not attribute external filesystem changes to agents.
+- **Auditable Model Handoffs**: A conversation persists a visible boundary when its next turn resolves to a different provider/model. The marker names both models and the handoff time, survives every chat surface and local reload, and is never sent back to a provider as conversation input.
 - **Release Integrity**: This release retracts the previously published FP-AMB scores (91.4% / 83.6%), which were produced by flawed or fabricated grading, and ships only measured, reproducible results. Nothing ships unverified: full typecheck, lint, test suites, Rust tests and a binary boot test are run before every release, and no pushes happen without an explicit human request.
 - **Memory Constellation (`MemoryConstellationView.tsx`, `buildConstellation` in `@iris/memory`)**: Living star-map of agent memory in the Memory window — stars sized by retrieval frequency and colored by age, co-retrieval links between memories selected in the same turn, live rank-order retrieval glow driven by persisted context packs (polled, no events), a timeline scrubber, agent scope toggle, and click-through provenance (speaker, timestamp, retrieval count, the prompts that retrieved it). Derived purely from real records and context packs; honest empty states.
 - **FP-AMB Memory Benchmark (verified)**: 69.7% overall accuracy on the 221 automatically gradeable questions (154/221) of the official 262-question suite; 41 refusal/judgment questions are excluded because they require semantic/agent-in-the-loop grading. Real corpus metrics: 60 sessions, 739 turns, 819,273 indexed tokens (whitespace estimate), ~1.6 ms/query on local CPU. Grading is strict word-boundary matching on raw turn content; in-app live benchmark runner shows no numbers before a real run. IRIS is not chasing benchmark leaderboard speed or scores — quality comes first: honest grading and reproducible, auditable numbers over a flattering score.

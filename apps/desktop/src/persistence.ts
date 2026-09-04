@@ -44,8 +44,12 @@ import {
   type SkillRepository,
 } from '@iris/skills';
 import {
+  cloneWorkspaceChange,
   cloneWorkspaceMount,
+  validateWorkspaceChange,
   validateWorkspaceMount,
+  type WorkspaceChange,
+  type WorkspaceChangeRepository,
   type WorkspaceMount,
   type WorkspaceRepository,
 } from '@iris/workspaces';
@@ -91,6 +95,7 @@ const projectTaskRunStorageKey = 'iris.projects.task-runs.v1';
 const scheduleStorageKey = 'iris.schedules.v1';
 const scheduledRunStorageKey = 'iris.schedules.runs.v1';
 const workspaceStorageKey = 'iris.workspace.mount.v1';
+const workspaceChangeStorageKey = 'iris.workspace.changes.v1';
 const skillStorageKey = 'iris.skills.definitions.v1';
 const mcpServerStorageKey = 'iris.mcp.servers.v1';
 const mcpServerRequestPolicyStorageKey = 'iris.mcp.server-request-policies.v1';
@@ -127,6 +132,7 @@ const projectGraphLimit = 50;
 const projectTaskRunLimit = 250;
 const scheduleLimit = 100;
 const scheduledRunLimit = 500;
+const workspaceChangeLimit = 250;
 
 function parseArray<T>(raw: string | null): T[] {
   if (!raw) return [];
@@ -372,6 +378,48 @@ export class LocalWorkspaceRepository implements WorkspaceRepository {
 
   async clear(): Promise<void> {
     this.store.removeItem(workspaceStorageKey);
+  }
+}
+
+export class LocalWorkspaceChangeRepository implements WorkspaceChangeRepository {
+  constructor(private readonly storage?: Storage) {}
+
+  private get store(): Storage {
+    return this.storage ?? globalThis.localStorage;
+  }
+
+  private read(): WorkspaceChange[] {
+    return parseArray<unknown>(this.store.getItem(workspaceChangeStorageKey)).flatMap((value) =>
+      validateWorkspaceChange(value) ? [cloneWorkspaceChange(value)] : [],
+    );
+  }
+
+  async list(workspaceId?: string): Promise<WorkspaceChange[]> {
+    return this.read()
+      .filter((change) => !workspaceId || change.workspaceId === workspaceId)
+      .map(cloneWorkspaceChange);
+  }
+
+  async append(change: WorkspaceChange): Promise<void> {
+    if (!validateWorkspaceChange(change)) {
+      throw new Error('Cannot persist an invalid workspace change.');
+    }
+    const existing = this.read().filter((candidate) => candidate.id !== change.id);
+    this.store.setItem(
+      workspaceChangeStorageKey,
+      JSON.stringify([cloneWorkspaceChange(change), ...existing].slice(0, workspaceChangeLimit)),
+    );
+  }
+
+  async clear(workspaceId?: string): Promise<void> {
+    this.store.setItem(
+      workspaceChangeStorageKey,
+      JSON.stringify(
+        workspaceId
+          ? this.read().filter((change) => change.workspaceId !== workspaceId)
+          : [],
+      ),
+    );
   }
 }
 
@@ -1197,6 +1245,7 @@ export const projectTaskRunRepository = new LocalProjectTaskRunRepository();
 export const scheduleRepository = new LocalScheduleRepository();
 export const scheduledRunRepository = new LocalScheduledRunRepository();
 export const workspaceRepository = new LocalWorkspaceRepository();
+export const workspaceChangeRepository = new LocalWorkspaceChangeRepository();
 export const skillRepository = new LocalSkillRepository();
 export const mcpServerRepository = new LocalMcpServerRepository();
 export const mcpServerRequestPolicyRepository = new LocalMcpServerRequestPolicyRepository();

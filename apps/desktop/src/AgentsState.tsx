@@ -42,6 +42,7 @@ import {
   ToolRequestView,
   formatMemoryDate,
 } from './App';
+import { ModelHandoffMarker } from './ModelHandoffMarker';
 import {
   agentRepository,
   contextPackRepository,
@@ -1390,6 +1391,9 @@ export function AgentsState() {
                 </div>
               ) : (
                 messages.map((message, index) => {
+                  if (message.role === 'handoff') {
+                    return <ModelHandoffMarker key={`handoff-${message.handoff?.at ?? index}`} message={message} />;
+                  }
                   const linkedContext = message.turnId
                     ? contextPacks.find((pack) => pack.turnId === message.turnId)
                     : undefined;

@@ -27,6 +27,7 @@ import {
   formatElapsed,
   shortToolLabel,
 } from './App';
+import { ModelHandoffMarker } from './ModelHandoffMarker';
 
 export interface ActiveToolInvocation {
   id: string;
@@ -706,6 +707,9 @@ export function ChatDesklet({
           </div>
         )}
         {messages.map((message, index) => {
+          if (message.role === 'handoff') {
+            return <ModelHandoffMarker key={`handoff-${message.handoff?.at ?? index}`} message={message} />;
+          }
           const isUser = message.role === 'user';
           const msgKey = `${message.turnId ?? index}-${message.role}`;
           const reactionKey = message.turnId || String(index);

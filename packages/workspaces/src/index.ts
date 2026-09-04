@@ -79,6 +79,34 @@ export interface WorkspaceTextDiff {
   truncated: boolean;
 }
 
+export type WorkspaceChangeKind =
+  | 'directory-created'
+  | 'file-written'
+  | 'moved'
+  | 'deleted'
+  | 'patched';
+
+export interface WorkspaceChange {
+  version: 1;
+  id: string;
+  timestamp: string;
+  workspaceId: string;
+  agentId: string;
+  agentName: string;
+  turnId?: string;
+  kind: WorkspaceChangeKind;
+  path: string;
+  previousPath?: string;
+  bytesWritten?: number;
+  diff?: WorkspaceTextDiff;
+}
+
+export interface WorkspaceChangeRepository {
+  list(workspaceId?: string): Promise<WorkspaceChange[]>;
+  append(change: WorkspaceChange): Promise<void>;
+  clear(workspaceId?: string): Promise<void>;
+}
+
 export interface WorkspaceRepository {
   get(): Promise<WorkspaceMount | null>;
   save(mount: WorkspaceMount): Promise<void>;
@@ -121,6 +149,61 @@ export interface WorkspaceService {
 
 export function cloneWorkspaceMount(mount: WorkspaceMount): WorkspaceMount {
   return { ...mount };
+}
+
+export function cloneWorkspaceChange(change: WorkspaceChange): WorkspaceChange {
+  return {
+    ...change,
+    diff: change.diff
+      ? { ...change.diff, lines: change.diff.lines.map((line) => ({ ...line })) }
+      : undefined,
+  };
+}
+
+export function validateWorkspaceChange(value: unknown): value is WorkspaceChange {
+  if (!value || typeof value !== 'object') return false;
+  const change = value as Partial<WorkspaceChange>;
+  const validKinds: WorkspaceChangeKind[] = [
+    'directory-created',
+    'file-written',
+    'moved',
+    'deleted',
+    'patched',
+  ];
+  const hasValidDiff =
+    change.diff === undefined ||
+    (typeof change.diff === 'object' &&
+      typeof change.diff.changed === 'boolean' &&
+      Array.isArray(change.diff.lines) &&
+      typeof change.diff.truncated === 'boolean' &&
+      change.diff.lines.every(
+        (line) =>
+          line &&
+          typeof line === 'object' &&
+          ['context', 'addition', 'deletion'].includes((line as WorkspaceDiffLine).kind) &&
+          typeof (line as WorkspaceDiffLine).text === 'string',
+      ));
+  return (
+    change.version === 1 &&
+    typeof change.id === 'string' &&
+    Boolean(change.id.trim()) &&
+    typeof change.timestamp === 'string' &&
+    Boolean(change.timestamp) &&
+    typeof change.workspaceId === 'string' &&
+    Boolean(change.workspaceId.trim()) &&
+    typeof change.agentId === 'string' &&
+    Boolean(change.agentId.trim()) &&
+    typeof change.agentName === 'string' &&
+    Boolean(change.agentName.trim()) &&
+    typeof change.path === 'string' &&
+    Boolean(change.path.trim()) &&
+    typeof change.kind === 'string' &&
+    validKinds.includes(change.kind as WorkspaceChangeKind) &&
+    (change.previousPath === undefined || typeof change.previousPath === 'string') &&
+    (change.turnId === undefined || typeof change.turnId === 'string') &&
+    (change.bytesWritten === undefined || Number.isFinite(change.bytesWritten)) &&
+    hasValidDiff
+  );
 }
 
 export function validateWorkspaceMount(value: unknown): value is WorkspaceMount {

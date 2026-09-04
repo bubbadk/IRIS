@@ -1,11 +1,13 @@
-import type { RegisteredTool } from '@iris/tools';
+import type { RegisteredTool, ToolContext } from '@iris/tools';
 import {
+  diffWorkspaceText,
   requireWorkspaceFileContent,
   requireWorkspaceQuery,
   requireWorkspaceRelativePath,
   type WorkspaceService,
 } from '@iris/workspaces';
 import { notifyWorkspaceChanged, workspaceService } from './workspace';
+import { recordWorkspaceChange, replacementDiff } from './workspaceChanges';
 
 function inputObject(input: unknown, toolName: string): Record<string, unknown> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -158,7 +160,7 @@ export function createWorkspaceDirectoryTool(
       required: ['path'],
       additionalProperties: false,
     },
-    async run(input) {
+    async run(input, context: ToolContext) {
       const value = inputObject(input, 'Create workspace directory');
       if (Object.keys(value).some((key) => key !== 'path')) {
         throw new Error('Create workspace directory received an unsupported input field.');
@@ -166,6 +168,7 @@ export function createWorkspaceDirectoryTool(
       const result = await service.createDirectory(
         requireWorkspaceRelativePath(value.path, 'directory path'),
       );
+      await recordWorkspaceChange(context, { kind: 'directory-created', path: result.relativePath });
       onChanged();
       return result;
     },
@@ -201,7 +204,7 @@ export function createWorkspaceWriteTool(
       required: ['path', 'content'],
       additionalProperties: false,
     },
-    async run(input) {
+    async run(input, context: ToolContext) {
       const value = inputObject(input, 'Write workspace file');
       const allowed = new Set(['path', 'content', 'overwrite']);
       if (Object.keys(value).some((key) => !allowed.has(key))) {
@@ -210,11 +213,19 @@ export function createWorkspaceWriteTool(
       if (value.overwrite !== undefined && typeof value.overwrite !== 'boolean') {
         throw new Error('Write workspace file overwrite must be true or false.');
       }
+      const path = requireWorkspaceRelativePath(value.path, 'file path');
+      const content = requireWorkspaceFileContent(value.content);
       const result = await service.writeFile(
-        requireWorkspaceRelativePath(value.path, 'file path'),
-        requireWorkspaceFileContent(value.content),
+        path,
+        content,
         value.overwrite ?? false,
       );
+      await recordWorkspaceChange(context, {
+        kind: 'file-written',
+        path: result.relativePath,
+        bytesWritten: result.bytesWritten,
+        diff: replacementDiff(content),
+      });
       onChanged();
       return result;
     },
@@ -242,7 +253,7 @@ export function createWorkspaceMoveTool(
       required: ['sourcePath', 'targetPath'],
       additionalProperties: false,
     },
-    async run(input) {
+    async run(input, context: ToolContext) {
       const value = inputObject(input, 'Move workspace entry');
       if (Object.keys(value).some((key) => key !== 'sourcePath' && key !== 'targetPath')) {
         throw new Error('Move workspace entry received an unsupported input field.');
@@ -251,6 +262,11 @@ export function createWorkspaceMoveTool(
       const targetPath = requireWorkspaceRelativePath(value.targetPath, 'target path');
       if (sourcePath === targetPath) throw new Error('Move source and target must be different.');
       const result = await service.move(sourcePath, targetPath);
+      await recordWorkspaceChange(context, {
+        kind: 'moved',
+        path: result.targetPath,
+        previousPath: result.sourcePath,
+      });
       onChanged();
       return result;
     },
@@ -275,12 +291,13 @@ export function createWorkspaceDeleteTool(
       required: ['path'],
       additionalProperties: false,
     },
-    async run(input) {
+    async run(input, context: ToolContext) {
       const value = inputObject(input, 'Delete workspace entry');
       if (Object.keys(value).some((key) => key !== 'path')) {
         throw new Error('Delete workspace entry received an unsupported input field.');
       }
       const result = await service.delete(requireWorkspaceRelativePath(value.path, 'path'));
+      await recordWorkspaceChange(context, { kind: 'deleted', path: result.relativePath });
       onChanged();
       return result;
     },
@@ -315,7 +332,7 @@ export function createWorkspacePatchTool(
       required: ['path', 'expectedContent', 'updatedContent'],
       additionalProperties: false,
     },
-    async run(input) {
+    async run(input, context: ToolContext) {
       const value = inputObject(input, 'Apply workspace patch');
       if (
         Object.keys(value).some(
@@ -324,11 +341,22 @@ export function createWorkspacePatchTool(
       ) {
         throw new Error('Apply workspace patch received an unsupported input field.');
       }
+      const path = requireWorkspaceRelativePath(value.path, 'file path');
+      const expectedContent = requireWorkspaceFileContent(value.expectedContent);
+      const updatedContent = requireWorkspaceFileContent(value.updatedContent);
       const result = await service.applyPatch(
-        requireWorkspaceRelativePath(value.path, 'file path'),
-        requireWorkspaceFileContent(value.expectedContent),
-        requireWorkspaceFileContent(value.updatedContent),
+        path,
+        expectedContent,
+        updatedContent,
       );
+      if (result.changed) {
+        await recordWorkspaceChange(context, {
+          kind: 'patched',
+          path: result.relativePath,
+          bytesWritten: result.bytesWritten,
+          diff: diffWorkspaceText(expectedContent, updatedContent, 160),
+        });
+      }
       onChanged();
       return result;
     },

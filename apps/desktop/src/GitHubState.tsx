@@ -17,6 +17,7 @@ import type { AgentDefinition } from '@iris/core';
 import type { ConversationMessage } from '@iris/agents';
 import { workspaceService } from './workspace';
 import { GitHubIcon } from './icons';
+import { ModelHandoffMarker } from './ModelHandoffMarker';
 
 export function GitHubState() {
   const [authStatus, setAuthStatus] = useState<GitHubAuthStatus>({ authenticated: false });
@@ -702,6 +703,9 @@ export function GitHubState() {
                       </div>
                     ) : (
                       messages.map((msg, i) => {
+                        if (msg.role === 'handoff') {
+                          return <ModelHandoffMarker key={`handoff-${msg.handoff?.at ?? i}`} message={msg} />;
+                        }
                         const isUser = msg.role === 'user';
                         return (
                           <div key={i} className={`github-msg ${isUser ? 'user' : 'assistant'}`}>

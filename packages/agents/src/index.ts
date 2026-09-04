@@ -70,12 +70,37 @@ export interface SuspendedAgentTurnRepository {
   remove(approvalId: string): Promise<void>;
 }
 
+export interface ConversationModelIdentity {
+  providerId: string;
+  model: string;
+}
+
+export interface ConversationModelHandoff {
+  from: ConversationModelIdentity;
+  to: ConversationModelIdentity;
+  at: string;
+}
+
 export interface ConversationMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'handoff';
   content: string;
   turnId?: string;
   /** Images the user attached to this message. Providers that cannot accept images ignore them. */
   images?: ModelImage[];
+  /** Durable transcript-only boundary when a later turn switches its resolved model. */
+  handoff?: ConversationModelHandoff;
+}
+
+export function createModelHandoffMessage(
+  from: ConversationModelIdentity,
+  to: ConversationModelIdentity,
+  at: string,
+): ConversationMessage {
+  return {
+    role: 'handoff',
+    content: `Model handoff · ${from.model} → ${to.model}`,
+    handoff: { from: { ...from }, to: { ...to }, at },
+  };
 }
 
 export interface AgentToolApproval {
@@ -333,7 +358,9 @@ export class AgentSession {
     }
     this.history.push(...copyConversation(initialHistory));
     this.modelHistory.push(...copyModelHistory(initialContext));
-    this.modelHistory.push(...initialHistory.map(toModelConversationMessage));
+    this.modelHistory.push(
+      ...initialHistory.filter(isModelConversationMessage).map(toModelConversationMessage),
+    );
   }
 
   static restore(
@@ -671,10 +698,28 @@ function copyImages(images: ModelImage[] | undefined): ModelImage[] | undefined 
 }
 
 function copyConversation(messages: ConversationMessage[]): ConversationMessage[] {
-  return messages.map((message) => ({ ...message, images: copyImages(message.images) }));
+  return messages.map((message) => ({
+    ...message,
+    images: copyImages(message.images),
+    handoff: message.handoff
+      ? {
+          ...message.handoff,
+          from: { ...message.handoff.from },
+          to: { ...message.handoff.to },
+        }
+      : undefined,
+  }));
 }
 
-function toModelConversationMessage(message: ConversationMessage): ModelMessage {
+function isModelConversationMessage(
+  message: ConversationMessage,
+): message is ConversationMessage & { role: 'user' | 'assistant' } {
+  return message.role === 'user' || message.role === 'assistant';
+}
+
+function toModelConversationMessage(
+  message: ConversationMessage & { role: 'user' | 'assistant' },
+): ModelMessage {
   return { role: message.role, content: message.content, images: copyImages(message.images) };
 }
 
@@ -811,7 +856,11 @@ export class AgentRuntimeCoordinator {
       let session = this.sessions.get(agentId);
       if (!session) {
         const resolved = await this.providers.resolve(agent);
-        const history = await this.conversations.list(agentId);
+        const history = await this.conversationWithModelHandoff(
+          agentId,
+          await this.conversations.list(agentId),
+          { providerId: resolved.provider.definition.id, model: resolved.model },
+        );
         session = new AgentSession(agent, resolved.provider, resolved.model, history, this.tools);
         this.sessions.set(agentId, session);
       }
@@ -872,6 +921,39 @@ export class AgentRuntimeCoordinator {
     } finally {
       this.runningAgents.delete(agentId);
     }
+  }
+
+  private async conversationWithModelHandoff(
+    agentId: string,
+    history: ConversationMessage[],
+    target: ConversationModelIdentity,
+  ): Promise<ConversationMessage[]> {
+    if (!this.cortexTurns || !history.some((message) => message.role !== 'handoff')) return history;
+    const previous = (await this.cortexTurns.list(agentId))[0];
+    if (
+      !previous ||
+      (previous.providerId === target.providerId && previous.model === target.model)
+    ) {
+      return history;
+    }
+    const latestHandoff = [...history].reverse().find((message) => message.role === 'handoff');
+    if (
+      latestHandoff?.handoff?.to.providerId === target.providerId &&
+      latestHandoff.handoff.to.model === target.model
+    ) {
+      return history;
+    }
+    const updated = [
+      ...history,
+      createModelHandoffMessage(
+        { providerId: previous.providerId, model: previous.model },
+        target,
+        this.timestamp(),
+      ),
+    ];
+    await this.conversations.save(agentId, updated);
+    this.onStateChange(agentId);
+    return updated;
   }
 
   async *resolveApproval(

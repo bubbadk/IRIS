@@ -1697,6 +1697,54 @@ describe('agent session', () => {
   });
 });
 
+describe('model handoff transcript boundaries', () => {
+  it('keeps a stored handoff visible while excluding it from provider input', async () => {
+    let received: ModelRequest | undefined;
+    const provider: ModelProvider = {
+      definition: {
+        id: 'premium-provider',
+        name: 'Premium',
+        kind: 'test',
+        capabilities: ['chat'],
+        local: true,
+      },
+      capabilities: () => ['chat'],
+      testConnection: async () => undefined,
+      stream: async function* (request) {
+        received = request;
+        yield { text: 'Continued.', done: true };
+      },
+    };
+    const session = new AgentSession(
+      { id: 'agent', name: 'IRIS', autonomy: 'assist', skillIds: [], toolIds: [] },
+      provider,
+      'premium-model',
+      [
+        { role: 'user', content: 'Start here' },
+        { role: 'assistant', content: 'Working on it' },
+        {
+          role: 'handoff',
+          content: 'Model handoff · cheap-model → premium-model',
+          handoff: {
+            from: { providerId: 'cheap-provider', model: 'cheap-model' },
+            to: { providerId: 'premium-provider', model: 'premium-model' },
+            at: '2026-09-04T09:30:00.000Z',
+          },
+        },
+      ],
+    );
+
+    for await (const _event of session.send('Continue', undefined, [], 'turn-2')) void _event;
+
+    expect(session.messages().find((message) => message.role === 'handoff')).toMatchObject({
+      handoff: { to: { model: 'premium-model' } },
+    });
+    expect(received?.messages.map((message) => message.content)).not.toContain(
+      'Model handoff · cheap-model → premium-model',
+    );
+  });
+});
+
 describe('trimModelHistory', () => {
   const user = (content: string): ModelMessage => ({ role: 'user', content });
   const assistant = (content: string): ModelMessage => ({ role: 'assistant', content });

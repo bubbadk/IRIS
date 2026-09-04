@@ -1,12 +1,12 @@
 {
-  "version": "0.2.9",
-  "notes": "IRIS v0.2.9 — Internal Hardening Release. Priority-aware history trimming ensures pinned system prompts and high-priority context are never silently dropped when the context window is exceeded. Configurable per-agent tool concurrency limits with an async semaphore prevent host overload when models request many parallel tool calls. Danish-language stemming and temporal parsing improve memory fallback retrieval quality for Danish-speaking users. Smarter schedule reconciliation now re-queues runs that never started instead of marking them failed, eliminating unnecessary manual retries after restarts. Structured turn-trace observability logs agent decision points (reasoning effort changes, trimming events, tool batching, approval queueing) for debugging. Full App.tsx decomposition from 4816 lines to 487 across five extracted feature modules (ChatDesklet, AgentsState, MemoryState, ModelsState, WindowFrame) improves maintainability and hot-reload speed. All 212 TypeScript tests pass.",
-  "pub_date": "2026-09-03T11:50:00Z",
+  "version": "0.2.10",
+  "notes": "IRIS v0.2.10 adds an honest shared workspace-change stream for parallel agents and visible, durable model-handoff boundaries. Workspace mutations made through IRIS are attributed to the real agent and optional turn, with bounded diffs where applicable; external filesystem changes are not misattributed. When an agent switches provider or model, the transcript records the source, destination, and time while keeping the marker out of model input. Full TypeScript and Rust test suites passed before this release.",
+  "pub_date": "2026-09-04T18:24:22Z",
   "platforms": {
     "linux-x86_64": {
-      "url": "https://github.com/bubbadk/IRIS/releases/download/v0.2.9/iris-linux-x86_64-v0.2.9.tar.gz",
+      "url": "https://github.com/bubbadk/IRIS/releases/download/v0.2.10/iris-linux-x86_64-v0.2.10.tar.gz",
       "signature": "",
-      "sha256": "d01399f14b766151419e92cc4b9d04d0412afc199846c2a87cda0a069118f0ad"
+      "sha256": "80834a6346911b0def8b4978108a596f4ca06e98ee2313b12b3a4d2b07e1499b"
     }
   }
 }
