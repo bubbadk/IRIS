@@ -65,6 +65,17 @@ The UI is object-oriented, spatial, and desktop-like. The visual reference in
   6. Commit with message `chore(release): bump version to vX.Y.Z`, tag `vX.Y.Z`, push `main` and `vX.Y.Z`.
   7. Publish release on GitHub with `latest.json` and the `.tar.gz` binary bundle attached.
 
+### Updater release-note disclosure (NON-NEGOTIABLE)
+
+- Before an in-app update can be installed, the updater MUST show a concise, human-readable summary
+  of what changes in that exact version. Users must be able to understand what they are updating to
+  without leaving IRIS.
+- The summary must be sourced from the published release notes, rendered as readable text (not raw
+  Markdown), and name the target version. A full changelog/GitHub link may supplement the summary,
+  but can never replace it.
+- Every release therefore needs concrete, user-facing release notes. Do not publish a release whose
+  updater view contains only a version number, a generic message, or a compare URL.
+
 ### GitHub publication approval wall
 
 - An agent must never create a pull request, trigger a GitHub Actions workflow, or create a
