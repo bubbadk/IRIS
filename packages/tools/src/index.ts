@@ -11,6 +11,8 @@ export interface ToolDefinition {
   providerName?: string;
   inputSchema?: Record<string, unknown>;
   manualExecution?: boolean;
+  /** Cannot be bypassed by an allow rule or YOLO mode; each invocation needs user approval. */
+  alwaysRequireApproval?: boolean;
 }
 
 export interface ToolContext {
@@ -143,6 +145,7 @@ export class ToolRegistry {
       providerName: tool.providerName,
       inputSchema: tool.inputSchema,
       manualExecution: tool.manualExecution,
+      alwaysRequireApproval: tool.alwaysRequireApproval,
     }));
   }
 }
@@ -167,6 +170,12 @@ export class StaticPermissionEngine implements PermissionEngine {
       );
     const rule = matching[0];
     if (!rule) {
+      if (agent.approvalMode === 'yolo' && tool.alwaysRequireApproval) {
+        return {
+          decision: 'ask',
+          reason: `${tool.name} always requires explicit approval, including in YOLO mode.`,
+        };
+      }
       return agent.approvalMode === 'yolo'
         ? {
             decision: 'allow',
@@ -178,6 +187,13 @@ export class StaticPermissionEngine implements PermissionEngine {
       return {
         decision: 'deny',
         reason: rule.reason ?? `Permission rule ${rule.id} returned deny.`,
+        ruleId: rule.id,
+      };
+    }
+    if (tool.alwaysRequireApproval) {
+      return {
+        decision: 'ask',
+        reason: `${tool.name} always requires explicit approval, including in YOLO mode.`,
         ruleId: rule.id,
       };
     }

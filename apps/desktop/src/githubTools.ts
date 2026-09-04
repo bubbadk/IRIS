@@ -71,6 +71,7 @@ export function createGitHubCreateReleaseTool(): RegisteredTool {
     name: 'Create GitHub Release',
     description: 'Creates a versioned release, publishes release notes and triggers automated binary builds.',
     risk: 'write',
+    alwaysRequireApproval: true,
     inputSchema: {
       type: 'object',
       properties: {
@@ -103,6 +104,7 @@ export function createGitHubTriggerWorkflowTool(): RegisteredTool {
     name: 'Trigger GitHub Actions Workflow',
     description: 'Triggers a GitHub Actions workflow to build release binaries or run test suites.',
     risk: 'execute',
+    alwaysRequireApproval: true,
     inputSchema: {
       type: 'object',
       properties: {
@@ -197,6 +199,7 @@ export function createGitHubCreatePullRequestTool(): RegisteredTool {
     name: 'Create Pull Request',
     description: 'Opens a pull request on GitHub with version changes and descriptions.',
     risk: 'write',
+    alwaysRequireApproval: true,
     inputSchema: {
       type: 'object',
       properties: {

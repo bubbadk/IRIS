@@ -65,6 +65,17 @@ The UI is object-oriented, spatial, and desktop-like. The visual reference in
   6. Commit with message `chore(release): bump version to vX.Y.Z`, tag `vX.Y.Z`, push `main` and `vX.Y.Z`.
   7. Publish release on GitHub with `latest.json` and the `.tar.gz` binary bundle attached.
 
+### GitHub publication approval wall
+
+- An agent must never create a pull request, trigger a GitHub Actions workflow, or create a
+  GitHub release without a fresh, explicit human approval for that exact invocation.
+- This rule applies even when an agent runs in YOLO mode or has an allow rule. Do not weaken,
+  remove, or bypass the corresponding mandatory approval checks.
+- The workspace shell is mandatory-approval as well, so it cannot be used to sidestep this wall
+  with `gh`, `git push`, or other publication commands.
+- SemVer selection, changelog/release-note authoring, release assets, tags, and CI build outputs
+  are publication-sensitive material. A model recommendation is not approval to publish it.
+
 ---
 
 ## 5. Core Feature Suites & Reference Implementations
@@ -99,4 +110,3 @@ Before completing any task or starting a session:
 4. `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml` must pass all 26+ native tests.
 5. Verify `apps/desktop/src-tauri/tauri.conf.json` retains the required `pubkey` for updater initialization.
 6. Keep `CURRENT_STATE.md` short, factual, and strictly synchronized with the current release version.
-

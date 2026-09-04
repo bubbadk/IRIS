@@ -18,9 +18,15 @@ describe('apps/desktop - githubTools', () => {
 
     const triggerTool = tools.find((t) => t.id === 'github.trigger_workflow');
     expect(triggerTool?.risk).toBe('execute');
+    expect(triggerTool?.alwaysRequireApproval).toBe(true);
 
     const releaseTool = tools.find((t) => t.id === 'github.create_release');
     expect(releaseTool?.risk).toBe('write');
+    expect(releaseTool?.alwaysRequireApproval).toBe(true);
+
+    expect(tools.find((t) => t.id === 'github.create_pull_request')?.alwaysRequireApproval).toBe(
+      true,
+    );
   });
 
   it('validates required arguments for tools', async () => {

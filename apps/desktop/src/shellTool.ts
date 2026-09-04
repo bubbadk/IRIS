@@ -22,8 +22,9 @@ export function createShellExecTool(): RegisteredTool {
     id: 'shell.exec',
     name: 'Run command in workspace',
     description:
-      'Runs one shell command inside the mounted local workspace directory (bash -lc on Linux/macOS). Returns real exit code, stdout and stderr. Requires your approval unless explicitly allowed. Not an OS-level jail: the command starts in the workspace but can reference other paths, so review commands before approving them.',
+      'Runs one shell command inside the mounted local workspace directory (bash -lc on Linux/macOS). Returns real exit code, stdout and stderr. Always requires your explicit approval. Not an OS-level jail: the command starts in the workspace but can reference other paths, so review commands before approving them.',
     risk: 'execute',
+    alwaysRequireApproval: true,
     providerName: 'shell_exec',
     manualExecution: false,
     inputSchema: {

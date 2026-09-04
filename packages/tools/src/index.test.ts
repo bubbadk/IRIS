@@ -21,13 +21,14 @@ const agent = {
   toolIds: ['files.read'],
 };
 
-function registryWithRunner(run: RegisteredTool['run']) {
+function registryWithRunner(run: RegisteredTool['run'], alwaysRequireApproval = false) {
   const registry = new ToolRegistry();
   registry.register({
     id: 'files.read',
     name: 'Read file',
     description: 'Reads one approved file.',
     risk: 'read',
+    alwaysRequireApproval,
     run,
   });
   return registry;
@@ -122,6 +123,28 @@ describe('permission-gated tool execution', () => {
     await expect(
       executor.execute({ ...agent, approvalMode: 'yolo' }, 'files.read', {}),
     ).rejects.toThrow('deny');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('requires a fresh approval for mandatory tools even in YOLO mode with an allow rule', async () => {
+    const run = vi.fn(async () => 'published');
+    const approvals = new MemoryApprovalRepository();
+    const executor = new GatedToolExecutor(
+      registryWithRunner(run, true),
+      new StaticPermissionEngine([
+        { id: 'allow-release', agentId: agent.id, toolId: 'files.read', decision: 'allow' },
+      ]),
+      approvals,
+      () => 'approval-mandatory',
+    );
+
+    await expect(
+      executor.execute({ ...agent, approvalMode: 'yolo' }, 'files.read', {}),
+    ).resolves.toMatchObject({
+      status: 'approval-required',
+      evaluation: { decision: 'ask', reason: expect.stringContaining('always requires') },
+      approval: { id: 'approval-mandatory', status: 'pending' },
+    });
     expect(run).not.toHaveBeenCalled();
   });
 
