@@ -1,9 +1,12 @@
 {
   "name": "@iris/memory",
   "private": true,
-  "version": "0.2.10",
+  "version": "0.2.11",
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./benchmark": "./src/benchmark.ts"
+  },
   "scripts": {
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",

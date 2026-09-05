@@ -95,7 +95,7 @@ function recordActivity(activity: AgentActivity): void {
     ...line,
   });
   if (activityLog.length > maxActivityLogEntries) activityLog.length = maxActivityLogEntries;
-  activityListeners.forEach((listener) => listener(activityLog));
+  activityListeners.forEach((listener) => listener([...activityLog]));
 }
 
 /** Subscribes to the live activity log; the listener fires immediately with the current log. */
@@ -103,7 +103,7 @@ export function subscribeAgentActivity(
   listener: (log: AgentActivityLogEntry[]) => void,
 ): () => void {
   activityListeners.add(listener);
-  listener(activityLog);
+  listener([...activityLog]);
   return () => activityListeners.delete(listener);
 }
 

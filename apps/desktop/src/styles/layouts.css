@@ -1,0 +1,14 @@
+.layout-menu { position: relative; font-size: 12px; }
+.layout-menu summary { cursor: pointer; padding: 8px; }
+.layout-menu-content {
+  position: absolute; right: 0; top: 100%; z-index: 2000;
+  display: grid; gap: 10px; width: 260px; padding: 18px;
+  background: #fffdf8; color: #24231f; border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: 0 12px 40px rgba(58, 54, 46, .16);
+}
+.layout-menu-content label { display: grid; gap: 5px; }
+.layout-menu-content input { min-width: 0; padding: 8px; }
+.window-titlebar:focus-visible { outline: 2px solid #64796a; outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

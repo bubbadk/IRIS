@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import {
-  runRealMemoryBenchmark,
   type BenchmarkRunResult,
-} from '@iris/memory';
+} from '@iris/memory/benchmark';
 
 export function MemoryBenchmarkView() {
   const [running, setRunning] = useState(false);
@@ -16,6 +15,7 @@ export function MemoryBenchmarkView() {
     setStatusMsg('Ingesting official FP-AMB corpus...');
 
     try {
+      const { runRealMemoryBenchmark } = await import('@iris/memory/benchmark');
       const result = await runRealMemoryBenchmark(undefined, (pct, status) => {
         setTestProgress(pct);
         setStatusMsg(status);
@@ -26,7 +26,7 @@ export function MemoryBenchmarkView() {
           ? ` · ${result.ungradedQuestions} refusal/judgment questions excluded (semantic grading required)`
           : '';
       setStatusMsg(
-        `✅ Live Verification Complete: ${result.overallAccuracy}% Accuracy (${result.totalPassed} / ${result.totalQuestions} gradeable questions passed at ${result.averageLatencyMs} ms/query)${ungradedNote}`,
+        `✅ Live Verification Complete: ${result.overallAccuracy}% retrieval coverage (${result.totalPassed} / ${result.totalQuestions} gradeable questions passed at ${result.averageLatencyMs} ms/query)${ungradedNote}`,
       );
     } catch (err) {
       setStatusMsg(`Error running benchmark: ${String(err)}`);
@@ -35,6 +35,12 @@ export function MemoryBenchmarkView() {
     }
   }
 
+  function exportReport() {
+    if (!liveResult) return;
+    const report = { version: __IRIS_VERSION__, metric: 'Retrieved-answer coverage at top 5; not end-to-end agent answer accuracy', result: liveResult };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
+    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'iris-retrieval-report.json'; anchor.click(); URL.revokeObjectURL(url);
+  }
   const categories = liveResult?.categories ?? [];
   const isMeasured = liveResult !== null;
   const totalPassed = isMeasured ? liveResult.totalPassed : null;
@@ -43,6 +49,8 @@ export function MemoryBenchmarkView() {
 
   return (
     <div className="memory-benchmark-view" style={{ padding: '4px 0' }}>
+      <p>This measures accepted-answer matches in retrieved records, not the correctness of an agent’s final answers.</p>
+      {liveResult && <button className="soft-button" onClick={exportReport}>Export measured report</button>}
       {/* Header Banner */}
       <div
         style={{
@@ -58,7 +66,7 @@ export function MemoryBenchmarkView() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
               <span style={{ fontSize: '20px' }}>🏆</span>
               <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'var(--ink)' }}>
-                First-Person Agent Memory Benchmark (FP-AMB v7.0)
+                FP-AMB Retrieval Coverage
               </h3>
               <span
                 style={{
@@ -76,7 +84,7 @@ export function MemoryBenchmarkView() {
               <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
                 {isMeasured
                   ? `Live verification completed at ${new Date(liveResult.completedAt).toLocaleTimeString()} · ${liveResult.sessionsIngested} sessions · ${liveResult.turnsIngested} turns · ${liveResult.totalTokensIndexed} tokens indexed (whitespace estimate).`
-                  : 'Run the official 262-question exam against the local retrieval engine. Refusal and judgment questions require semantic grading and are reported separately instead of being auto-scored.'}
+                  : 'Run the official 262-question retrieval evaluation against the local retrieval engine. Refusal and judgment questions require semantic grading and are reported separately instead of being auto-scored.'}
               </p>
             </div>
             <button
@@ -129,7 +137,7 @@ export function MemoryBenchmarkView() {
           }}
         >
           <div style={{ background: 'var(--panel)', padding: '14px', borderRadius: '12px', border: '1px solid var(--line)' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Overall Accuracy</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Retrieval Coverage</div>
             <div style={{ fontSize: '24px', fontWeight: 800, color: isMeasured ? (liveResult.overallAccuracy >= 90 ? '#10b981' : '#f59e0b') : 'var(--text-muted)', marginTop: '4px' }}>
               {isMeasured ? `${liveResult.overallAccuracy.toFixed(1)}%` : '—'}
             </div>

@@ -1,3 +1,6 @@
+import { loadProviderSecrets, saveProviderSecrets } from './credentials';
+import { withStorageWrite } from './storageWrites';
+
 export type ChannelPlatform = 'telegram' | 'discord' | 'slack';
 
 export type TelegramConfig = {
@@ -37,14 +40,14 @@ const CHANNELS_STORAGE_KEY = 'iris.channels.config.v1';
 export function loadChannelsConfig(storage: Storage = globalThis.localStorage): ChannelsConfig {
   try {
     const raw = storage?.getItem(CHANNELS_STORAGE_KEY);
-    if (!raw) return defaultChannelsConfig;
+    if (!raw) return structuredClone(defaultChannelsConfig);
     const parsed = JSON.parse(raw);
     return {
-      telegram: { ...defaultChannelsConfig.telegram, ...(parsed.telegram || {}) },
-      discord: { ...defaultChannelsConfig.discord, ...(parsed.discord || {}) },
+      telegram: { ...defaultChannelsConfig.telegram, ...(parsed.telegram || {}), botToken: '' },
+      discord: { ...defaultChannelsConfig.discord, ...(parsed.discord || {}), webhookUrl: '', botToken: '' },
     };
   } catch {
-    return defaultChannelsConfig;
+    return structuredClone(defaultChannelsConfig);
   }
 }
 
@@ -52,7 +55,52 @@ export function saveChannelsConfig(
   config: ChannelsConfig,
   storage: Storage = globalThis.localStorage,
 ): void {
-  storage?.setItem(CHANNELS_STORAGE_KEY, JSON.stringify(config));
+  storage.setItem(CHANNELS_STORAGE_KEY, JSON.stringify({
+    telegram: { enabled: config.telegram.enabled, allowedChatIds: config.telegram.allowedChatIds, lastUpdateId: config.telegram.lastUpdateId },
+    discord: { enabled: config.discord.enabled, channelId: config.discord.channelId },
+  }));
+}
+
+const channelSecretId = 'iris-channels-connection';
+
+export async function loadChannelConnection(storage: Storage = globalThis.localStorage): Promise<ChannelsConfig> {
+  return withStorageWrite(storage, async () => {
+    const config = loadChannelsConfig(storage);
+    const raw = storage.getItem(CHANNELS_STORAGE_KEY);
+    const legacy = raw ? JSON.parse(raw) as Partial<ChannelsConfig> : {};
+    const stored = await loadProviderSecrets(channelSecretId) ?? {};
+    const oldSecrets = {
+      telegramToken: legacy.telegram?.botToken,
+      discordWebhook: legacy.discord?.webhookUrl,
+      discordToken: legacy.discord?.botToken,
+    };
+    const secrets = { ...stored };
+    let migrating = false;
+    for (const [key, value] of Object.entries(oldSecrets)) {
+      if (typeof value === 'string' && value) { secrets[key] ??= value; migrating = true; }
+    }
+    if (migrating) {
+      const durable = await saveProviderSecrets(channelSecretId, secrets);
+      if (!durable) throw new Error('Open the native desktop app to migrate existing channel credentials into the OS credential store. The original values have been preserved.');
+      saveChannelsConfig(config, storage);
+    }
+    return {
+      telegram: { ...config.telegram, botToken: secrets.telegramToken ?? '' },
+      discord: { ...config.discord, webhookUrl: secrets.discordWebhook ?? '', botToken: secrets.discordToken ?? '' },
+    };
+  });
+}
+
+export async function saveChannelConnection(config: ChannelsConfig, storage: Storage = globalThis.localStorage): Promise<boolean> {
+  return withStorageWrite(storage, async () => {
+    const durable = await saveProviderSecrets(channelSecretId, {
+      telegramToken: config.telegram.botToken,
+      discordWebhook: config.discord.webhookUrl,
+      discordToken: config.discord.botToken ?? '',
+    });
+    saveChannelsConfig(config, storage);
+    return durable;
+  });
 }
 
 export type IncomingChannelMessage = {

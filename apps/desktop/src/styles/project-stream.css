@@ -1,0 +1,162 @@
+
+
+/* ==========================================================================
+   Project Flow Stream (HUD Live Section)
+   ========================================================================== */
+.panel-block-projects {
+  padding-top: 14px;
+}
+
+.project-stream-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.project-stream-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(80, 93, 83, 0.12);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.dark-mode .project-stream-card {
+  background: rgba(30, 32, 34, 0.6);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.project-stream-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.project-stream-card.is-working {
+  border-color: rgba(94, 143, 119, 0.4);
+  background: rgba(94, 143, 119, 0.04);
+}
+
+.project-stream-card.is-suspended {
+  border-color: rgba(217, 119, 6, 0.4);
+  background: rgba(217, 119, 6, 0.04);
+}
+
+.project-stream-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.project-stream-title {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-stream-progress-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 12px;
+  background: rgba(80, 93, 83, 0.08);
+  color: var(--ink);
+}
+
+.project-stream-task-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.project-stream-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.project-stream-dot.working {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: pulse-dot 1.4s infinite;
+}
+
+.project-stream-dot.waiting {
+  background: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b;
+  animation: pulse-dot 1.2s infinite;
+}
+
+.project-stream-dot.ready {
+  background: var(--muted);
+}
+
+.project-stream-task-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-stream-approval-box {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.project-stream-approval-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.project-stream-approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.project-stream-btn-apply {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 650;
+  border-radius: 6px;
+  border: none;
+  background: #10b981;
+  color: #ffffff;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.project-stream-btn-apply:hover {
+  opacity: 0.9;
+}
+
+.project-stream-btn-deny {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 650;
+  border-radius: 6px;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.08);
+  color: #dc2626;
+  cursor: pointer;
+}

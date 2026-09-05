@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = '0.2.5';
+export const CURRENT_VERSION = __IRIS_VERSION__;
 
 export interface ReleaseInfo {
   version: string;
@@ -54,10 +54,10 @@ export async function checkLatestRelease(
     return {
       version: latestVersion,
       name: data.name || `IRIS v${latestVersion}`,
-      notes: data.body || 'See release notes on GitHub.',
-      publishedAt: data.published_at || new Date().toISOString(),
+      notes: data.body?.trim() || '',
+      publishedAt: data.published_at || '',
       url: data.html_url || `https://github.com/${repo}/releases/tag/${data.tag_name}`,
-      downloadUrl: data.assets?.[0]?.browser_download_url || data.html_url,
+      downloadUrl: data.html_url,
     };
   } catch {
     return null;

@@ -8,6 +8,14 @@ import {
 } from './windowing';
 
 describe('desktop window bounds', () => {
+  it('recovers off-screen windows after moving to a smaller display', () => {
+    const window = { ...defaultWindow('agents', 11), x: 2400, y: 1400, width: 1400, height: 900 };
+    const restored = normalizeWindow(window, { width: 900, height: 600 });
+    expect(restored.x + restored.width).toBeLessThanOrEqual(886);
+    expect(restored.y + restored.height).toBeLessThanOrEqual(586);
+    expect(restored.x).toBeGreaterThanOrEqual(14);
+    expect(restored.y).toBeGreaterThanOrEqual(70);
+  });
   it('keeps restored windows inside the interactive desktop layer', () => {
     const restored = normalizeWindow({
       id: 'settings-1',

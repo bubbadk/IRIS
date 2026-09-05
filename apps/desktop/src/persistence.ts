@@ -1,3 +1,5 @@
+import { createDesktopRepository } from './repositoryStorage';
+import { withStorageWrite } from './storageWrites';
 import type {
   AgentRepository,
   ConversationMessage,
@@ -28,6 +30,7 @@ import type {
   PermissionRule,
   PermissionRuleRepository,
   ToolApprovalRepository,
+  ToolApprovalStatus,
   ToolApprovalRequest,
 } from '@iris/tools';
 import {
@@ -123,7 +126,6 @@ export interface McpServerRequestPolicyRepository {
 const skillLimit = 100;
 const permissionAuditLimit = 250;
 const toolApprovalLimit = 100;
-const memoryRecordLimit = 200;
 const contextPackHistoryLimit = 40;
 const cortexTurnHistoryLimit = 40;
 // Generous enough for the tool-call safety limit (16 per turn) across the retained turn history.
@@ -197,20 +199,27 @@ export class LocalAgentRepository implements AgentRepository {
   }
 
   async save(agent: AgentDefinition): Promise<void> {
-    if (!validateAgentDefinition(agent)) throw new Error('Cannot persist an invalid agent.');
-    const agents = await this.list();
-    this.store.setItem(
-      agentStorageKey,
-      JSON.stringify([
-        cloneAgentDefinition(agent),
-        ...agents.filter((item) => item.id !== agent.id),
-      ]),
-    );
+    return withStorageWrite(this.store, async () => {
+      if (!validateAgentDefinition(agent)) throw new Error('Cannot persist an invalid agent.');
+      const agents = await this.list();
+      this.store.setItem(
+        agentStorageKey,
+        JSON.stringify([
+          cloneAgentDefinition(agent),
+          ...agents.filter((item) => item.id !== agent.id),
+        ]),
+      );
+    });
   }
 
   async remove(id: string): Promise<void> {
-    const agents = await this.list();
-    this.store.setItem(agentStorageKey, JSON.stringify(agents.filter((agent) => agent.id !== id)));
+    return withStorageWrite(this.store, async () => {
+      const agents = await this.list();
+      this.store.setItem(
+        agentStorageKey,
+        JSON.stringify(agents.filter((agent) => agent.id !== id)),
+      );
+    });
   }
 }
 
@@ -237,19 +246,23 @@ export class LocalProjectGraphRepository implements ProjectGraphRepository {
   }
 
   async save(graph: ProjectGraph): Promise<void> {
-    if (!validateProjectGraph(graph)) throw new Error('Cannot persist an invalid project graph.');
-    const graphs = this.read().filter((candidate) => candidate.id !== graph.id);
-    this.store.setItem(
-      projectGraphStorageKey,
-      JSON.stringify([cloneProjectGraph(graph), ...graphs].slice(0, projectGraphLimit)),
-    );
+    return withStorageWrite(this.store, async () => {
+      if (!validateProjectGraph(graph)) throw new Error('Cannot persist an invalid project graph.');
+      const graphs = this.read().filter((candidate) => candidate.id !== graph.id);
+      this.store.setItem(
+        projectGraphStorageKey,
+        JSON.stringify([cloneProjectGraph(graph), ...graphs].slice(0, projectGraphLimit)),
+      );
+    });
   }
 
   async remove(id: string): Promise<void> {
-    this.store.setItem(
-      projectGraphStorageKey,
-      JSON.stringify(this.read().filter((graph) => graph.id !== id)),
-    );
+    return withStorageWrite(this.store, async () => {
+      this.store.setItem(
+        projectGraphStorageKey,
+        JSON.stringify(this.read().filter((graph) => graph.id !== id)),
+      );
+    });
   }
 }
 
@@ -278,13 +291,15 @@ export class LocalProjectTaskRunRepository implements ProjectTaskRunRepository {
   }
 
   async save(run: ProjectTaskRun): Promise<void> {
-    if (!validateProjectTaskRun(run))
-      throw new Error('Cannot persist an invalid project task run.');
-    const runs = this.read().filter((candidate) => candidate.id !== run.id);
-    this.store.setItem(
-      projectTaskRunStorageKey,
-      JSON.stringify([cloneProjectTaskRun(run), ...runs].slice(0, projectTaskRunLimit)),
-    );
+    return withStorageWrite(this.store, async () => {
+      if (!validateProjectTaskRun(run))
+        throw new Error('Cannot persist an invalid project task run.');
+      const runs = this.read().filter((candidate) => candidate.id !== run.id);
+      this.store.setItem(
+        projectTaskRunStorageKey,
+        JSON.stringify([cloneProjectTaskRun(run), ...runs].slice(0, projectTaskRunLimit)),
+      );
+    });
   }
 }
 
@@ -307,18 +322,22 @@ export class LocalScheduleRepository implements ScheduleRepository {
     return schedule ? cloneSchedule(schedule) : null;
   }
   async save(schedule: ScheduleDefinition): Promise<void> {
-    if (!validateSchedule(schedule)) throw new Error('Cannot persist an invalid schedule.');
-    const schedules = this.read().filter((candidate) => candidate.id !== schedule.id);
-    this.store.setItem(
-      scheduleStorageKey,
-      JSON.stringify([cloneSchedule(schedule), ...schedules].slice(0, scheduleLimit)),
-    );
+    return withStorageWrite(this.store, async () => {
+      if (!validateSchedule(schedule)) throw new Error('Cannot persist an invalid schedule.');
+      const schedules = this.read().filter((candidate) => candidate.id !== schedule.id);
+      this.store.setItem(
+        scheduleStorageKey,
+        JSON.stringify([cloneSchedule(schedule), ...schedules].slice(0, scheduleLimit)),
+      );
+    });
   }
   async remove(id: string): Promise<void> {
-    this.store.setItem(
-      scheduleStorageKey,
-      JSON.stringify(this.read().filter((schedule) => schedule.id !== id)),
-    );
+    return withStorageWrite(this.store, async () => {
+      this.store.setItem(
+        scheduleStorageKey,
+        JSON.stringify(this.read().filter((schedule) => schedule.id !== id)),
+      );
+    });
   }
 }
 
@@ -343,12 +362,14 @@ export class LocalScheduledRunRepository implements ScheduledRunRepository {
     return run ? cloneScheduledRun(run) : null;
   }
   async save(run: ScheduledRun): Promise<void> {
-    if (!validateScheduledRun(run)) throw new Error('Cannot persist an invalid scheduled run.');
-    const runs = this.read().filter((candidate) => candidate.id !== run.id);
-    this.store.setItem(
-      scheduledRunStorageKey,
-      JSON.stringify([cloneScheduledRun(run), ...runs].slice(0, scheduledRunLimit)),
-    );
+    return withStorageWrite(this.store, async () => {
+      if (!validateScheduledRun(run)) throw new Error('Cannot persist an invalid scheduled run.');
+      const runs = this.read().filter((candidate) => candidate.id !== run.id);
+      this.store.setItem(
+        scheduledRunStorageKey,
+        JSON.stringify([cloneScheduledRun(run), ...runs].slice(0, scheduledRunLimit)),
+      );
+    });
   }
 }
 
@@ -371,13 +392,17 @@ export class LocalWorkspaceRepository implements WorkspaceRepository {
   }
 
   async save(mount: WorkspaceMount): Promise<void> {
-    if (!validateWorkspaceMount(mount))
-      throw new Error('Cannot persist an invalid workspace mount.');
-    this.store.setItem(workspaceStorageKey, JSON.stringify(cloneWorkspaceMount(mount)));
+    return withStorageWrite(this.store, async () => {
+      if (!validateWorkspaceMount(mount))
+        throw new Error('Cannot persist an invalid workspace mount.');
+      this.store.setItem(workspaceStorageKey, JSON.stringify(cloneWorkspaceMount(mount)));
+    });
   }
 
   async clear(): Promise<void> {
-    this.store.removeItem(workspaceStorageKey);
+    return withStorageWrite(this.store, async () => {
+      this.store.removeItem(workspaceStorageKey);
+    });
   }
 }
 
@@ -401,25 +426,27 @@ export class LocalWorkspaceChangeRepository implements WorkspaceChangeRepository
   }
 
   async append(change: WorkspaceChange): Promise<void> {
-    if (!validateWorkspaceChange(change)) {
-      throw new Error('Cannot persist an invalid workspace change.');
-    }
-    const existing = this.read().filter((candidate) => candidate.id !== change.id);
-    this.store.setItem(
-      workspaceChangeStorageKey,
-      JSON.stringify([cloneWorkspaceChange(change), ...existing].slice(0, workspaceChangeLimit)),
-    );
+    return withStorageWrite(this.store, async () => {
+      if (!validateWorkspaceChange(change)) {
+        throw new Error('Cannot persist an invalid workspace change.');
+      }
+      const existing = this.read().filter((candidate) => candidate.id !== change.id);
+      this.store.setItem(
+        workspaceChangeStorageKey,
+        JSON.stringify([cloneWorkspaceChange(change), ...existing].slice(0, workspaceChangeLimit)),
+      );
+    });
   }
 
   async clear(workspaceId?: string): Promise<void> {
-    this.store.setItem(
-      workspaceChangeStorageKey,
-      JSON.stringify(
-        workspaceId
-          ? this.read().filter((change) => change.workspaceId !== workspaceId)
-          : [],
-      ),
-    );
+    return withStorageWrite(this.store, async () => {
+      this.store.setItem(
+        workspaceChangeStorageKey,
+        JSON.stringify(
+          workspaceId ? this.read().filter((change) => change.workspaceId !== workspaceId) : [],
+        ),
+      );
+    });
   }
 }
 
@@ -446,19 +473,23 @@ export class LocalSkillRepository implements SkillRepository {
   }
 
   async save(skill: SkillDefinition): Promise<void> {
-    if (!validateSkill(skill)) throw new Error('Cannot persist an invalid skill.');
-    const skills = this.read().filter((candidate) => candidate.id !== skill.id);
-    this.store.setItem(
-      skillStorageKey,
-      JSON.stringify([cloneSkill(skill), ...skills].slice(0, skillLimit)),
-    );
+    return withStorageWrite(this.store, async () => {
+      if (!validateSkill(skill)) throw new Error('Cannot persist an invalid skill.');
+      const skills = this.read().filter((candidate) => candidate.id !== skill.id);
+      this.store.setItem(
+        skillStorageKey,
+        JSON.stringify([cloneSkill(skill), ...skills].slice(0, skillLimit)),
+      );
+    });
   }
 
   async remove(id: string): Promise<void> {
-    this.store.setItem(
-      skillStorageKey,
-      JSON.stringify(this.read().filter((skill) => skill.id !== id)),
-    );
+    return withStorageWrite(this.store, async () => {
+      this.store.setItem(
+        skillStorageKey,
+        JSON.stringify(this.read().filter((skill) => skill.id !== id)),
+      );
+    });
   }
 }
 
@@ -485,19 +516,23 @@ export class LocalMcpServerRepository implements McpServerRepository {
   }
 
   async save(server: McpServerConnection): Promise<void> {
-    if (!validateMcpServer(server)) throw new Error('Cannot persist an invalid MCP server.');
-    const servers = this.read().filter((candidate) => candidate.id !== server.id);
-    this.store.setItem(
-      mcpServerStorageKey,
-      JSON.stringify([cloneMcpServer(server), ...servers].slice(0, mcpServerLimit)),
-    );
+    return withStorageWrite(this.store, async () => {
+      if (!validateMcpServer(server)) throw new Error('Cannot persist an invalid MCP server.');
+      const servers = this.read().filter((candidate) => candidate.id !== server.id);
+      this.store.setItem(
+        mcpServerStorageKey,
+        JSON.stringify([cloneMcpServer(server), ...servers].slice(0, mcpServerLimit)),
+      );
+    });
   }
 
   async remove(id: string): Promise<void> {
-    this.store.setItem(
-      mcpServerStorageKey,
-      JSON.stringify(this.read().filter((server) => server.id !== id)),
-    );
+    return withStorageWrite(this.store, async () => {
+      this.store.setItem(
+        mcpServerStorageKey,
+        JSON.stringify(this.read().filter((server) => server.id !== id)),
+      );
+    });
   }
 }
 
@@ -549,60 +584,33 @@ export class LocalMcpServerRequestPolicyRepository implements McpServerRequestPo
   }
 
   async save(policy: McpServerRequestPolicy): Promise<void> {
-    const policies = this.read().filter(
-      (item) =>
-        item.id !== policy.id &&
-        !(item.serverId === policy.serverId && item.method === policy.method),
-    );
-    this.store.setItem(
-      mcpServerRequestPolicyStorageKey,
-      JSON.stringify([{ ...policy }, ...policies]),
-    );
+    return withStorageWrite(this.store, async () => {
+      const policies = this.read().filter(
+        (item) =>
+          item.id !== policy.id &&
+          !(item.serverId === policy.serverId && item.method === policy.method),
+      );
+      this.store.setItem(
+        mcpServerRequestPolicyStorageKey,
+        JSON.stringify([{ ...policy }, ...policies]),
+      );
+    });
   }
 
   async remove(serverId: string, method: SupportedMcpServerRequestMethod): Promise<void> {
-    this.store.setItem(
-      mcpServerRequestPolicyStorageKey,
-      JSON.stringify(
-        this.read().filter((item) => item.serverId !== serverId || item.method !== method),
-      ),
-    );
+    return withStorageWrite(this.store, async () => {
+      this.store.setItem(
+        mcpServerRequestPolicyStorageKey,
+        JSON.stringify(
+          this.read().filter((item) => item.serverId !== serverId || item.method !== method),
+        ),
+      );
+    });
   }
 }
 
 type StoredConversations = Record<string, ConversationMessage[]>;
 const maxStoredMessagesPerAgent = 200;
-
-function stripOlderImages(conversations: StoredConversations, keepRecentCount = 5): StoredConversations {
-  const result: StoredConversations = {};
-  for (const [agentId, messages] of Object.entries(conversations)) {
-    const cutoff = Math.max(0, messages.length - keepRecentCount);
-    result[agentId] = messages.map((msg, index) => {
-      if (index < cutoff && msg.images?.length) {
-        const copy = { ...msg };
-        delete copy.images;
-        return copy;
-      }
-      return msg;
-    });
-  }
-  return result;
-}
-
-function stripAllImages(conversations: StoredConversations): StoredConversations {
-  const result: StoredConversations = {};
-  for (const [agentId, messages] of Object.entries(conversations)) {
-    result[agentId] = messages.map((msg) => {
-      if (msg.images?.length) {
-        const copy = { ...msg };
-        delete copy.images;
-        return copy;
-      }
-      return msg;
-    });
-  }
-  return result;
-}
 
 export class LocalConversationRepository implements ConversationRepository {
   constructor(
@@ -630,38 +638,27 @@ export class LocalConversationRepository implements ConversationRepository {
   }
 
   async save(agentId: string, messages: ConversationMessage[]): Promise<void> {
-    const conversations = this.read();
-    conversations[agentId] = messages
-      .slice(-maxStoredMessagesPerAgent)
-      .map((message) => ({ ...message }));
-    try {
-      this.store.setItem(this.storageKey, JSON.stringify(conversations));
-    } catch {
+    return withStorageWrite(this.store, async () => {
+      const conversations = this.read();
+      conversations[agentId] = messages
+        .slice(-maxStoredMessagesPerAgent)
+        .map((message) => ({ ...message }));
       try {
-        const trimmed = stripOlderImages(conversations, 3);
-        this.store.setItem(this.storageKey, JSON.stringify(trimmed));
+        this.store.setItem(this.storageKey, JSON.stringify(conversations));
       } catch {
-        try {
-          const noImages = stripAllImages(conversations);
-          this.store.setItem(this.storageKey, JSON.stringify(noImages));
-        } catch {
-          const minimal: StoredConversations = {
-            [agentId]: messages.slice(-20).map((msg) => {
-              const copy = { ...msg };
-              delete copy.images;
-              return copy;
-            }),
-          };
-          this.store.setItem(this.storageKey, JSON.stringify(minimal));
-        }
+        throw new Error(
+          'Conversation could not be saved. Existing history and attachments were preserved. Free storage space or export your data before retrying.',
+        );
       }
-    }
+    });
   }
 
   async clear(agentId: string): Promise<void> {
-    const conversations = this.read();
-    delete conversations[agentId];
-    this.store.setItem(this.storageKey, JSON.stringify(conversations));
+    return withStorageWrite(this.store, async () => {
+      const conversations = this.read();
+      delete conversations[agentId];
+      this.store.setItem(this.storageKey, JSON.stringify(conversations));
+    });
   }
 }
 
@@ -688,25 +685,29 @@ export class LocalSuspendedAgentTurnRepository implements SuspendedAgentTurnRepo
   }
 
   async save(turn: SuspendedAgentTurn): Promise<void> {
-    const turns = this.read();
-    this.store.setItem(
-      this.storageKey,
-      JSON.stringify([
-        turn,
-        ...turns.filter(
-          (stored) =>
-            stored.agentId !== turn.agentId &&
-            stored.pending.approval.id !== turn.pending.approval.id,
-        ),
-      ]),
-    );
+    return withStorageWrite(this.store, async () => {
+      const turns = this.read();
+      this.store.setItem(
+        this.storageKey,
+        JSON.stringify([
+          turn,
+          ...turns.filter(
+            (stored) =>
+              stored.agentId !== turn.agentId &&
+              stored.pending.approval.id !== turn.pending.approval.id,
+          ),
+        ]),
+      );
+    });
   }
 
   async remove(approvalId: string): Promise<void> {
-    this.store.setItem(
-      this.storageKey,
-      JSON.stringify(this.read().filter((turn) => turn.pending.approval.id !== approvalId)),
-    );
+    return withStorageWrite(this.store, async () => {
+      this.store.setItem(
+        this.storageKey,
+        JSON.stringify(this.read().filter((turn) => turn.pending.approval.id !== approvalId)),
+      );
+    });
   }
 }
 
@@ -764,7 +765,7 @@ export class LocalContextPackRepository implements ContextPackRepository {
   constructor(
     private readonly storage?: Storage,
     private readonly storageKey = contextPackStorageKey,
-    private readonly legacyStorageKey: string | undefined = legacyContextPackStorageKey,
+    private readonly legacyStorageKey: string | null | undefined = legacyContextPackStorageKey,
   ) {}
 
   private get store(): Storage {
@@ -801,24 +802,28 @@ export class LocalContextPackRepository implements ContextPackRepository {
   }
 
   async save(pack: ContextPack): Promise<void> {
-    const packs = this.read().filter(
-      (candidate) =>
-        candidate.agentId !== pack.agentId ||
-        (candidate.id !== pack.id && candidate.turnId !== pack.turnId),
-    );
-    const agentHistory = [
-      cloneContextPack(pack),
-      ...packs.filter((candidate) => candidate.agentId === pack.agentId),
-    ].slice(0, contextPackHistoryLimit);
-    const otherAgents = packs.filter((candidate) => candidate.agentId !== pack.agentId);
-    this.store.setItem(this.storageKey, JSON.stringify([...agentHistory, ...otherAgents]));
+    return withStorageWrite(this.store, async () => {
+      const packs = this.read().filter(
+        (candidate) =>
+          candidate.agentId !== pack.agentId ||
+          (candidate.id !== pack.id && candidate.turnId !== pack.turnId),
+      );
+      const agentHistory = [
+        cloneContextPack(pack),
+        ...packs.filter((candidate) => candidate.agentId === pack.agentId),
+      ].slice(0, contextPackHistoryLimit);
+      const otherAgents = packs.filter((candidate) => candidate.agentId !== pack.agentId);
+      this.store.setItem(this.storageKey, JSON.stringify([...agentHistory, ...otherAgents]));
+    });
   }
 
   async clear(agentId: string): Promise<void> {
-    this.store.setItem(
-      this.storageKey,
-      JSON.stringify(this.read().filter((pack) => pack.agentId !== agentId)),
-    );
+    return withStorageWrite(this.store, async () => {
+      this.store.setItem(
+        this.storageKey,
+        JSON.stringify(this.read().filter((pack) => pack.agentId !== agentId)),
+      );
+    });
   }
 }
 
@@ -910,20 +915,24 @@ export class LocalCortexTurnRepository implements CortexTurnRepository {
   }
 
   async save(record: CortexTurnRecord): Promise<void> {
-    const records = this.read().filter((candidate) => candidate.turnId !== record.turnId);
-    const agentHistory = [
-      cloneCortexTurn(record),
-      ...records.filter((candidate) => candidate.agentId === record.agentId),
-    ].slice(0, cortexTurnHistoryLimit);
-    const otherAgents = records.filter((candidate) => candidate.agentId !== record.agentId);
-    this.store.setItem(this.storageKey, JSON.stringify([...agentHistory, ...otherAgents]));
+    return withStorageWrite(this.store, async () => {
+      const records = this.read().filter((candidate) => candidate.turnId !== record.turnId);
+      const agentHistory = [
+        cloneCortexTurn(record),
+        ...records.filter((candidate) => candidate.agentId === record.agentId),
+      ].slice(0, cortexTurnHistoryLimit);
+      const otherAgents = records.filter((candidate) => candidate.agentId !== record.agentId);
+      this.store.setItem(this.storageKey, JSON.stringify([...agentHistory, ...otherAgents]));
+    });
   }
 
   async clear(agentId: string): Promise<void> {
-    this.store.setItem(
-      this.storageKey,
-      JSON.stringify(this.read().filter((record) => record.agentId !== agentId)),
-    );
+    return withStorageWrite(this.store, async () => {
+      this.store.setItem(
+        this.storageKey,
+        JSON.stringify(this.read().filter((record) => record.agentId !== agentId)),
+      );
+    });
   }
 }
 
@@ -990,18 +999,22 @@ export class LocalCortexTurnStepRepository implements CortexTurnStepRepository {
   }
 
   async save(step: CortexTurnStep): Promise<void> {
-    const others = this.read().filter(
-      (candidate) => candidate.turnId !== step.turnId || candidate.toolCallId !== step.toolCallId,
-    );
-    const merged = [cloneCortexTurnStep(step), ...others].slice(0, cortexTurnStepHistoryLimit);
-    this.store.setItem(this.storageKey, JSON.stringify(merged));
+    return withStorageWrite(this.store, async () => {
+      const others = this.read().filter(
+        (candidate) => candidate.turnId !== step.turnId || candidate.toolCallId !== step.toolCallId,
+      );
+      const merged = [cloneCortexTurnStep(step), ...others].slice(0, cortexTurnStepHistoryLimit);
+      this.store.setItem(this.storageKey, JSON.stringify(merged));
+    });
   }
 
   async clear(agentId: string): Promise<void> {
-    this.store.setItem(
-      this.storageKey,
-      JSON.stringify(this.read().filter((step) => step.agentId !== agentId)),
-    );
+    return withStorageWrite(this.store, async () => {
+      this.store.setItem(
+        this.storageKey,
+        JSON.stringify(this.read().filter((step) => step.agentId !== agentId)),
+      );
+    });
   }
 }
 
@@ -1024,21 +1037,23 @@ export class LocalMemoryRepository implements MemoryRepository {
   }
 
   async save(record: MemoryRecord): Promise<void> {
-    const records = await this.list();
-    this.store.setItem(
-      memoryStorageKey,
-      JSON.stringify(
-        [record, ...records.filter((item) => item.id !== record.id)].slice(0, memoryRecordLimit),
-      ),
-    );
+    return withStorageWrite(this.store, async () => {
+      const records = await this.list();
+      this.store.setItem(
+        memoryStorageKey,
+        JSON.stringify([record, ...records.filter((item) => item.id !== record.id)]),
+      );
+    });
   }
 
   async remove(id: string): Promise<void> {
-    const records = await this.list();
-    this.store.setItem(
-      memoryStorageKey,
-      JSON.stringify(records.filter((record) => record.id !== id)),
-    );
+    return withStorageWrite(this.store, async () => {
+      const records = await this.list();
+      this.store.setItem(
+        memoryStorageKey,
+        JSON.stringify(records.filter((record) => record.id !== id)),
+      );
+    });
   }
 }
 
@@ -1126,19 +1141,23 @@ export class LocalMemoryEmbeddingIndexRepository implements MemoryEmbeddingIndex
   }
 
   async save(index: MemoryEmbeddingIndex): Promise<void> {
-    const indexes = this.read().filter(
-      (candidate) =>
-        candidate.scope.providerId !== index.scope.providerId ||
-        candidate.scope.model !== index.scope.model,
-    );
-    this.store.setItem(
-      memoryEmbeddingIndexStorageKey,
-      JSON.stringify([cloneEmbeddingIndex(index), ...indexes]),
-    );
+    return withStorageWrite(this.store, async () => {
+      const indexes = this.read().filter(
+        (candidate) =>
+          candidate.scope.providerId !== index.scope.providerId ||
+          candidate.scope.model !== index.scope.model,
+      );
+      this.store.setItem(
+        memoryEmbeddingIndexStorageKey,
+        JSON.stringify([cloneEmbeddingIndex(index), ...indexes]),
+      );
+    });
   }
 
   async clear(): Promise<void> {
-    this.store.removeItem(memoryEmbeddingIndexStorageKey);
+    return withStorageWrite(this.store, async () => {
+      this.store.removeItem(memoryEmbeddingIndexStorageKey);
+    });
   }
 }
 
@@ -1156,19 +1175,23 @@ export class LocalPermissionRuleRepository implements PermissionRuleRepository {
   }
 
   async save(rule: PermissionRule): Promise<void> {
-    const rules = await this.list();
-    this.store.setItem(
-      permissionRuleStorageKey,
-      JSON.stringify([...rules.filter((item) => item.id !== rule.id), rule]),
-    );
+    return withStorageWrite(this.store, async () => {
+      const rules = await this.list();
+      this.store.setItem(
+        permissionRuleStorageKey,
+        JSON.stringify([...rules.filter((item) => item.id !== rule.id), rule]),
+      );
+    });
   }
 
   async remove(id: string): Promise<void> {
-    const rules = await this.list();
-    this.store.setItem(
-      permissionRuleStorageKey,
-      JSON.stringify(rules.filter((rule) => rule.id !== id)),
-    );
+    return withStorageWrite(this.store, async () => {
+      const rules = await this.list();
+      this.store.setItem(
+        permissionRuleStorageKey,
+        JSON.stringify(rules.filter((rule) => rule.id !== id)),
+      );
+    });
   }
 }
 
@@ -1186,15 +1209,19 @@ export class LocalPermissionAuditRepository implements PermissionAuditRepository
   }
 
   async append(event: PermissionAuditEvent): Promise<void> {
-    const events = await this.list();
-    this.store.setItem(
-      permissionAuditStorageKey,
-      JSON.stringify([{ ...event }, ...events].slice(0, permissionAuditLimit)),
-    );
+    return withStorageWrite(this.store, async () => {
+      const events = await this.list();
+      this.store.setItem(
+        permissionAuditStorageKey,
+        JSON.stringify([{ ...event }, ...events].slice(0, permissionAuditLimit)),
+      );
+    });
   }
 
   async clear(): Promise<void> {
-    this.store.removeItem(permissionAuditStorageKey);
+    return withStorageWrite(this.store, async () => {
+      this.store.removeItem(permissionAuditStorageKey);
+    });
   }
 }
 
@@ -1216,67 +1243,153 @@ export class LocalToolApprovalRepository implements ToolApprovalRepository {
   }
 
   async save(request: ToolApprovalRequest): Promise<void> {
-    const requests = await this.list();
-    this.store.setItem(
-      toolApprovalStorageKey,
-      JSON.stringify(
-        [{ ...request }, ...requests.filter((item) => item.id !== request.id)].slice(
-          0,
-          toolApprovalLimit,
+    return withStorageWrite(this.store, async () => {
+      const requests = await this.list();
+      this.store.setItem(
+        toolApprovalStorageKey,
+        JSON.stringify(
+          [{ ...request }, ...requests.filter((item) => item.id !== request.id)].filter(
+            (item, index) =>
+              index < toolApprovalLimit ||
+              ['pending', 'approved', 'executing'].includes(item.status),
+          ),
         ),
-      ),
-    );
+      );
+    });
+  }
+
+  async compareAndSet(
+    id: string,
+    expected: ToolApprovalStatus,
+    request: ToolApprovalRequest,
+  ): Promise<boolean> {
+    return withStorageWrite(this.store, async () => {
+      const requests = await this.list();
+      if (request.id !== id || requests.find((item) => item.id === id)?.status !== expected)
+        return false;
+      this.store.setItem(
+        toolApprovalStorageKey,
+        JSON.stringify(requests.map((item) => (item.id === id ? request : item))),
+      );
+      return true;
+    });
   }
 
   async clearResolved(): Promise<void> {
-    const requests = await this.list();
-    this.store.setItem(
-      toolApprovalStorageKey,
-      JSON.stringify(
-        requests.filter((request) => request.status === 'pending' || request.status === 'approved'),
-      ),
-    );
+    return withStorageWrite(this.store, async () => {
+      const requests = await this.list();
+      this.store.setItem(
+        toolApprovalStorageKey,
+        JSON.stringify(
+          requests.filter(
+            (request) =>
+              request.status === 'pending' ||
+              request.status === 'approved' ||
+              request.status === 'executing',
+          ),
+        ),
+      );
+    });
   }
 }
 
-export const agentRepository = new LocalAgentRepository();
-export const projectGraphRepository = new LocalProjectGraphRepository();
-export const projectTaskRunRepository = new LocalProjectTaskRunRepository();
-export const scheduleRepository = new LocalScheduleRepository();
-export const scheduledRunRepository = new LocalScheduledRunRepository();
-export const workspaceRepository = new LocalWorkspaceRepository();
-export const workspaceChangeRepository = new LocalWorkspaceChangeRepository();
-export const skillRepository = new LocalSkillRepository();
-export const mcpServerRepository = new LocalMcpServerRepository();
-export const mcpServerRequestPolicyRepository = new LocalMcpServerRequestPolicyRepository();
-export const conversationRepository = new LocalConversationRepository();
-export const suspendedAgentTurnRepository = new LocalSuspendedAgentTurnRepository();
-export const projectWorkerConversationRepository = new LocalConversationRepository(
-  undefined,
-  projectWorkerConversationStorageKey,
+export const agentRepository = createDesktopRepository(
+  (storage) => new LocalAgentRepository(storage),
+  [agentStorageKey, legacyAgentStorageKey],
 );
-export const projectWorkerSuspendedTurnRepository = new LocalSuspendedAgentTurnRepository(
-  undefined,
-  projectWorkerSuspendedTurnStorageKey,
+export const projectGraphRepository = createDesktopRepository(
+  (storage) => new LocalProjectGraphRepository(storage),
+  [projectGraphStorageKey],
 );
-export const contextPackRepository = new LocalContextPackRepository();
-export const cortexTurnRepository = new LocalCortexTurnRepository();
-export const cortexTurnStepRepository = new LocalCortexTurnStepRepository();
-export const projectWorkerContextPackRepository = new LocalContextPackRepository(
-  undefined,
-  projectWorkerContextPackStorageKey,
-  undefined,
+export const projectTaskRunRepository = createDesktopRepository(
+  (storage) => new LocalProjectTaskRunRepository(storage),
+  [projectTaskRunStorageKey],
 );
-export const projectWorkerCortexTurnRepository = new LocalCortexTurnRepository(
-  undefined,
-  projectWorkerCortexTurnStorageKey,
+export const scheduleRepository = createDesktopRepository(
+  (storage) => new LocalScheduleRepository(storage),
+  [scheduleStorageKey],
 );
-export const projectWorkerCortexTurnStepRepository = new LocalCortexTurnStepRepository(
-  undefined,
-  projectWorkerCortexTurnStepStorageKey,
+export const scheduledRunRepository = createDesktopRepository(
+  (storage) => new LocalScheduledRunRepository(storage),
+  [scheduledRunStorageKey],
 );
-export const memoryRepository = new LocalMemoryRepository();
-export const memoryEmbeddingIndexRepository = new LocalMemoryEmbeddingIndexRepository();
-export const permissionRuleRepository = new LocalPermissionRuleRepository();
-export const permissionAuditRepository = new LocalPermissionAuditRepository();
-export const toolApprovalRepository = new LocalToolApprovalRepository();
+export const workspaceRepository = createDesktopRepository(
+  (storage) => new LocalWorkspaceRepository(storage),
+  [workspaceStorageKey],
+);
+export const workspaceChangeRepository = createDesktopRepository(
+  (storage) => new LocalWorkspaceChangeRepository(storage),
+  [workspaceChangeStorageKey],
+);
+export const skillRepository = createDesktopRepository(
+  (storage) => new LocalSkillRepository(storage),
+  [skillStorageKey],
+);
+export const mcpServerRepository = createDesktopRepository(
+  (storage) => new LocalMcpServerRepository(storage),
+  [mcpServerStorageKey],
+);
+export const mcpServerRequestPolicyRepository = createDesktopRepository(
+  (storage) => new LocalMcpServerRequestPolicyRepository(storage),
+  [mcpServerRequestPolicyStorageKey],
+);
+export const conversationRepository = createDesktopRepository(
+  (storage) => new LocalConversationRepository(storage),
+  [conversationStorageKey],
+);
+export const suspendedAgentTurnRepository = createDesktopRepository(
+  (storage) => new LocalSuspendedAgentTurnRepository(storage),
+  [suspendedTurnStorageKey],
+);
+export const projectWorkerConversationRepository = createDesktopRepository(
+  (storage) => new LocalConversationRepository(storage, projectWorkerConversationStorageKey),
+  [projectWorkerConversationStorageKey],
+);
+export const projectWorkerSuspendedTurnRepository = createDesktopRepository(
+  (storage) => new LocalSuspendedAgentTurnRepository(storage, projectWorkerSuspendedTurnStorageKey),
+  [projectWorkerSuspendedTurnStorageKey],
+);
+export const contextPackRepository = createDesktopRepository(
+  (storage) => new LocalContextPackRepository(storage),
+  [contextPackStorageKey, legacyContextPackStorageKey],
+);
+export const cortexTurnRepository = createDesktopRepository(
+  (storage) => new LocalCortexTurnRepository(storage),
+  [cortexTurnStorageKey],
+);
+export const cortexTurnStepRepository = createDesktopRepository(
+  (storage) => new LocalCortexTurnStepRepository(storage),
+  [cortexTurnStepStorageKey],
+);
+export const projectWorkerContextPackRepository = createDesktopRepository(
+  (storage) => new LocalContextPackRepository(storage, projectWorkerContextPackStorageKey, null),
+  [projectWorkerContextPackStorageKey],
+);
+export const projectWorkerCortexTurnRepository = createDesktopRepository(
+  (storage) => new LocalCortexTurnRepository(storage, projectWorkerCortexTurnStorageKey),
+  [projectWorkerCortexTurnStorageKey],
+);
+export const projectWorkerCortexTurnStepRepository = createDesktopRepository(
+  (storage) => new LocalCortexTurnStepRepository(storage, projectWorkerCortexTurnStepStorageKey),
+  [projectWorkerCortexTurnStepStorageKey],
+);
+export const memoryRepository = createDesktopRepository(
+  (storage) => new LocalMemoryRepository(storage),
+  [memoryStorageKey],
+);
+export const memoryEmbeddingIndexRepository = createDesktopRepository(
+  (storage) => new LocalMemoryEmbeddingIndexRepository(storage),
+  [memoryEmbeddingIndexStorageKey],
+);
+export const permissionRuleRepository = createDesktopRepository(
+  (storage) => new LocalPermissionRuleRepository(storage),
+  [permissionRuleStorageKey],
+);
+export const permissionAuditRepository = createDesktopRepository(
+  (storage) => new LocalPermissionAuditRepository(storage),
+  [permissionAuditStorageKey],
+);
+export const toolApprovalRepository = createDesktopRepository(
+  (storage) => new LocalToolApprovalRepository(storage),
+  [toolApprovalStorageKey],
+);

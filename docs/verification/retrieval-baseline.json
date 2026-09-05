@@ -1,0 +1,112 @@
+{
+  "metric": "retrieved-answer coverage at top 5; not end-to-end agent answer accuracy",
+  "commit": "a54ae9a53fd3d269393108945185700d1e0e1326",
+  "workingTreeDirty": true,
+  "sourceHashes": {
+    "index.ts": "31f0cd7ffe6bd1626ee3d499256a75954497aa5b7fa85b5356fa4bfc77ced5bc",
+    "temporal.ts": "9662b5b294cbdebbeb7e37346e84028289e4ba6744bbf1925a993578a9c1ee26",
+    "benchmark.ts": "e4611d2c6d4fdf2ba1528017326ecf9184cac79135a96d5eee766ad0611f6fcc",
+    "officialFpAmbData.ts": "7afdf2e1d37acfe4ca44afea63c3128d72386d3b187c72ceb5be70ca4bc94d0c"
+  },
+  "runtime": "v26.7.0",
+  "result": {
+    "overallAccuracy": 70.1,
+    "totalPassed": 155,
+    "totalQuestions": 221,
+    "ungradedQuestions": 41,
+    "gradingNotes": [
+      "Adversarial Defense & Gaslighting Robustness: 4 of 43 questions excluded (semantic grading required).",
+      "Unanswerable & Absent Memory Refusal: all 35 questions require semantic/agent-in-the-loop grading and are excluded from the automated score.",
+      "Source Credibility & Conflict Resolution: 2 of 7 questions excluded (semantic grading required)."
+    ],
+    "averageLatencyMs": 1.83,
+    "ingestionSpeedMs": 51.8,
+    "totalTokensIndexed": 819273,
+    "sessionsIngested": 60,
+    "turnsIngested": 739,
+    "categories": [
+      {
+        "name": "Single-Hop Fact Recall",
+        "icon": "🔍",
+        "desc": "Direct retrieval of specific granular details, names, configurations, and specs.",
+        "passed": 26,
+        "total": 35,
+        "scorePct": 74.3,
+        "ungraded": 0
+      },
+      {
+        "name": "Cross-Session Multi-Hop Reasoning",
+        "icon": "🧠",
+        "desc": "Connecting disparate clues scattered across multiple sessions separated by weeks.",
+        "passed": 27,
+        "total": 44,
+        "scorePct": 61.4,
+        "ungraded": 0
+      },
+      {
+        "name": "Temporal Reasoning & Session Math",
+        "icon": "⏱️",
+        "desc": "Date math, timeline deltas, chronological orderings, and session sequence distances.",
+        "passed": 16,
+        "total": 35,
+        "scorePct": 45.7,
+        "ungraded": 0
+      },
+      {
+        "name": "Adaptability & Fact Correction Overwrites",
+        "icon": "🔄",
+        "desc": "Correctly superseding outdated facts when users state newer corrections over time.",
+        "passed": 13,
+        "total": 18,
+        "scorePct": 72.2,
+        "ungraded": 0
+      },
+      {
+        "name": "Self-Referential & Procedural Tool Memory",
+        "icon": "🔧",
+        "desc": "Recalling past tool executions, developer stack decisions, and procedural workflows.",
+        "passed": 25,
+        "total": 31,
+        "scorePct": 80.6,
+        "ungraded": 0
+      },
+      {
+        "name": "Adversarial Defense & Gaslighting Robustness",
+        "icon": "🕵️",
+        "desc": "Resisting false leading questions and contradictory user claims across long contexts.",
+        "passed": 30,
+        "total": 39,
+        "scorePct": 76.9,
+        "ungraded": 4
+      },
+      {
+        "name": "Speaker Attribution Traps",
+        "icon": "🛡️",
+        "desc": "Disambiguating distinct speakers across 60 multi-turn sessions without attribution drift.",
+        "passed": 13,
+        "total": 14,
+        "scorePct": 92.9,
+        "ungraded": 0
+      },
+      {
+        "name": "Unanswerable & Absent Memory Refusal",
+        "icon": "🚫",
+        "desc": "Strict refusal to hallucinate distractor facts when memories do not exist in the corpus.",
+        "passed": 0,
+        "total": 0,
+        "scorePct": 0,
+        "ungraded": 35
+      },
+      {
+        "name": "Source Credibility & Conflict Resolution",
+        "icon": "⚖️",
+        "desc": "Resolving contradictory claims by prioritizing verified sources over hearsay.",
+        "passed": 5,
+        "total": 5,
+        "scorePct": 100,
+        "ungraded": 2
+      }
+    ],
+    "completedAt": "2026-09-04T22:37:46.517Z"
+  }
+}

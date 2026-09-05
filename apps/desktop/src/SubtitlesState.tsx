@@ -1,33 +1,24 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import {
-  parseSubtitles,
-  reassembleSubtitles,
-  createTranslationChunks,
-  buildChunkTranslationPrompt,
-  parseChunkTranslationResponse,
-  type ParsedSubtitleFile,
-  type TranslationOptions,
-  type TranslationProgress,
-} from '@iris/subtitles';
-import {
-  createModelProvider,
-  loadProviderConfigs,
-  missingProviderConnectionFields,
-  subscribeProviderConfigs,
-  type ModelMessage,
-  type ProviderConfig,
+loadProviderConfigs,
+subscribeProviderConfigs,
+type ProviderConfig
 } from '@iris/providers';
-import { loadProviderSecrets } from './credentials';
+import {
+parseSubtitles,
+reassembleSubtitles
+} from '@iris/subtitles';
+import { useEffect,useMemo,useRef,useState,useSyncExternalStore,type ChangeEvent,type DragEvent } from 'react';
 import { selectableAgentModels } from './agentModelSelection';
+import { startSubtitleTranslation,subtitleRuntime } from './subtitleRuntime';
 
 const commonLanguages = [
-  { code: 'da', label: 'Danish (Dansk)' },
+  { code: 'da', label: 'Danish' },
   { code: 'en', label: 'English' },
-  { code: 'sv', label: 'Swedish (Svenska)' },
-  { code: 'no', label: 'Norwegian (Norsk)' },
-  { code: 'de', label: 'German (Deutsch)' },
-  { code: 'es', label: 'Spanish (Español)' },
-  { code: 'fr', label: 'French (Français)' },
+  { code: 'sv', label: 'Swedish' },
+  { code: 'no', label: 'Norwegian' },
+  { code: 'de', label: 'German' },
+  { code: 'es', label: 'Spanish' },
+  { code: 'fr', label: 'French' },
 ];
 
 const defaultModelsByKind: Record<string, string[]> = {
@@ -78,10 +69,14 @@ const defaultModelsByKind: Record<string, string[]> = {
 };
 
 export function SubtitlesState() {
+  const session = useSyncExternalStore(subtitleRuntime.subscribe, subtitleRuntime.getSnapshot);
+  const { fileName, parsedFile, progress, activeCueId } = session;
+  const translatedMap = useMemo(() => new Map(session.translated), [session.translated]);
   const [providers, setProviders] = useState<ProviderConfig[]>(() =>
     loadProviderConfigs().filter((p) => p.enabled),
   );
   const [selectedProviderId, setSelectedProviderId] = useState<string>(() => {
+    if (session.settings) return session.settings.providerId;
     const initial = loadProviderConfigs().filter((p) => p.enabled);
     const preferred =
       initial.find((c) => c.id.includes('anthropic') || c.id.includes('gemini') || c.id.includes('openai') || c.id.includes('openrouter')) ??
@@ -89,6 +84,7 @@ export function SubtitlesState() {
     return preferred ? preferred.id : '';
   });
   const [selectedModel, setSelectedModel] = useState<string>(() => {
+    if (session.settings) return session.settings.model;
     const initial = loadProviderConfigs().filter((p) => p.enabled);
     const preferred =
       initial.find((c) => c.id.includes('anthropic') || c.id.includes('gemini') || c.id.includes('openai') || c.id.includes('openrouter')) ??
@@ -99,31 +95,16 @@ export function SubtitlesState() {
     return preferred.model || models[0] || defaults[0] || '';
   });
 
-  const [fileName, setFileName] = useState<string>('');
-  const [parsedFile, setParsedFile] = useState<ParsedSubtitleFile | null>(null);
-  const [translatedMap, setTranslatedMap] = useState<Map<number, string>>(new Map());
-
-  const [targetLanguage, setTargetLanguage] = useState<string>('Danish (Dansk)');
-  const [chunkSize, setChunkSize] = useState<number>(25);
-  const [maxCharsPerLine, setMaxCharsPerLine] = useState<number>(40);
+  const [targetLanguage, setTargetLanguage] = useState<string>(session.settings?.targetLanguage ?? 'Danish');
+  const [chunkSize, setChunkSize] = useState<number>(session.settings?.chunkSize ?? 25);
+  const [maxCharsPerLine, setMaxCharsPerLine] = useState<number>(session.settings?.maxCharsPerLine ?? 40);
   const [customInstructions, setCustomInstructions] = useState<string>(
-    'Natural colloquial phrasing. Avoid literal Anglicisms. Preserve slang, swear words and informal speech.',
+    session.settings?.customInstructions ?? 'Natural colloquial phrasing. Avoid literal Anglicisms. Preserve slang, swear words and informal speech.',
   );
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   const [isCustomModel, setIsCustomModel] = useState<boolean>(false);
 
-  const [progress, setProgress] = useState<TranslationProgress>({
-    status: 'idle',
-    currentChunk: 0,
-    totalChunks: 0,
-    translatedCuesCount: 0,
-    totalCuesCount: 0,
-    percent: 0,
-  });
-
-  const [activeCueId, setActiveCueId] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const leftListRef = useRef<HTMLDivElement | null>(null);
   const rightListRef = useRef<HTMLDivElement | null>(null);
@@ -184,18 +165,7 @@ export function SubtitlesState() {
         alert('No valid subtitle cues found in file.');
         return;
       }
-      setFileName(name);
-      setParsedFile(parsed);
-      setTranslatedMap(new Map());
-      setActiveCueId(null);
-      setProgress({
-        status: 'idle',
-        currentChunk: 0,
-        totalChunks: Math.ceil(parsed.cues.length / chunkSize),
-        translatedCuesCount: 0,
-        totalCuesCount: parsed.cues.length,
-        percent: 0,
-      });
+      subtitleRuntime.load(name, parsed);
     } catch (err) {
       alert(`Error loading subtitle file: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -249,197 +219,12 @@ export function SubtitlesState() {
   }, [activeCueId]);
 
   async function startTranslation() {
-    if (!parsedFile || parsedFile.cues.length === 0) return;
-    if (!selectedProvider) {
-      alert('Please configure and select a model provider first in Settings/Models.');
-      return;
-    }
-
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-    // A run is stale as soon as abortControllerRef no longer points at its own
-    // controller (pause/reset cleared it, or a newer run replaced it). Stale
-    // loops must exit without writing any state, otherwise a reset or a fresh
-    // run gets clobbered by the outgoing loop's late setTranslatedMap calls.
-    const isStale = () => abortControllerRef.current !== abortController;
-
-    const chunks = createTranslationChunks(parsedFile.cues, chunkSize, 3);
-    const currentTranslated = new Map<number, string>(translatedMap);
-
-    setProgress({
-      status: 'translating',
-      currentChunk: 0,
-      totalChunks: chunks.length,
-      translatedCuesCount: currentTranslated.size,
-      totalCuesCount: parsedFile.cues.length,
-      percent: Math.round((currentTranslated.size / parsedFile.cues.length) * 100),
-    });
-
     try {
-      const storedSecrets = await loadProviderSecrets(selectedProvider.id);
-      const connected = {
-        ...selectedProvider,
-        connectionValues: {
-          ...(storedSecrets ?? {}),
-          ...(selectedProvider.connectionValues ?? {}),
-          ...(selectedProvider.apiKey ? { apiKey: selectedProvider.apiKey } : {}),
-        },
-      };
-
-      const missing = missingProviderConnectionFields({ ...connected, storedSecretFields: [] });
-      if (missing.length) {
-        throw new Error(
-          `Provider connection requires ${missing.map((f) => f.label).join(' and ')}. Please check your Model settings.`,
-        );
-      }
-
-      const providerInstance = createModelProvider(connected);
-      const options: TranslationOptions = {
-        targetLanguage,
-        chunkSize,
-        maxCharsPerLine,
-        customInstructions,
-      };
-
-      const targetModel = (selectedModel || selectedProvider.model).trim();
-
-      for (let i = 0; i < chunks.length; i++) {
-        if (abortController.signal.aborted || isStale()) break;
-
-        const chunk = chunks[i];
-        // Check how many cues in this chunk still need translation
-        const remainingInChunk = chunk.cues.filter((c) => !currentTranslated.has(c.id));
-        if (remainingInChunk.length === 0) continue;
-
-        setActiveCueId(chunk.cues[0]?.id ?? null);
-        setProgress((prev) => ({
-          ...prev,
-          status: 'translating',
-          currentChunk: i + 1,
-          totalChunks: chunks.length,
-        }));
-
-        let attempts = 0;
-        let success = false;
-
-        while (attempts < 2 && !success && !abortController.signal.aborted && !isStale()) {
-          attempts++;
-          try {
-            const promptText = buildChunkTranslationPrompt(chunk, options);
-            const messages: ModelMessage[] = [
-              {
-                role: 'system',
-                content:
-                  'You are an elite subtitle translator. You respond strictly with the requested JSON array without preamble or thinking.',
-              },
-              {
-                role: 'user',
-                content: promptText,
-              },
-            ];
-
-            let responseText = '';
-            for await (const chunkStream of providerInstance.stream(
-              {
-                model: targetModel,
-                messages,
-                temperature: 0.2,
-              },
-              abortController.signal,
-            )) {
-              responseText += chunkStream.text;
-            }
-
-            const expectedIds = chunk.cues.map((c) => c.id);
-            const parsedChunkResults = parseChunkTranslationResponse(responseText, expectedIds);
-
-            for (const cue of chunk.cues) {
-              const translatedText = parsedChunkResults.get(cue.id);
-              if (translatedText && !currentTranslated.has(cue.id)) {
-                currentTranslated.set(cue.id, translatedText);
-              }
-            }
-
-            // A batch counts as successful only when every cue in the chunk now
-            // has a translation. A partial response (e.g. 3 of 25 cues parsed)
-            // must be retried, not silently accepted with the rest left
-            // untranslated.
-            const stillMissing = chunk.cues.some((c) => !currentTranslated.has(c.id));
-            if (!stillMissing) {
-              success = true;
-            } else if (attempts >= 2) {
-              // Final fallback: keep the original text for anything still missing.
-              for (const cue of chunk.cues) {
-                if (!currentTranslated.has(cue.id)) {
-                  currentTranslated.set(cue.id, cue.text);
-                }
-              }
-              success = true;
-            }
-          } catch (chunkErr) {
-            if (abortController.signal.aborted || isStale()) throw chunkErr;
-            if (attempts >= 2) {
-              // Gracefully continue with original text on network error after retry
-              for (const cue of chunk.cues) {
-                if (!currentTranslated.has(cue.id)) {
-                  currentTranslated.set(cue.id, cue.text);
-                }
-              }
-              success = true;
-            } else {
-              // Wait 1s before retry
-              await new Promise((r) => setTimeout(r, 1000));
-            }
-          }
-        }
-
-        if (abortController.signal.aborted || isStale()) break;
-        setTranslatedMap(new Map(currentTranslated));
-        setProgress({
-          status: 'translating',
-          currentChunk: i + 1,
-          totalChunks: chunks.length,
-          translatedCuesCount: currentTranslated.size,
-          totalCuesCount: parsedFile.cues.length,
-          percent: Math.round((currentTranslated.size / parsedFile.cues.length) * 100),
-        });
-      }
-
-      if (!abortController.signal.aborted && !isStale()) {
-        setActiveCueId(null);
-        setProgress((prev) => ({
-          ...prev,
-          status: 'completed',
-          percent: 100,
-        }));
-      }
-    } catch (err: unknown) {
-      if (abortControllerRef.current !== abortController) {
-        // A reset or a newer run superseded this loop — do not touch any state.
-      } else if (abortController.signal.aborted) {
-        setProgress((prev) => ({ ...prev, status: 'paused' }));
-      } else {
-        const msg = err instanceof Error ? err.message : String(err);
-        setProgress((prev) => ({
-          ...prev,
-          status: 'failed',
-          error: msg,
-        }));
-      }
-    } finally {
-      if (abortControllerRef.current === abortController) {
-        abortControllerRef.current = null;
-      }
-    }
+      await startSubtitleTranslation({ providerId: selectedProviderId, model: selectedModel, targetLanguage, chunkSize, maxCharsPerLine, customInstructions });
+    } catch (error) { alert(error instanceof Error ? error.message : String(error)); }
   }
 
-  function pauseTranslation() {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-      setProgress((prev) => ({ ...prev, status: 'paused' }));
-    }
-  }
+  function pauseTranslation() { subtitleRuntime.pause(); }
 
   function handleDownload() {
     if (!parsedFile) return;
@@ -465,23 +250,7 @@ export function SubtitlesState() {
     void navigator.clipboard.writeText(reassembled);
   }
 
-  function handleReset() {
-    if (progress.status === 'translating') {
-      pauseTranslation();
-    }
-    setParsedFile(null);
-    setFileName('');
-    setTranslatedMap(new Map());
-    setActiveCueId(null);
-    setProgress({
-      status: 'idle',
-      currentChunk: 0,
-      totalChunks: 0,
-      translatedCuesCount: 0,
-      totalCuesCount: 0,
-      percent: 0,
-    });
-  }
+  function handleReset() { subtitleRuntime.reset(); }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '20px 24px', gap: 16 }}>

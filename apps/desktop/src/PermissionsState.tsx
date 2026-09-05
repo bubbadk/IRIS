@@ -253,7 +253,7 @@ export function PermissionsState() {
 
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId) ?? null;
   const activeApprovalCount = approvals.filter(
-    (approval) => approval.status === 'pending' || approval.status === 'approved',
+    (approval) => ['pending', 'approved', 'executing'].includes(approval.status),
   ).length;
 
   function createExecutor() {
@@ -578,7 +578,7 @@ export function PermissionsState() {
             <h3>Specific tool invocations</h3>
           </div>
           {approvals.some(
-            (approval) => approval.status !== 'pending' && approval.status !== 'approved',
+            (approval) => !['pending', 'approved', 'executing'].includes(approval.status),
           ) && (
             <button className="row-button" onClick={() => void clearResolvedApprovals()}>
               Clear resolved

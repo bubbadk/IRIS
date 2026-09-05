@@ -790,6 +790,10 @@ export class AgentRuntimeCoordinator {
     return this.suspendedTurns.getByAgentId(agentId);
   }
 
+  get runningAgentIds(): readonly string[] {
+    return [...this.runningAgents];
+  }
+
   async suspendedForApproval(approvalId: string): Promise<SuspendedAgentTurn | null> {
     return this.suspendedTurns.getByApprovalId(approvalId);
   }
@@ -920,6 +924,7 @@ export class AgentRuntimeCoordinator {
       throw error;
     } finally {
       this.runningAgents.delete(agentId);
+      this.onStateChange(agentId);
     }
   }
 
@@ -1002,6 +1007,7 @@ export class AgentRuntimeCoordinator {
       throw error;
     } finally {
       this.runningAgents.delete(suspended.agentId);
+      this.onStateChange(suspended.agentId);
     }
   }
 
@@ -1053,6 +1059,7 @@ export class AgentRuntimeCoordinator {
   private begin(agentId: string): void {
     if (this.runningAgents.has(agentId)) throw new Error('This agent is already running.');
     this.runningAgents.add(agentId);
+    this.onStateChange(agentId);
   }
 
   private async requireAgent(agentId: string): Promise<AgentDefinition> {

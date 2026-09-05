@@ -211,7 +211,7 @@ describe('local agent persistence', () => {
     expect(await repository.list('agent-2')).toHaveLength(1);
   });
 
-  it('safely recovers when storage encounters quota limits by stripping heavy images', async () => {
+  it('rejects quota failures without stripping attachments or overwriting history', async () => {
     const values = new Map<string, string>();
     const constrainedStorage: Storage = {
       getItem: (key) => values.get(key) ?? null,
@@ -243,10 +243,10 @@ describe('local agent persistence', () => {
       },
     ];
 
-    await expect(repository.save('agent-1', messages)).resolves.not.toThrow();
-    const saved = await repository.list('agent-1');
-    expect(saved).toHaveLength(2);
-    expect(saved[0].content).toBe('Check this image');
+    await repository.save('other-agent', [{ role: 'user', content: 'Keep this history' }]);
+    await expect(repository.save('agent-1', messages)).rejects.toThrow('preserved');
+    expect(await repository.list('other-agent')).toEqual([{ role: 'user', content: 'Keep this history' }]);
+    expect(await repository.list('agent-1')).toEqual([]);
   });
 
   it('stores one resumable tool turn per agent and removes it by approval', async () => {
@@ -826,5 +826,23 @@ describe('local memory persistence', () => {
       entries: [{ memoryId: 'memory-1', sourceFingerprint: 'abc123', vector: [1, 0] }],
       failures: [],
     });
+  });
+});
+
+
+describe('concurrent storage writes', () => {
+  it('preserves simultaneous memory writes from separate repositories', async () => {
+    const first = new LocalMemoryRepository(storage);
+    const second = new LocalMemoryRepository(storage);
+    const record = { id: 'first', content: 'Remember this', createdAt: '2026-09-05T00:00:00Z', updatedAt: '2026-09-05T00:00:00Z', provenance: { source: 'user' as const, actorId: 'user', actorName: 'User', capturedAt: '2026-09-05T00:00:00Z' } };
+    await Promise.all([first.save(record), second.save({ ...record, id: 'second' })]);
+    expect((await first.list()).map((item) => item.id).sort()).toEqual(['first', 'second']);
+  });
+
+  it('preserves simultaneous agent configuration writes', async () => {
+    const repository = new LocalAgentRepository(storage);
+    const agent = { id: 'a', name: 'A', autonomy: 'assist' as const, skillIds: [], toolIds: [] };
+    await Promise.all([repository.save(agent), repository.save({ ...agent, id: 'b' })]);
+    expect(await repository.list()).toHaveLength(2);
   });
 });

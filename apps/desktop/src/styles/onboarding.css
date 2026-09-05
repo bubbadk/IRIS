@@ -1,0 +1,324 @@
+
+
+/* First-Run Onboarding Wizard */
+.onboarding-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 18, 0.65);
+  backdrop-filter: blur(20px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 24px;
+}
+
+.onboarding-card {
+  width: 100%;
+  max-width: 640px;
+  background: rgba(255, 254, 250, 0.96);
+  border: 1px solid rgba(80, 93, 83, 0.2);
+  border-radius: 24px;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: widget-appear 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.onboarding-header {
+  padding: 28px 32px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.onboarding-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.onboarding-skip-top-btn {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.onboarding-skip-top-btn:hover {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.dark-mode .onboarding-skip-top-btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: #c0ccc4;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.dark-mode .onboarding-skip-top-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+.onboarding-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.onboarding-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #5e8f77;
+  box-shadow: 0 0 12px #5e8f77;
+}
+
+.onboarding-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.onboarding-subtitle {
+  margin: 4px 0 20px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+.onboarding-progress-track {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.progress-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.progress-step.is-active {
+  color: var(--ink);
+}
+
+.progress-step .step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 11px;
+}
+
+.progress-step.is-active .step-num {
+  background: #5e8f77;
+  color: white;
+}
+
+.progress-line {
+  flex: 1;
+  height: 2px;
+  background: var(--line);
+}
+
+.onboarding-body {
+  padding: 28px 32px;
+  min-height: 280px;
+}
+
+.step-content h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.step-desc {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.provider-selection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.provider-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.provider-card:hover {
+  border-color: #5e8f77;
+  transform: translateY(-1px);
+}
+
+.provider-card.selected {
+  border-color: #5e8f77;
+  background: rgba(94, 143, 119, 0.08);
+  box-shadow: 0 0 0 2px rgba(94, 143, 119, 0.2);
+}
+
+.provider-icon {
+  font-size: 20px;
+}
+
+.provider-info strong {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.provider-info span {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.input-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+
+.input-group input {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.input-group input:focus {
+  border-color: #5e8f77;
+  box-shadow: 0 0 0 3px rgba(94, 143, 119, 0.15);
+}
+
+.agent-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agent-preview-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.agent-preview-card .agent-avatar {
+  font-size: 22px;
+}
+
+.agent-preview-card strong {
+  display: block;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.agent-preview-card p {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.onboarding-status-message {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: #c1685a;
+}
+
+.onboarding-footer {
+  padding: 18px 32px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.onboarding-btn-primary {
+  background: #5e8f77;
+  color: white;
+  border: none;
+  padding: 9px 20px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.onboarding-btn-primary:hover:not(:disabled) {
+  background: #4d7a64;
+  transform: translateY(-1px);
+}
+
+.onboarding-btn-primary.finalize {
+  background: linear-gradient(135deg, #5e8f77 0%, #3e6b54 100%);
+  padding: 10px 24px;
+}
+
+.onboarding-btn-secondary {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  padding: 8px 16px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.onboarding-btn-secondary:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+/* Dark mode for onboarding */
+.onboarding-modal-backdrop.dark-mode .onboarding-card {
+  background: rgba(32, 34, 32, 0.96);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.onboarding-modal-backdrop.dark-mode .provider-card,
+.onboarding-modal-backdrop.dark-mode .agent-preview-card,
+.onboarding-modal-backdrop.dark-mode .input-group input {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}

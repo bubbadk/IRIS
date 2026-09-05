@@ -11,6 +11,7 @@ import {
   type RegisteredTool,
   type ToolApprovalRepository,
   type ToolApprovalRequest,
+  type ToolApprovalStatus,
 } from './index';
 
 const agent = {
@@ -58,9 +59,33 @@ class MemoryApprovalRepository implements ToolApprovalRepository {
     );
     this.requests.splice(0, this.requests.length, ...pending);
   }
+
+  async compareAndSet(id: string, expected: ToolApprovalStatus, request: ToolApprovalRequest) {
+    const index = this.requests.findIndex((item) => item.id === id && item.status === expected);
+    if (index < 0) return false;
+    this.requests[index] = { ...request };
+    return true;
+  }
 }
 
 describe('permission-gated tool execution', () => {
+  it('executes a shared approval only once across concurrent executors', async () => {
+    const run = vi.fn(async () => 'done');
+    const registry = registryWithRunner(run, true);
+    const permissions = new StaticPermissionEngine([{ id: 'ask', agentId: '*', toolId: '*', decision: 'ask' }]);
+    const repository = new MemoryApprovalRepository();
+    const first = new GatedToolExecutor(registry, permissions, repository);
+    const second = new GatedToolExecutor(registry, permissions, repository);
+    const requested = await first.execute(agent, 'files.read', {});
+    if (requested.status !== 'approval-required') throw new Error('Expected approval');
+    const results = await Promise.allSettled([
+      first.resolve(requested.approval.id, 'approve'),
+      second.resolve(requested.approval.id, 'approve'),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(run).toHaveBeenCalledOnce();
+    await expect(second.resume(requested.approval.id)).rejects.toThrow();
+  });
   it('denies by default and never calls the tool', async () => {
     const run = vi.fn(async () => 'secret');
     const executor = new GatedToolExecutor(

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { invoke } from '@tauri-apps/api/core';
-import { subscribeAgentActivity, type AgentActivityLogEntry } from './agentRuntime';
+import { type AgentActivityLogEntry } from './agentRuntime';
+import { subscribeDesktopActivity } from './desktopActivity';
 import { readHostMetrics, type HostMetrics, formatBytes, formatDuration } from './systemTelemetry';
 
 function humanizeActivity(summary: string): { agent: string; action: string; icon: string } {
@@ -55,7 +56,11 @@ export function DesktopWidget({
   const [metrics, setMetrics] = useState<HostMetrics | null>(null);
   const [activeLogIndex, setActiveLogIndex] = useState(0);
 
-  useEffect(() => subscribeAgentActivity(setActivity), []);
+  const [isWorking, setIsWorking] = useState(false);
+  useEffect(() => subscribeDesktopActivity((snapshot) => {
+    setActivity(snapshot.activity);
+    setIsWorking(snapshot.running);
+  }), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,7 +99,6 @@ export function DesktopWidget({
   };
 
   const currentActivity = activity[activeLogIndex] ?? activity[0] ?? null;
-  const isWorking = activity.some((entry) => entry.kind === 'tool');
   const humanized = currentActivity ? humanizeActivity(currentActivity.summary) : null;
 
   return (
@@ -150,8 +154,8 @@ export function DesktopWidget({
               </>
             ) : (
               <>
-                <span className="capsule-agent-name">Senior Developer: </span>
-                <span className="capsule-action-name">Agents standing by...</span>
+                <span className="capsule-agent-name">IRIS: </span>
+                <span className="capsule-action-name">No recorded activity</span>
               </>
             )}
           </div>
@@ -184,7 +188,7 @@ export function DesktopWidget({
             ) : (
               <div className="capsule-telemetry-chip">
                 <span className="chip-label">RAM</span>
-                <span className="chip-value">4.2 GB / 16 GB</span>
+                <span className="chip-value">Unavailable</span>
               </div>
             )}
 
@@ -196,7 +200,7 @@ export function DesktopWidget({
             ) : (
               <div className="capsule-telemetry-chip">
                 <span className="chip-label">UPTIME</span>
-                <span className="chip-value">1d 4h 12m</span>
+                <span className="chip-value">Unavailable</span>
               </div>
             )}
           </div>

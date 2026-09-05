@@ -928,6 +928,6 @@ export class MemoryService {
   }
 }
 
-export * from './benchmark';
+
 export * from './constellation';
 

@@ -88,20 +88,37 @@ jobs:
       - name: Verify TypeScript
         run: pnpm typecheck
 
+      - name: Verify lint
+        run: pnpm lint
+
       - name: Run TypeScript tests
         run: pnpm test
 
       - name: Run Rust tests
         run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 
+      - name: Require updater signing key
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "The production updater signing key is required. No unsigned draft will be created."
+            exit 1
+          fi
+
       - name: Build Tauri Application
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          projectPath: apps/desktop
+          includeUpdaterJson: true
           tagName: ${{ inputs.tag }}
           releaseName: 'IRIS ${{ inputs.tag }}'
           releaseBody: ${{ inputs.release_notes }}
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} --config src-tauri/tauri.updater.conf.json
