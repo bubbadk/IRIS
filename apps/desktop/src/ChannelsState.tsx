@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   loadChannelsConfig,
-  saveChannelsConfig,
+  loadChannelConnection,
+  saveChannelConnection,
   sendTelegramMessage,
   sendDiscordWebhookMessage,
   type ChannelsConfig,
@@ -15,7 +16,26 @@ export function ChannelsWindow() {
 
   function handleSave(next: ChannelsConfig) {
     setConfig(next);
-    saveChannelsConfig(next);
+
+  }
+
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void loadChannelConnection().then((next) => {
+      if (active) { setConfig(next); setLoaded(true); }
+    }).catch((error: unknown) => { if (active) setTestStatus(String(error)); });
+    return () => { active = false; };
+  }, []);
+
+  async function saveConnection() {
+    setSaving(true);
+    try {
+      const durable = await saveChannelConnection(config);
+      setTestStatus(durable ? 'Connection saved. Credentials are stored in the OS credential store.' : 'Settings saved. Credentials remain in this browser session only.');
+    } catch (error) { setTestStatus(error instanceof Error ? error.message : String(error)); }
+    finally { setSaving(false); }
   }
 
   async function handleTestTelegram() {
@@ -34,7 +54,7 @@ export function ChannelsWindow() {
     const res = await sendTelegramMessage({
       botToken: config.telegram.botToken,
       chatId,
-      text: '🛸 <b>IRIS Messaging Bridge Connected!</b>\nYou can now interact with your IRIS Operating Environment directly from Telegram.',
+      text: 'IRIS test message delivered. Incoming messages and remote agent control are not connected.',
     });
     setIsTesting(false);
     if (res.ok) {
@@ -54,7 +74,7 @@ export function ChannelsWindow() {
     setTestStatus('Sending test ping to Discord…');
     const res = await sendDiscordWebhookMessage({
       webhookUrl: config.discord.webhookUrl,
-      content: '🛸 **IRIS Messaging Bridge Connected!** Your desktop agent is now linked to this channel.',
+      content: 'IRIS test message delivered. Automatic agent notifications are not connected.',
     });
     setIsTesting(false);
     if (res.ok) {
@@ -69,10 +89,9 @@ export function ChannelsWindow() {
       <div className="channels-hero-bar">
         <div className="channels-hero-icon">🛸</div>
         <div>
-          <h3>Messaging Channels & Mobile Bridge</h3>
+          <h3>Messaging Connections</h3>
           <p>
-            Control IRIS from your phone via Telegram or Discord while the Desklet runs in the
-            background.
+            Configure and send test messages to Telegram or Discord. Incoming messages, remote approvals and automatic agent notifications are not connected.
           </p>
         </div>
       </div>
@@ -90,6 +109,8 @@ export function ChannelsWindow() {
         </div>
       )}
 
+      <button className="soft-button" disabled={!loaded || saving} onClick={() => void saveConnection()}>{saving ? 'Saving…' : 'Save connection settings'}</button>
+      <fieldset disabled={!loaded || saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <div className="channels-grid">
         {/* Telegram Card */}
         <div className={`channel-card ${config.telegram.enabled ? 'is-enabled' : ''}`}>
@@ -97,23 +118,11 @@ export function ChannelsWindow() {
             <div className="channel-card-brand">
               <span className="channel-icon">✈️</span>
               <div>
-                <h4>Telegram Bot Bridge</h4>
-                <p className="channel-subtitle">Direct 2-way mobile chat & tool approvals</p>
+                <h4>Telegram Test Connection</h4>
+                <p className="channel-subtitle">Outgoing test messages only</p>
               </div>
             </div>
-            <label className="channel-toggle-switch">
-              <input
-                type="checkbox"
-                checked={config.telegram.enabled}
-                onChange={(e) =>
-                  handleSave({
-                    ...config,
-                    telegram: { ...config.telegram, enabled: e.target.checked },
-                  })
-                }
-              />
-              <span className="channel-toggle-slider"></span>
-            </label>
+            <span className="truth-pill">Test messages only</span>
           </div>
 
           <div className="channel-card-body">
@@ -181,30 +190,18 @@ export function ChannelsWindow() {
             <div className="channel-card-brand">
               <span className="channel-icon">🎮</span>
               <div>
-                <h4>Discord Webhook Bridge</h4>
-                <p className="channel-subtitle">Stream agent task updates & notifications</p>
+                <h4>Discord Test Connection</h4>
+                <p className="channel-subtitle">Outgoing webhook test messages only</p>
               </div>
             </div>
-            <label className="channel-toggle-switch">
-              <input
-                type="checkbox"
-                checked={config.discord.enabled}
-                onChange={(e) =>
-                  handleSave({
-                    ...config,
-                    discord: { ...config.discord, enabled: e.target.checked },
-                  })
-                }
-              />
-              <span className="channel-toggle-slider"></span>
-            </label>
+            <span className="truth-pill">Test messages only</span>
           </div>
 
           <div className="channel-card-body">
             <div className="channel-field">
               <label>Discord Webhook URL</label>
               <input
-                type="text"
+                type="password"
                 placeholder="https://discord.com/api/webhooks/..."
                 value={config.discord.webhookUrl}
                 onChange={(e) =>
@@ -229,6 +226,7 @@ export function ChannelsWindow() {
           </div>
         </div>
       </div>
+      </fieldset>
     </div>
   );
 }

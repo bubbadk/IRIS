@@ -1,3 +1,4 @@
+use crate::process_output::{read_bounded, output_text};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -12,7 +13,6 @@ use crate::workspace::{mounted_root, WorkspaceState};
 const MAX_COMMAND_CHARS: usize = 8000;
 const DEFAULT_TIMEOUT_SECS: u64 = 60;
 const MAX_TIMEOUT_SECS: u64 = 300;
-const OUTPUT_LIMIT: usize = 64 * 1024;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,19 +85,11 @@ pub fn run_workspace_shell_command(
     // Drain both pipes on dedicated threads; waiting on the child while it fills the
     // 64 KiB pipe buffer would hang every chatty command.
         fn drain_pipe(
-            mut pipe: impl std::io::Read + Send + 'static,
+            pipe: impl std::io::Read + Send + 'static,
         done: Arc<AtomicBool>,
     ) -> std::thread::JoinHandle<Vec<u8>> {
         std::thread::spawn(move || {
-            let mut buffer = Vec::new();
-            let mut chunk = [0u8; 8192];
-            loop {
-                match pipe.read(&mut chunk) {
-                    Ok(0) => break,
-                    Ok(n) => buffer.extend_from_slice(&chunk[..n]),
-                    Err(_) => break,
-                }
-            }
+            let buffer = read_bounded(pipe);
             done.store(true, Ordering::SeqCst);
             buffer
         })
@@ -158,18 +150,8 @@ pub fn run_workspace_shell_command(
         }
     }
 
-    let truncate = |bytes: Vec<u8>| {
-        let text = String::from_utf8_lossy(&bytes).to_string();
-        if text.chars().count() > OUTPUT_LIMIT {
-            format!(
-                "{}\n[output truncated]",
-                text.chars().take(OUTPUT_LIMIT).collect::<String>()
-            )
-        } else {
-            text
-        }
-    };
-    let mut stderr = truncate(
+
+    let mut stderr = output_text(
         stderr_handle
             .take()
             .and_then(|handle| handle.join().ok())
@@ -183,7 +165,7 @@ pub fn run_workspace_shell_command(
     Ok(SandboxShellResult {
         cwd: root.to_string_lossy().replace('\\', "/"),
         exit_code: process.try_wait().ok().flatten().and_then(|status| status.code()),
-        stdout: truncate(
+        stdout: output_text(
             stdout_handle
                 .take()
                 .and_then(|handle| handle.join().ok())

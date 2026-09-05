@@ -14,14 +14,20 @@ export type DesktopWindow = {
 const key = 'iris.desktop.windows.v1';
 export const windowLayerBase = 10;
 
-export function normalizeWindow(win: DesktopWindow): DesktopWindow {
+export interface DesktopBounds { width: number; height: number; }
+
+export function normalizeWindow(win: DesktopWindow, bounds?: DesktopBounds): DesktopWindow {
+  const viewport = bounds ?? (typeof window !== 'undefined' ? { width: window.innerWidth, height: window.innerHeight } : undefined);
+  const finite = (value: number, fallback: number) => Number.isFinite(value) ? value : fallback;
+  const maxWidth = viewport ? Math.max(100, viewport.width - 28) : Infinity;
+  const maxHeight = viewport ? Math.max(100, viewport.height - 84) : Infinity;
+  const width = Math.min(maxWidth, Math.max(360, finite(win.width, 520)));
+  const height = Math.min(maxHeight, Math.max(260, finite(win.height, 390)));
   return {
-    ...win,
-    x: Math.max(14, win.x),
-    y: Math.max(70, win.y),
-    width: Math.max(360, win.width),
-    height: Math.max(260, win.height),
-    z: Math.max(windowLayerBase, win.z),
+    ...win, width, height,
+    x: Math.max(14, Math.min(finite(win.x, 14), viewport ? viewport.width - width - 14 : Infinity)),
+    y: Math.max(70, Math.min(finite(win.y, 70), viewport ? viewport.height - height - 14 : Infinity)),
+    z: Math.max(windowLayerBase, finite(win.z, windowLayerBase)),
   };
 }
 
@@ -56,7 +62,7 @@ export function loadWindows(): DesktopWindow[] {
     const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as DesktopWindow[];
-    return Array.isArray(parsed) ? parsed.map(normalizeWindow) : [];
+    return Array.isArray(parsed) ? parsed.filter(isDesktopWindow).map((win) => normalizeWindow(win)) : [];
   } catch {
     return [];
   }
@@ -93,8 +99,8 @@ export function defaultWindow(objectType: DesktopWindow['objectType'], z: number
               objectType === 'memory' ||
               objectType === 'projects' ||
               objectType === 'schedules' ||
-              objectType === 'workspace'
-            ? objectType === 'projects' || objectType === 'workspace'
+              objectType === 'workspace' || objectType === 'channels'
+            ? objectType === 'projects' || objectType === 'workspace' || objectType === 'channels'
               ? 760
               : 680
             : objectType === 'agents' ? 860 : 520,
@@ -109,9 +115,32 @@ export function defaultWindow(objectType: DesktopWindow['objectType'], z: number
               objectType === 'memory' ||
               objectType === 'projects' ||
               objectType === 'schedules' ||
-              objectType === 'workspace'
+              objectType === 'workspace' || objectType === 'channels'
             ? 560
             : objectType === 'agents' ? 620 : 390,
     z,
   };
+}
+
+
+function isDesktopWindow(value: unknown): value is DesktopWindow {
+  if (!value || typeof value !== 'object') return false;
+  const win = value as Partial<DesktopWindow>;
+  return typeof win.id === 'string' && typeof win.title === 'string' &&
+    ['welcome', 'agents', 'projects', 'schedules', 'workspace', 'models', 'memory', 'skills', 'subtitles', 'connections', 'channels', 'settings', 'github', 'systems'].includes(win.objectType ?? '') &&
+    [win.x, win.y, win.width, win.height, win.z].every((n) => typeof n === 'number' && Number.isFinite(n));
+}
+
+const layoutsKey = 'iris.desktop.layouts.v1';
+export function loadLayouts(): Record<string, DesktopWindow[]> {
+  const raw = localStorage.getItem(layoutsKey);
+  if (!raw) return {};
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Saved layouts could not be read.');
+  return Object.fromEntries(Object.entries(parsed).filter(([, windows]) => Array.isArray(windows) && windows.every(isDesktopWindow)));
+}
+
+export function saveLayout(name: string, windows: DesktopWindow[]): void {
+  if (!name.trim()) throw new Error('Enter a layout name.');
+  localStorage.setItem(layoutsKey, JSON.stringify({ ...loadLayouts(), [name.trim()]: windows }));
 }

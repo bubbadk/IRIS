@@ -1,24 +1,24 @@
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import type { IrisObjectType } from '@iris/core';
 import { CloseIcon, IrisMark } from './icons';
-import { AgentsState } from './AgentsState';
-import { ChannelsWindow } from './ChannelsState';
-import { GitHubState } from './GitHubState';
-import { McpState } from './McpState';
-import { MemoryState } from './MemoryState';
-import { ModelsState } from './ModelsState';
-import { PermissionsState } from './PermissionsState';
-import { ProjectsState } from './ProjectsState';
-import { SchedulesState } from './SchedulesState';
-import { SkillsState } from './SkillsState';
-import { SubtitlesState } from './SubtitlesState';
-import { WorkspaceState } from './WorkspaceState';
+const AgentsState = lazy(() => import('./AgentsState').then((module) => ({ default: module.AgentsState })));
+const ChannelsWindow = lazy(() => import('./ChannelsState').then((module) => ({ default: module.ChannelsWindow })));
+const GitHubState = lazy(() => import('./GitHubState').then((module) => ({ default: module.GitHubState })));
+const McpState = lazy(() => import('./McpState').then((module) => ({ default: module.McpState })));
+const MemoryState = lazy(() => import('./MemoryState').then((module) => ({ default: module.MemoryState })));
+const ModelsState = lazy(() => import('./ModelsState').then((module) => ({ default: module.ModelsState })));
+const PermissionsState = lazy(() => import('./PermissionsState').then((module) => ({ default: module.PermissionsState })));
+const ProjectsState = lazy(() => import('./ProjectsState').then((module) => ({ default: module.ProjectsState })));
+const SchedulesState = lazy(() => import('./SchedulesState').then((module) => ({ default: module.SchedulesState })));
+const SkillsState = lazy(() => import('./SkillsState').then((module) => ({ default: module.SkillsState })));
+const SubtitlesState = lazy(() => import('./SubtitlesState').then((module) => ({ default: module.SubtitlesState })));
+const WorkspaceState = lazy(() => import('./WorkspaceState').then((module) => ({ default: module.WorkspaceState })));
 import {
   moveWindow,
   resizeWindow,
   type DesktopWindow,
 } from './windowing';
-import { objects } from './App';
+import { objects } from './desktopObjects';
 
 function EmptyState({ type }: { type: IrisObjectType }) {
   const item = objects.find((entry) => entry.type === type)!;
@@ -205,6 +205,15 @@ export function WindowFrame({
     >
       <div
         className="window-titlebar"
+        tabIndex={0}
+        aria-label={`${win.title}. Use arrow keys to move; Shift and arrow keys to resize.`}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+          event.preventDefault();
+          const dx = event.key === 'ArrowLeft' ? -20 : event.key === 'ArrowRight' ? 20 : 0;
+          const dy = event.key === 'ArrowUp' ? -20 : event.key === 'ArrowDown' ? 20 : 0;
+          onChange(event.shiftKey ? resizeWindow(win, dx, dy) : moveWindow(win, win.x + dx, win.y + dy, 0, 0));
+        }}
         onPointerDown={beginDrag}
         onPointerMove={drag}
         onPointerUp={(event) => finishInteraction(event.pointerId)}
@@ -220,6 +229,7 @@ export function WindowFrame({
         </button>
       </div>
       <div className="window-content">
+        <Suspense fallback={<p role="status">Loading window…</p>}>
         {win.objectType === 'welcome' ? (
           <WelcomeState />
         ) : win.objectType === 'agents' ? (
@@ -249,6 +259,7 @@ export function WindowFrame({
         ) : (
           <EmptyState type={win.objectType} />
         )}
+        </Suspense>
       </div>
       <button
         className="resize-handle"

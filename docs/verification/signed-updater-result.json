@@ -1,0 +1,26 @@
+{
+  "signedDownloadAndInstallation": "passed",
+  "tamperedPackageRejectedWithoutReplacement": "passed",
+  "unsupportedArchiveRestoresOriginal": "passed",
+  "installedBinarySha256": "5e725ee066532209d4a4a2004912ac39b9e54dc8efddcaa5b0b9de7c83f7b957",
+  "installedBinaryBootAndRestart": {
+    "directory": "/tmp/iris-native-verify-9eph63bw",
+    "results": [
+      {
+        "boot": 1,
+        "alive": true,
+        "databaseInitialized": true,
+        "integrity": "ok"
+      },
+      {
+        "boot": 2,
+        "alive": true,
+        "databaseInitialized": true,
+        "integrity": "ok"
+      }
+    ],
+    "savedMemorySurvivedRestart": true
+  },
+  "productionKeyOrReleaseChanged": false,
+  "fixtureType": "real AppImage"
+}

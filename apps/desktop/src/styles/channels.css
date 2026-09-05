@@ -1,0 +1,234 @@
+
+
+/* ==========================================================================
+   Channels & Messaging Bridge Window
+   ========================================================================== */
+.channels-window-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.channels-hero-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+.channels-hero-icon {
+  font-size: 28px;
+}
+
+.channels-hero-bar h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.channels-hero-bar p {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.channels-status-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: rgba(57, 219, 128, 0.12);
+  border: 1px solid rgba(57, 219, 128, 0.3);
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.channels-status-dismiss {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.channels-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 800px) {
+  .channels-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.channel-card {
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: border-color 0.2s ease;
+}
+
+.channel-card.is-enabled {
+  border-color: rgba(57, 219, 128, 0.4);
+  box-shadow: 0 4px 16px rgba(57, 219, 128, 0.08);
+}
+
+.channel-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+
+.channel-card-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.channel-icon {
+  font-size: 22px;
+}
+
+.channel-card-brand h4 {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.channel-subtitle {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.channel-toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+}
+
+.channel-toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.channel-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.15);
+  transition: 0.2s;
+  border-radius: 34px;
+}
+
+.dark-mode .channel-toggle-slider {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.channel-toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.2s;
+  border-radius: 50%;
+}
+
+input:checked + .channel-toggle-slider {
+  background-color: #39db80;
+}
+
+input:checked + .channel-toggle-slider:before {
+  transform: translateX(18px);
+}
+
+.channel-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.channel-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.channel-field label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.channel-field input {
+  width: 100%;
+  background: var(--card-bg, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--ink);
+  outline: none;
+}
+
+.channel-input-group {
+  display: flex;
+  gap: 6px;
+}
+
+.channel-btn-ghost {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.channel-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.channel-btn-primary {
+  background: rgba(57, 219, 128, 0.15);
+  border: 1px solid rgba(57, 219, 128, 0.35);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 11.5px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.channel-btn-primary:hover:not(:disabled) {
+  background: rgba(57, 219, 128, 0.25);
+  transform: translateY(-1px);
+}
+
+.channel-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

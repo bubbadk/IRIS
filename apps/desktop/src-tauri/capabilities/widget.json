@@ -1,0 +1,12 @@
+{
+  "identifier": "widget",
+  "description": "Native Desklet window controls",
+  "windows": [
+    "widget"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-hide",
+    "core:window:allow-start-dragging"
+  ]
+}

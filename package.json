@@ -1,7 +1,7 @@
 {
   "name": "iris",
   "private": true,
-  "version": "0.2.10",
+  "version": "0.2.11",
   "packageManager": "pnpm@10.15.0",
   "scripts": {
     "dev": "pnpm --filter @iris/desktop dev",
@@ -9,7 +9,7 @@
     "build": "pnpm -r build",
     "build:binary": "pnpm --filter @iris/desktop tauri build --no-bundle",
     "build:desktop": "pnpm --filter @iris/desktop tauri build",
-    "build:appimage": "pnpm --filter @iris/desktop tauri build --bundles appimage",
+    "build:appimage": "node scripts/build-appimage.mjs",
     "build:appimage:container": "bash scripts/build-appimage-container.sh",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",

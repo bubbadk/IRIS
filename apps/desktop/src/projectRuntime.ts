@@ -26,13 +26,19 @@ type ProjectRuntimeListener = (projectId: string) => void;
 
 const listeners = new Set<ProjectRuntimeListener>();
 
-const projectAgentRuntime = new AgentRuntimeCoordinator(
+const agentListeners = new Set<() => void>();
+export function subscribeProjectAgentRuntime(listener: () => void): () => void {
+  agentListeners.add(listener);
+  return () => { agentListeners.delete(listener); };
+}
+
+export const projectAgentRuntime = new AgentRuntimeCoordinator(
   agentRepository,
   projectWorkerConversationRepository,
   projectWorkerSuspendedTurnRepository,
   providerResolver,
   agentToolRuntime,
-  () => undefined,
+  () => agentListeners.forEach((listener) => listener()),
   agentContextBuilder,
   projectWorkerContextPackRepository,
   projectWorkerCortexTurnRepository,

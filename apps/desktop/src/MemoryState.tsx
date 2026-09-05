@@ -1,31 +1,30 @@
-import { useEffect, useState } from 'react';
-import type { AgentDefinition, AgentMemoryAccess } from '@iris/core';
+import type { AgentDefinition,AgentMemoryAccess } from '@iris/core';
 import type {
-  MemoryEmbeddingIndexBuildProgress,
-  MemoryEmbeddingIndexStatus,
-  MemoryRecord,
+MemoryEmbeddingIndexBuildProgress,
+MemoryEmbeddingIndexStatus,
+MemoryRecord,
 } from '@iris/memory';
 import {
-  loadProviderConfigs,
-  providerSupportsEmbeddings,
-  type ProviderConfig,
+loadProviderConfigs,
+providerSupportsEmbeddings
 } from '@iris/providers';
-import { agentRuntime, subscribeAgentRuntime } from './agentRuntime';
-import { agentRepository } from './persistence';
+import { useEffect,useState } from 'react';
+import { agentRuntime,subscribeAgentRuntime } from './agentRuntime';
+import { formatMemoryDate } from './ChatContent';
 import { memoryService } from './memory';
-import {
-  fetchEmbeddingModelOptions,
-  getMemoryEmbeddingIndexStatus,
-  loadMemoryRetrievalConfig,
-  rebuildMemoryEmbeddingIndex,
-  saveMemoryRetrievalConfig,
-  testMemoryRetrievalConfig,
-  validateMemoryRetrievalConfig,
-  type MemoryRetrievalConfig,
-} from './memoryRetrieval';
 import { MemoryBenchmarkView } from './MemoryBenchmarkView';
 import { MemoryConstellationView } from './MemoryConstellationView';
-import { formatMemoryDate } from './App';
+import {
+fetchEmbeddingModelOptions,
+getMemoryEmbeddingIndexStatus,
+loadMemoryRetrievalConfig,
+rebuildMemoryEmbeddingIndex,
+saveMemoryRetrievalConfig,
+testMemoryRetrievalConfig,
+validateMemoryRetrievalConfig,
+type MemoryRetrievalConfig,
+} from './memoryRetrieval';
+import { agentRepository } from './persistence';
 
 export function MemoryState() {
   const [memoryTab, setMemoryTab] = useState<'records' | 'benchmark' | 'constellation'>('records');

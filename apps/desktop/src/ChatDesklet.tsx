@@ -1,68 +1,29 @@
-import { useEffect, useRef, useState } from 'react';
-import type { AgentToolApproval, ConversationMessage } from '@iris/agents';
 import type { AgentDefinition, ReasoningEffort } from '@iris/core';
-import type { SkillDefinition } from '@iris/skills';
 import type { ModelImage } from '@iris/providers';
 import { loadProviderConfigs } from '@iris/providers';
-import { readAttachmentFile, type ComposerAttachment } from './attachments';
-import { agentRuntime, normalizeDesktopAgent } from './agentRuntime';
-import { recordUserActivity } from './userActivity';
+import type { SkillDefinition } from '@iris/skills';
+import { useEffect, useRef, useState } from 'react';
 import { displayedAgentModel } from './agentModelSelection';
+import { agentRuntime, normalizeDesktopAgent } from './agentRuntime';
+import { readAttachmentFile, type ComposerAttachment } from './attachments';
 import {
-  agentRepository,
-  conversationRepository,
-  permissionRuleRepository,
-} from './persistence';
-import { listSkills, subscribeSkills } from './skills';
-import { toolRegistry } from './tooling';
-import { subscribeMcpServers } from './mcp';
-import { EmojiPicker } from './EmojiPicker';
-import {
-  RichMessage,
-  MessageImages,
-  ToolRequestView,
-  AttachmentChips,
   AttachButton,
+  AttachmentChips,
   composerDropHandlers,
   formatElapsed,
+  MessageImages,
+  RichMessage,
   shortToolLabel,
-} from './App';
+  ToolRequestView,
+} from './ChatContent';
+import { EmojiPicker } from './EmojiPicker';
+import { subscribeMcpServers } from './mcp';
 import { ModelHandoffMarker } from './ModelHandoffMarker';
-
-export interface ActiveToolInvocation {
-  id: string;
-  name: string;
-  input: unknown;
-  status: 'running' | 'completed' | 'denied' | 'failed';
-  output?: unknown;
-  reason?: string;
-}
-
-export interface PerAgentChatState {
-  messages: ConversationMessage[];
-  assistantDraft: string;
-  reasoningDraft: string;
-  busy: boolean;
-  activity: string;
-  error: string;
-  turnStartedAt: number | null;
-  approval: AgentToolApproval | null;
-  approvalInput: unknown;
-  activeTools: ActiveToolInvocation[];
-}
-
-export const defaultAgentState: PerAgentChatState = {
-  messages: [],
-  assistantDraft: '',
-  reasoningDraft: '',
-  busy: false,
-  activity: '',
-  error: '',
-  turnStartedAt: null,
-  approval: null,
-  approvalInput: null,
-  activeTools: [],
-};
+import { agentRepository, permissionRuleRepository } from './persistence';
+import { listSkills, subscribeSkills } from './skills';
+import { toolRegistry } from './tooling';
+import { chatSessions, useChatSession } from './useChatSession';
+import { recordUserActivity } from './userActivity';
 
 export function ChatDesklet({
   onStarted,
@@ -77,7 +38,6 @@ export function ChatDesklet({
   const [selectedAgentId, setSelectedAgentId] = useState(
     () => agentRepository.listSync()[0]?.id || '',
   );
-  const [agentStates, setAgentStates] = useState<Record<string, PerAgentChatState>>({});
   const [draft, setDraft] = useState(initialQuery ?? '');
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [tools, setTools] = useState(() => toolRegistry.list());
@@ -87,13 +47,12 @@ export function ChatDesklet({
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [reactions, setReactions] = useState<Record<string, Record<string, number>>>({});
-  const abortControllersRef = useRef<Record<string, AbortController>>({});
   const chatBodyRef = useRef<HTMLDivElement | null>(null);
   const reasoningTextRef = useRef<HTMLParagraphElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId) ?? null;
-  const currentAgentState = agentStates[selectedAgentId] ?? defaultAgentState;
+  const currentAgentState = useChatSession(selectedAgentId);
   const {
     messages,
     assistantDraft,
@@ -166,36 +125,6 @@ export function ChatDesklet({
   }, []);
 
   useEffect(() => {
-    if (!selectedAgentId) return;
-    let active = true;
-    void Promise.all([
-      conversationRepository.list(selectedAgentId),
-      agentRuntime.suspendedForAgent(selectedAgentId),
-    ]).then(([history, suspended]) => {
-      if (!active) return;
-      setAgentStates((prev) => {
-        const cur = prev[selectedAgentId] ?? defaultAgentState;
-        if (cur.busy) return prev;
-        return {
-          ...prev,
-          [selectedAgentId]: {
-            ...cur,
-            messages: history,
-            approval: suspended?.pending.approval ?? null,
-            approvalInput: suspended?.pending.call.input ?? null,
-            activity: suspended
-              ? `Permission required for ${suspended.pending.approval.toolName}`
-              : cur.activity,
-          },
-        };
-      });
-    });
-    return () => {
-      active = false;
-    };
-  }, [selectedAgentId]);
-
-  useEffect(() => {
     const body = chatBodyRef.current;
     if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
   }, [messages, approval, assistantDraft, reasoningDraft]);
@@ -214,7 +143,7 @@ export function ChatDesklet({
     const targetAgent = selectedAgent;
     if (!targetAgent) return;
     const targetAgentId = targetAgent.id;
-    const targetState = agentStates[targetAgentId] ?? defaultAgentState;
+    const targetState = chatSessions.getSnapshot(targetAgentId);
     if (targetState.busy || targetState.approval) return;
 
     const usableAttachments = attachments.filter((attachment) => !attachment.error);
@@ -233,350 +162,27 @@ export function ChatDesklet({
     setAttachments([]);
     onStarted();
 
-    const controller = new AbortController();
-    abortControllersRef.current[targetAgentId] = controller;
-
-    setAgentStates((prev) => ({
-      ...prev,
-      [targetAgentId]: {
-        messages: prev[targetAgentId]?.messages ?? [],
-        assistantDraft: '',
-        reasoningDraft: '',
-        error: '',
-        activity: 'Thinking…',
-        activeTools: [],
-        turnStartedAt: Date.now(),
-        busy: true,
-        approval: null,
-        approvalInput: null,
-      },
-    }));
-
-    try {
-      for await (const runtimeEvent of agentRuntime.send(
-        targetAgentId,
-        content,
-        controller.signal,
-        images,
-      )) {
-        if (runtimeEvent.type === 'user-message') {
-          const history = await conversationRepository.list(targetAgentId);
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              messages: history,
-            },
-          }));
-        } else if (runtimeEvent.type === 'reasoning-chunk') {
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              reasoningDraft: (prev[targetAgentId]?.reasoningDraft ?? '') + runtimeEvent.text,
-            },
-          }));
-        } else if (runtimeEvent.type === 'assistant-chunk') {
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              assistantDraft: (prev[targetAgentId]?.assistantDraft ?? '') + runtimeEvent.text,
-            },
-          }));
-        } else if (runtimeEvent.type === 'tool-call') {
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              activeTools: [
-                ...(prev[targetAgentId]?.activeTools ?? []),
-                {
-                  id: runtimeEvent.call.id || Math.random().toString(),
-                  name: runtimeEvent.call.name,
-                  input: runtimeEvent.call.input,
-                  status: 'running',
-                },
-              ],
-              activity: `Running ${runtimeEvent.call.name.replaceAll('_', ' ')}…`,
-            },
-          }));
-        } else if (runtimeEvent.type === 'tool-complete') {
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              activeTools: (prev[targetAgentId]?.activeTools ?? []).map((tool) =>
-                tool.name === runtimeEvent.call.name && tool.status === 'running'
-                  ? { ...tool, status: 'completed', output: runtimeEvent.output }
-                  : tool,
-              ),
-              activity: 'Thinking…',
-            },
-          }));
-        } else if (runtimeEvent.type === 'tool-denied') {
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              activeTools: (prev[targetAgentId]?.activeTools ?? []).map((tool) =>
-                tool.name === runtimeEvent.call.name && tool.status === 'running'
-                  ? { ...tool, status: 'denied', reason: runtimeEvent.reason }
-                  : tool,
-              ),
-              activity: 'Thinking after tool result…',
-            },
-          }));
-        } else if (runtimeEvent.type === 'tool-failed') {
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              activeTools: (prev[targetAgentId]?.activeTools ?? []).map((tool) =>
-                tool.name === runtimeEvent.call.name && tool.status === 'running'
-                  ? { ...tool, status: 'failed', reason: runtimeEvent.reason }
-                  : tool,
-              ),
-              activity: 'Thinking after tool result…',
-            },
-          }));
-        } else if (runtimeEvent.type === 'assistant-complete') {
-          const list = await conversationRepository.list(targetAgentId);
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              messages: list,
-              assistantDraft: '',
-              reasoningDraft: '',
-              activity: '',
-              turnStartedAt: null,
-            },
-          }));
-        } else if (runtimeEvent.type === 'tool-approval-required') {
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              approval: runtimeEvent.approval,
-              approvalInput: runtimeEvent.call.input,
-              activity: `Permission required for ${runtimeEvent.approval.toolName}`,
-            },
-          }));
-        }
-      }
-    } catch (sendError) {
-      if (controller.signal.aborted) {
-        setAgentStates((prev) => ({
-          ...prev,
-          [targetAgentId]: {
-            ...(prev[targetAgentId] ?? defaultAgentState),
-            error: 'Turn stopped.',
-            activity: '',
-            turnStartedAt: null,
-          },
-        }));
-        return;
-      }
-      setAgentStates((prev) => ({
-        ...prev,
-        [targetAgentId]: {
-          ...(prev[targetAgentId] ?? defaultAgentState),
-          error:
-            sendError instanceof Error
-              ? sendError.message
-              : 'The agent could not complete the request.',
-          activity: '',
-          turnStartedAt: null,
-        },
-      }));
-    } finally {
-      delete abortControllersRef.current[targetAgentId];
-      setAgentStates((prev) => ({
-        ...prev,
-        [targetAgentId]: {
-          ...(prev[targetAgentId] ?? defaultAgentState),
-          busy: false,
-        },
-      }));
-    }
+    await chatSessions.send(targetAgentId, content, images);
   }
 
   async function setChatReasoningEffort(agent: AgentDefinition, effort: ReasoningEffort) {
     const updated = { ...agent, reasoningEffort: effort === 'none' ? undefined : effort };
     await agentRepository.save(updated);
     setAgents((current) => current.map((item) => (item.id === agent.id ? updated : item)));
-    try {
-      agentRuntime.refreshConfiguration(agent.id);
-      setAgentStates((prev) => ({
-        ...prev,
-        [agent.id]: {
-          ...(prev[agent.id] ?? defaultAgentState),
-          error: '',
-        },
-      }));
-    } catch {
-      // Configuration refresh is defensive
-    }
+    agentRuntime.refreshConfiguration(agent.id);
   }
 
   async function clearChat() {
     if (!selectedAgent) return;
     const targetAgentId = selectedAgent.id;
-    await conversationRepository.clear(targetAgentId);
-    setAgentStates((prev) => ({
-      ...prev,
-      [targetAgentId]: {
-        ...defaultAgentState,
-      },
-    }));
+    await chatSessions.clear(targetAgentId);
     setAttachments([]);
     setShowHistory(false);
     onReset();
   }
 
   async function resolveApproval(decision: 'approve' | 'deny') {
-    const targetAgent = selectedAgent;
-    if (!targetAgent) return;
-    const targetAgentId = targetAgent.id;
-    const targetState = agentStates[targetAgentId] ?? defaultAgentState;
-    if (!targetState.approval) return;
-
-    const controller = new AbortController();
-    abortControllersRef.current[targetAgentId] = controller;
-
-    setAgentStates((prev) => ({
-      ...prev,
-      [targetAgentId]: {
-        ...(prev[targetAgentId] ?? defaultAgentState),
-        busy: true,
-        reasoningDraft: '',
-        turnStartedAt: Date.now(),
-      },
-    }));
-
-    try {
-      for await (const runtimeEvent of agentRuntime.resolveApproval(
-        targetState.approval.id,
-        decision,
-        controller.signal,
-      )) {
-        if (runtimeEvent.type === 'tool-call') {
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              activeTools: [
-                ...(prev[targetAgentId]?.activeTools ?? []),
-                {
-                  id: runtimeEvent.call.id || Math.random().toString(),
-                  name: runtimeEvent.call.name,
-                  input: runtimeEvent.call.input,
-                  status: 'running',
-                },
-              ],
-              activity: `Running ${runtimeEvent.call.name.replaceAll('_', ' ')}…`,
-            },
-          }));
-        } else if (runtimeEvent.type === 'tool-complete') {
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              activeTools: (prev[targetAgentId]?.activeTools ?? []).map((tool) =>
-                tool.name === runtimeEvent.call.name && tool.status === 'running'
-                  ? { ...tool, status: 'completed', output: runtimeEvent.output }
-                  : tool,
-              ),
-              activity: 'Thinking…',
-            },
-          }));
-        } else if (runtimeEvent.type === 'reasoning-chunk') {
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              reasoningDraft: (prev[targetAgentId]?.reasoningDraft ?? '') + runtimeEvent.text,
-            },
-          }));
-        } else if (runtimeEvent.type === 'assistant-chunk') {
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              assistantDraft: (prev[targetAgentId]?.assistantDraft ?? '') + runtimeEvent.text,
-            },
-          }));
-        } else if (runtimeEvent.type === 'assistant-complete') {
-          const list = await conversationRepository.list(targetAgentId);
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              messages: list,
-              assistantDraft: '',
-              reasoningDraft: '',
-              activity: '',
-              turnStartedAt: null,
-            },
-          }));
-        } else if (runtimeEvent.type === 'tool-approval-required') {
-          setAgentStates((prev) => ({
-            ...prev,
-            [targetAgentId]: {
-              ...(prev[targetAgentId] ?? defaultAgentState),
-              approval: runtimeEvent.approval,
-              approvalInput: runtimeEvent.call.input,
-              activity: `Permission required for ${runtimeEvent.approval.toolName}`,
-            },
-          }));
-        }
-      }
-      setAgentStates((prev) => ({
-        ...prev,
-        [targetAgentId]: {
-          ...(prev[targetAgentId] ?? defaultAgentState),
-          approval: null,
-          approvalInput: null,
-        },
-      }));
-    } catch (resolveError) {
-      if (controller.signal.aborted) {
-        setAgentStates((prev) => ({
-          ...prev,
-          [targetAgentId]: {
-            ...(prev[targetAgentId] ?? defaultAgentState),
-            error: 'Turn stopped.',
-            activity: '',
-            turnStartedAt: null,
-            approval: null,
-            approvalInput: null,
-          },
-        }));
-        return;
-      }
-      setAgentStates((prev) => ({
-        ...prev,
-        [targetAgentId]: {
-          ...(prev[targetAgentId] ?? defaultAgentState),
-          error:
-            resolveError instanceof Error
-              ? resolveError.message
-              : 'The approval could not be resolved.',
-          activity: '',
-          turnStartedAt: null,
-        },
-      }));
-    } finally {
-      delete abortControllersRef.current[targetAgentId];
-      setAgentStates((prev) => ({
-        ...prev,
-        [targetAgentId]: {
-          ...(prev[targetAgentId] ?? defaultAgentState),
-          busy: false,
-        },
-      }));
-    }
+    if (selectedAgentId) await chatSessions.resolve(selectedAgentId, decision);
   }
 
   async function allowApprovalForAgent() {
@@ -592,24 +198,7 @@ export function ChatDesklet({
   }
 
   async function stopTurn() {
-    if (!selectedAgent) return;
-    const targetAgentId = selectedAgent.id;
-    const targetState = agentStates[targetAgentId] ?? defaultAgentState;
-    if (targetState.approval && !targetState.busy) {
-      await agentRuntime.cancelSuspended(targetAgentId);
-      setAgentStates((prev) => ({
-        ...prev,
-        [targetAgentId]: {
-          ...(prev[targetAgentId] ?? defaultAgentState),
-          approval: null,
-          approvalInput: null,
-          activity: 'Turn stopped.',
-          turnStartedAt: null,
-        },
-      }));
-      return;
-    }
-    abortControllersRef.current[targetAgentId]?.abort();
+    if (selectedAgentId) await chatSessions.stop(selectedAgentId);
   }
 
   const assignedSkills = selectedAgent
@@ -654,12 +243,15 @@ export function ChatDesklet({
               <option value="">Choose agent…</option>
               {agents.map((agent) => (
                 <option key={agent.id} value={agent.id}>
-                  {agent.name} {agentStates[agent.id]?.busy ? '● (working)' : ''}
+                  {agent.name} {chatSessions.getSnapshot(agent.id).busy ? '● (working)' : ''}
                 </option>
               ))}
             </select>
           </label>
-          <label className="desktop-agent-picker" title="How hard the model should think before answering.">
+          <label
+            className="desktop-agent-picker"
+            title="How hard the model should think before answering."
+          >
             <span>Thinking</span>
             <select
               value={selectedAgent?.reasoningEffort ?? 'none'}
@@ -708,7 +300,12 @@ export function ChatDesklet({
         )}
         {messages.map((message, index) => {
           if (message.role === 'handoff') {
-            return <ModelHandoffMarker key={`handoff-${message.handoff?.at ?? index}`} message={message} />;
+            return (
+              <ModelHandoffMarker
+                key={`handoff-${message.handoff?.at ?? index}`}
+                message={message}
+              />
+            );
           }
           const isUser = message.role === 'user';
           const msgKey = `${message.turnId ?? index}-${message.role}`;
@@ -886,7 +483,10 @@ export function ChatDesklet({
         onSubmit={send}
         {...composerDropHandlers((files) => void attachFiles(files))}
       >
-        <AttachButton onFiles={(files) => void attachFiles(files)} disabled={!selectedAgent || busy} />
+        <AttachButton
+          onFiles={(files) => void attachFiles(files)}
+          disabled={!selectedAgent || busy}
+        />
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
           <button
             type="button"

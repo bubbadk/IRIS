@@ -1,3 +1,10 @@
+import { isTauri } from '@tauri-apps/api/core';
+import {
+  readableReleaseNotes,
+  hasReleaseSummary,
+  verifyUpdateTarget,
+  verifyUpdateSignatureMetadata,
+} from './updateReleaseNotes';
 import { useState } from 'react';
 import type { ReleaseInfo } from './updateChecker';
 
@@ -21,17 +28,22 @@ export function UpdateNotificationModal({
     setStatusText('Checking update package…');
 
     try {
-      // Dynamic import to support both Tauri and browser dev mode
+      if (!isTauri())
+        throw new Error('Automatic installation is available only in the native desktop app.');
+      verifyUpdateTarget(release, release.version);
+      // Load the native updater only after the user requests installation.
       const { check } = await import('@tauri-apps/plugin-updater');
       const { relaunch } = await import('@tauri-apps/plugin-process');
 
       const update = await check();
-      if (!update) {
-        // Fallback if native updater is not configured or in dev
-        setStatusText('Opening direct download…');
-        window.open(release.downloadUrl || release.url, '_blank');
-        onDismiss();
-        return;
+      if (!update)
+        throw new Error('No newer installable package is available for this installation.');
+      try {
+        verifyUpdateTarget(release, update.version);
+        verifyUpdateSignatureMetadata(update.rawJson);
+      } catch (error) {
+        await update.close();
+        throw error;
       }
 
       let downloaded = 0;
@@ -65,29 +77,24 @@ export function UpdateNotificationModal({
       setStatusText('Restarting IRIS…');
       await relaunch();
     } catch (err) {
-      console.warn('Native auto-update fallback:', err);
-      // Fallback: open direct asset download in browser
-      setStatusText('Opening direct download in browser…');
-      window.open(release.downloadUrl || release.url, '_blank');
-      setTimeout(() => onDismiss(), 1000);
+      setErrorText(err instanceof Error ? err.message : String(err));
+      setStatusText('Update was not completed.');
     } finally {
       setDownloading(false);
     }
   }
 
   const handleOpenGitHub = () => {
-    window.open(release.url, '_blank');
-    onDismiss();
+    if (isTauri()) {
+      void import('@tauri-apps/plugin-opener')
+        .then(({ openUrl }) => openUrl(release.url))
+        .catch((error: unknown) => setErrorText(String(error)));
+    } else window.open(release.url, '_blank', 'noopener,noreferrer');
   };
 
   return (
     <div className={`update-modal-backdrop ${darkMode ? 'dark-mode' : ''}`}>
-      <div
-        className="update-card"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="update-title"
-      >
+      <div className="update-card" role="dialog" aria-modal="true" aria-labelledby="update-title">
         <div className="update-header">
           <div className="update-badge">
             <span className="update-icon" aria-hidden="true">
@@ -113,7 +120,7 @@ export function UpdateNotificationModal({
 
         <div className="update-body">
           <h3 className="update-release-name">{release.name}</h3>
-          
+
           {errorText && (
             <div className="workspace-error" style={{ margin: '0 0 10px 0' }}>
               {errorText}
@@ -121,12 +128,36 @@ export function UpdateNotificationModal({
           )}
 
           {downloading && (
-            <div className="update-progress-container" style={{ margin: '12px 0', padding: '12px', background: 'rgba(80,93,83,0.06)', borderRadius: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600, marginBottom: '6px', color: 'var(--ink)' }}>
+            <div
+              className="update-progress-container"
+              style={{
+                margin: '12px 0',
+                padding: '12px',
+                background: 'rgba(80,93,83,0.06)',
+                borderRadius: '12px',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  marginBottom: '6px',
+                  color: 'var(--ink)',
+                }}
+              >
                 <span>{statusText}</span>
                 {progress !== null && <span>{progress}%</span>}
               </div>
-              <div style={{ height: '6px', background: 'var(--line)', borderRadius: '4px', overflow: 'hidden' }}>
+              <div
+                style={{
+                  height: '6px',
+                  background: 'var(--line)',
+                  borderRadius: '4px',
+                  overflow: 'hidden',
+                }}
+              >
                 <div
                   style={{
                     height: '100%',
@@ -141,18 +172,26 @@ export function UpdateNotificationModal({
 
           <div className="update-notes-container">
             <p className="update-notes-label">What&apos;s new in this release:</p>
+            {!hasReleaseSummary(release.notes, release.version) && (
+              <p role="alert">
+                A release summary is unavailable. Installation is disabled until the publisher
+                supplies readable notes.
+              </p>
+            )}
             <div className="update-notes-content">
-              {release.notes.split('\n').map((line, idx) => {
-                if (line.startsWith('- ') || line.startsWith('* ')) {
-                  return (
-                    <li key={idx} className="update-note-bullet">
-                      {line.replace(/^[-*]\s+/, '')}
-                    </li>
-                  );
-                }
-                if (!line.trim()) return <br key={idx} />;
-                return <p key={idx}>{line}</p>;
-              })}
+              {readableReleaseNotes(release.notes)
+                .split('\n')
+                .map((line, idx) => {
+                  if (line.startsWith('• ')) {
+                    return (
+                      <p key={idx} className="update-note-bullet">
+                        {line}
+                      </p>
+                    );
+                  }
+                  if (!line.trim()) return <br key={idx} />;
+                  return <p key={idx}>{line}</p>;
+                })}
             </div>
           </div>
         </div>
@@ -179,7 +218,7 @@ export function UpdateNotificationModal({
               type="button"
               className="update-btn-primary"
               onClick={handleAutoUpdate}
-              disabled={downloading}
+              disabled={downloading || !hasReleaseSummary(release.notes, release.version)}
             >
               {downloading ? 'Updating…' : '⚡ 1-Click Update'}
             </button>

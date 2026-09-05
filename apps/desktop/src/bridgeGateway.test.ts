@@ -2,11 +2,16 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   loadChannelsConfig,
   saveChannelsConfig,
+  loadChannelConnection,
+  saveChannelConnection,
   sendTelegramMessage,
   sendDiscordWebhookMessage,
   pollTelegramUpdates,
   type ChannelsConfig,
 } from './bridgeGateway';
+
+const { loadSecrets, saveSecrets } = vi.hoisted(() => ({ loadSecrets: vi.fn(), saveSecrets: vi.fn() }));
+vi.mock('./credentials', () => ({ loadProviderSecrets: loadSecrets, saveProviderSecrets: saveSecrets }));
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -23,6 +28,8 @@ function memoryStorage(): Storage {
 describe('bridgeGateway', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    loadSecrets.mockReset().mockResolvedValue(null);
+    saveSecrets.mockReset().mockResolvedValue(true);
   });
 
   it('loads default config when empty', () => {
@@ -50,9 +57,9 @@ describe('bridgeGateway', () => {
     saveChannelsConfig(customConfig, storage);
     const loaded = loadChannelsConfig(storage);
     expect(loaded.telegram.enabled).toBe(true);
-    expect(loaded.telegram.botToken).toBe(customConfig.telegram.botToken);
+    expect(loaded.telegram.botToken).toBe('');
     expect(loaded.discord.enabled).toBe(true);
-    expect(loaded.discord.webhookUrl).toBe(customConfig.discord.webhookUrl);
+    expect(loaded.discord.webhookUrl).toBe('');
   });
 
   it('sendTelegramMessage validates parameters and calls api', async () => {
@@ -122,4 +129,30 @@ describe('bridgeGateway', () => {
     expect(result.updates[0].text).toBe('run status check');
     expect(result.updates[0].chatId).toBe('12345');
   });
+});
+
+
+it('migrates legacy credentials only after verified durable storage', async () => {
+  const storage = memoryStorage();
+  const raw = JSON.stringify({ telegram: { botToken: 'legacy-token' }, discord: { webhookUrl: 'legacy-webhook' } });
+  storage.setItem('iris.channels.config.v1', raw);
+  loadSecrets.mockResolvedValue(null);
+  saveSecrets.mockRejectedValueOnce(new Error('Keyring unavailable'));
+  await expect(loadChannelConnection(storage)).rejects.toThrow('Keyring unavailable');
+  expect(storage.getItem('iris.channels.config.v1')).toBe(raw);
+  saveSecrets.mockResolvedValue(true);
+  const migrated = await loadChannelConnection(storage);
+  expect(migrated.telegram.botToken).toBe('legacy-token');
+  expect(storage.getItem('iris.channels.config.v1')).not.toContain('legacy-token');
+  expect(storage.getItem('iris.channels.config.v1')).not.toContain('legacy-webhook');
+});
+
+it('never persists credentials in channel metadata', async () => {
+  const storage = memoryStorage();
+  const config = loadChannelsConfig(storage);
+  config.telegram.botToken = 'secret-telegram';
+  config.discord.webhookUrl = 'secret-discord';
+  saveSecrets.mockResolvedValue(true);
+  await saveChannelConnection(config, storage);
+  expect(storage.getItem('iris.channels.config.v1')).not.toContain('secret-');
 });

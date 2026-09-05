@@ -74,7 +74,7 @@ export interface PermissionAuditRepository {
   clear(): Promise<void>;
 }
 
-export type ToolApprovalStatus = 'pending' | 'approved' | 'denied' | 'completed' | 'failed';
+export type ToolApprovalStatus = 'pending' | 'approved' | 'executing' | 'denied' | 'completed' | 'failed';
 
 export interface ToolApprovalRequest {
   id: string;
@@ -96,6 +96,8 @@ export interface ToolApprovalRepository {
   list(): Promise<ToolApprovalRequest[]>;
   get(id: string): Promise<ToolApprovalRequest | null>;
   save(request: ToolApprovalRequest): Promise<void>;
+  /** Atomically replace an existing request only if its status still matches. */
+  compareAndSet(id: string, expected: ToolApprovalStatus, request: ToolApprovalRequest): Promise<boolean>;
   clearResolved(): Promise<void>;
 }
 
@@ -347,7 +349,9 @@ export class GatedToolExecutor {
       resolvedAt: timestamp,
       updatedAt: timestamp,
     };
-    await this.approvals.save(resolved);
+    if (!await this.approvals.compareAndSet(approvalId, 'pending', resolved)) {
+      throw new ToolApprovalStateError(`Approval ${approvalId} was already resolved.`);
+    }
     if (decision === 'deny') return { status: 'approval-denied', approval: resolved };
     return this.resume(approvalId, signal);
   }
@@ -364,6 +368,14 @@ export class GatedToolExecutor {
     if (!tool) {
       const failed = await this.markFailed(approval, `Unknown tool: ${approval.toolId}`);
       throw new ToolApprovalStateError(failed.error!);
+    }
+
+    // Persist the claim before side effects. An interrupted executing request must
+    // never be replayed automatically: its external outcome may be unknown.
+    if (!await this.approvals.compareAndSet(approvalId, 'approved', {
+      ...approval, status: 'executing', updatedAt: this.now().toISOString(),
+    })) {
+      throw new ToolApprovalStateError(`Approval ${approvalId} is already executing or finished.`);
     }
 
     try {

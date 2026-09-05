@@ -1,0 +1,738 @@
+
+
+.dark-mode {
+  --ink: #e8ecf2;
+  --muted: #8891a0;
+  --line: rgba(255, 255, 255, 0.07);
+  --surface: rgba(22, 25, 32, 0.82);
+  --shadow: 0 20px 48px rgba(0, 0, 0, 0.5), 0 2px 12px rgba(0, 0, 0, 0.25);
+  color: var(--ink);
+  background: #111318;
+}
+.dark-mode .desktop-shell {
+  background:
+    linear-gradient(168deg, #141720 0%, #111318 35%, #0f1116 65%, #12151c 100%);
+}
+.dark-mode .desktop-shell::before {
+  opacity: 0.12;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+.dark-mode .topbar,
+.dark-mode .command-bar,
+.dark-mode .stage-mark,
+.dark-mode .desktop-object,
+.dark-mode .dock,
+.dark-mode .window-frame,
+.dark-mode .agent-editor,
+.dark-mode .sudo-password-prompt,
+.dark-mode .capability-picker,
+.dark-mode .skill-editor,
+.dark-mode .skill-catalog-preview,
+.dark-mode .skill-catalog-card,
+.dark-mode .skills-browser,
+.dark-mode .memory-window,
+.dark-mode .project-window,
+.dark-mode .schedule-window,
+.dark-mode .workspace-window,
+.dark-mode .system-panel,
+.dark-mode .channels-window {
+  background: rgba(20, 23, 30, 0.92);
+  color: var(--ink);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.dark-mode .topbar {
+  background: rgba(17, 19, 24, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(20px);
+}
+.dark-mode .theme-toggle {
+  background: rgba(28, 33, 42, 0.88);
+  color: #f6d365;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.dark-mode .widget-toggle-btn {
+  background: rgba(28, 33, 42, 0.7);
+  color: #d1d9e2;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.dark-mode .widget-toggle-btn:hover {
+  background: rgba(38, 45, 58, 0.9);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.dark-mode .command-bar input,
+.dark-mode input,
+.dark-mode select,
+.dark-mode textarea {
+  background-color: rgba(13, 16, 21, 0.85);
+  color: var(--ink);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.dark-mode .command-bar input::placeholder,
+.dark-mode input::placeholder,
+.dark-mode textarea::placeholder {
+  color: #768192;
+}
+.dark-mode .window-content,
+.dark-mode .agent-conversation,
+.dark-mode .skills-list,
+.dark-mode .skill-detail,
+.dark-mode .capability-group,
+.dark-mode .capability-item,
+.dark-mode .agent-tool-option,
+.dark-mode .skill-instructions,
+.dark-mode .skill-bundle,
+.dark-mode .skill-bundle-file,
+.dark-mode .skill-bundle-tool {
+  background-color: rgba(15, 18, 24, 0.75);
+  color: var(--ink);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.dark-mode .window-title,
+.dark-mode .window-titlebar,
+.dark-mode h1,
+.dark-mode h2,
+.dark-mode h3,
+.dark-mode h4,
+.dark-mode strong,
+.dark-mode label,
+.dark-mode .brand {
+  color: var(--ink);
+}
+.dark-mode .eyebrow,
+.dark-mode .top-status,
+.dark-mode p,
+.dark-mode small,
+.dark-mode .agent-capabilities-note,
+.dark-mode .skill-summary {
+  color: var(--muted);
+}
+.dark-mode .row-button,
+.dark-mode .soft-button,
+.dark-mode .capability-summary-button {
+  color: #dbe4ee;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(36, 43, 55, 0.65);
+}
+.dark-mode .row-button:hover,
+.dark-mode .soft-button:hover {
+  background: rgba(48, 58, 74, 0.85);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.dark-mode .status-dot {
+  background: #52c488;
+  box-shadow: 0 0 0 4px rgba(82, 196, 136, 0.15);
+}
+.dark-mode .capability-picker-backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+.dark-mode {
+  color-scheme: dark;
+}
+.dark-mode .window-content,
+.dark-mode .workspace-state,
+.dark-mode .workspace-browser,
+.dark-mode .workspace-change-feed,
+.dark-mode .workspace-files,
+.dark-mode .workspace-mount-card,
+.dark-mode .workspace-result-panel,
+.dark-mode .workspace-entry-list button,
+.dark-mode .workspace-search-list button,
+.dark-mode .desktop-chat,
+.dark-mode .desktop-chat-body,
+.dark-mode .desktop-chat-history,
+.dark-mode .desktop-chat-composer,
+.dark-mode .conversation-body,
+.dark-mode .conversation-composer,
+.dark-mode .agent-layout,
+.dark-mode .agent-list,
+.dark-mode .project-list,
+.dark-mode .project-summary,
+.dark-mode .project-editor,
+.dark-mode .project-history,
+.dark-mode .schedule-card,
+.dark-mode .schedule-history,
+.dark-mode .memory-facts > div,
+.dark-mode .memory-composer,
+.dark-mode .memory-retrieval,
+.dark-mode .memory-access,
+.dark-mode .mcp-card,
+.dark-mode .permission-card {
+  background-color: rgba(16, 20, 26, 0.85);
+  color: var(--ink);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.dark-mode .workspace-entry-list button:hover,
+.dark-mode .workspace-search-list button:hover,
+.dark-mode .agent-list-item:hover,
+.dark-mode .agent-list-item.selected,
+.dark-mode .project-list button:hover,
+.dark-mode .project-list button.selected,
+.dark-mode .skill-row:hover,
+.dark-mode .skill-row.selected {
+  background: rgba(45, 55, 72, 0.7);
+  color: #ffffff;
+}
+.dark-mode .desktop-chat-body .message-user,
+.dark-mode .conversation-body .message-user {
+  background: linear-gradient(145deg, rgba(38, 54, 76, 0.8), rgba(28, 42, 60, 0.8));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f2f5f8;
+}
+.dark-mode .desktop-chat-body .message-assistant,
+.dark-mode .conversation-body .message-assistant {
+  background: rgba(19, 23, 30, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  color: #f2f5f8;
+}
+.dark-mode .desktop-chat-approval,
+.dark-mode .desktop-chat-reasoning,
+.dark-mode .attachment-chip,
+.dark-mode .attach-button,
+.dark-mode .attach-menu,
+.dark-mode .agent-tool-state,
+.dark-mode .project-runtime-truth,
+.dark-mode .context-inspector,
+.dark-mode .turn-step,
+.dark-mode .schedule-form,
+.dark-mode .memory-local-seal {
+  background: rgba(22, 27, 35, 0.88);
+  color: var(--ink);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.dark-mode .desktop-chat-composer {
+  background: rgba(16, 20, 26, 0.9);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+.dark-mode .desktop-chat-composer:focus-within {
+  background: rgba(18, 22, 30, 0.98);
+  border-color: rgba(94, 204, 142, 0.45);
+  box-shadow: 0 8px 30px rgba(94, 204, 142, 0.12), 0 0 0 1px rgba(94, 204, 142, 0.25);
+}
+.dark-mode .desktop-chat-composer textarea::placeholder {
+  color: rgba(255, 255, 255, 0.42);
+}
+.dark-mode pre,
+.dark-mode code {
+  color: #d9d5ca;
+}
+
+/* ── Dark-mode: Window & shell surfaces ────────────────────────── */
+.dark-mode .iris-window {
+  background: rgba(18, 21, 28, 0.97);
+  color: var(--ink);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.dark-mode .object-agents,
+.dark-mode .object-projects,
+.dark-mode .object-workspace,
+.dark-mode .object-models,
+.dark-mode .object-memory,
+.dark-mode .object-skills {
+  background: rgba(255, 255, 255, 0.07);
+}
+.dark-mode .icon-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.dark-mode .empty-icon,
+.dark-mode .iris-empty {
+  background: rgba(255, 255, 255, 0.05);
+}
+.dark-mode .truth-pill {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+
+/* ── Dark-mode: Chat & command bar ─────────────────────────────── */
+.dark-mode .chat-header-button {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+}
+.dark-mode .chat-header-button:hover,
+.dark-mode .chat-header-button.active {
+  background: rgba(255, 255, 255, 0.12);
+}
+.dark-mode .attach-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.dark-mode .attach-menu button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.dark-mode .attachment-chip-error {
+  background: rgba(200, 70, 60, 0.18);
+  color: #f0a8a0;
+}
+.dark-mode .slash-palette {
+  background: rgba(18, 21, 28, 0.97);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+}
+.dark-mode .slash-palette button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.dark-mode kbd {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* ── Dark-mode: Agent editor, tools & capabilities ─────────────── */
+.dark-mode .agent-editor {
+  background: rgba(20, 24, 32, 0.85);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.dark-mode .sudo-password-prompt pre {
+  background: rgba(255, 255, 255, 0.05);
+}
+.dark-mode .agent-capabilities-warning {
+  background: rgba(200, 160, 60, 0.12);
+  color: #d4b87a;
+}
+.dark-mode .agent-editor .agent-tool-option.assigned {
+  background: rgba(255, 255, 255, 0.08);
+}
+.dark-mode .agent-tool-option em {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--muted);
+}
+.dark-mode .agent-unavailable-capabilities article {
+  background: rgba(255, 255, 255, 0.04);
+}
+.dark-mode .agent-avatar {
+  background: rgba(255, 255, 255, 0.07);
+}
+.dark-mode .context-toggle.active {
+  background: rgba(255, 255, 255, 0.1);
+}
+.dark-mode .agent-tool-state.approval-needed {
+  background: rgba(200, 160, 60, 0.15);
+}
+.dark-mode .agent-tool-mark {
+  background: rgba(255, 255, 255, 0.06);
+}
+.dark-mode .agent-tool-request {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Dark-mode: Context inspector & turn steps ─────────────────── */
+.dark-mode .context-lifecycle {
+  background: rgba(255, 255, 255, 0.04);
+}
+.dark-mode .context-lifecycle-heading > span {
+  background: rgba(82, 196, 136, 0.15);
+  color: #7ecfa4;
+}
+.dark-mode .context-lifecycle-suspended,
+.dark-mode .context-lifecycle-unrecorded {
+  background: rgba(200, 160, 60, 0.1);
+}
+.dark-mode .context-lifecycle-suspended .context-lifecycle-heading > span,
+.dark-mode .context-lifecycle-unrecorded .context-lifecycle-heading > span {
+  background: rgba(200, 160, 60, 0.2);
+  color: #d4b87a;
+}
+.dark-mode .context-lifecycle-failed {
+  background: rgba(200, 70, 60, 0.1);
+}
+.dark-mode .context-lifecycle-failed .context-lifecycle-heading > span {
+  background: rgba(200, 70, 60, 0.2);
+  color: #e0908a;
+}
+.dark-mode .context-lifecycle-running .context-lifecycle-heading > span {
+  background: rgba(82, 196, 136, 0.15);
+  color: #7ecfa4;
+}
+.dark-mode .context-source {
+  background: rgba(255, 255, 255, 0.04);
+}
+.dark-mode .context-source > span {
+  background: rgba(82, 196, 136, 0.15);
+  color: #7ecfa4;
+}
+.dark-mode .context-source-no-match > span,
+.dark-mode .context-source-not-authorized > span {
+  background: rgba(200, 160, 60, 0.18);
+  color: #d4b87a;
+}
+.dark-mode .context-source-error > span {
+  background: rgba(200, 70, 60, 0.2);
+  color: #e0908a;
+}
+.dark-mode .context-selections article {
+  background: rgba(255, 255, 255, 0.04);
+}
+.dark-mode .context-selections .context-selection-skill {
+  background: rgba(82, 196, 136, 0.08);
+}
+.dark-mode .turn-step-status {
+  background: rgba(82, 196, 136, 0.15);
+  color: #7ecfa4;
+}
+.dark-mode .turn-step-denied .turn-step-status,
+.dark-mode .turn-step-failed .turn-step-status {
+  background: rgba(200, 70, 60, 0.2);
+  color: #e0908a;
+}
+.dark-mode .turn-step-awaiting-approval .turn-step-status {
+  background: rgba(200, 160, 60, 0.2);
+  color: #d4b87a;
+}
+.dark-mode .turn-step-running .turn-step-status {
+  background: rgba(82, 196, 136, 0.12);
+  color: #7ecfa4;
+}
+.dark-mode .turn-step-detail pre {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* ── Dark-mode: Projects, graphs & tasks ───────────────────────── */
+.dark-mode .projects-workspace {
+  background: rgba(16, 20, 26, 0.72);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.dark-mode .project-graph {
+  background: rgba(16, 20, 26, 0.6);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.dark-mode .project-summary dl div {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.dark-mode .task-composer {
+  background: rgba(16, 20, 26, 0.85);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.dark-mode .task-graph-empty {
+  background: rgba(255, 255, 255, 0.04);
+}
+.dark-mode .task-graph-list li {
+  background: rgba(20, 24, 32, 0.85);
+  border-color: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+}
+.dark-mode .task-run-summary > span {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+.dark-mode .task-run-summary[data-run-state='running'] > span,
+.dark-mode .task-run-summary[data-run-state='queued'] > span {
+  background: rgba(82, 196, 136, 0.15);
+  color: #7ecfa4;
+}
+.dark-mode .task-run-summary[data-run-state='suspended'] > span {
+  background: rgba(200, 160, 60, 0.18);
+  color: #d4b87a;
+}
+.dark-mode .task-run-summary[data-run-state='completed'] > span {
+  background: rgba(82, 196, 136, 0.15);
+  color: #7ecfa4;
+}
+.dark-mode .task-run-summary[data-run-state='failed'] > span {
+  background: rgba(200, 70, 60, 0.18);
+  color: #e0908a;
+}
+.dark-mode .run-task-button {
+  background: rgba(82, 196, 136, 0.12);
+  color: #7ecfa4;
+}
+.dark-mode .task-state {
+  background: rgba(82, 196, 136, 0.1);
+  color: #7ecfa4;
+}
+.dark-mode .project-history-list button {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+}
+.dark-mode .project-history-list button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.dark-mode .project-history-list button.selected {
+  background: rgba(255, 255, 255, 0.1);
+}
+.dark-mode .project-history-detail {
+  background: rgba(16, 20, 26, 0.8);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.dark-mode .project-run-callout,
+.dark-mode .project-run-copy {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+}
+.dark-mode .project-run-callout.error {
+  background: rgba(200, 70, 60, 0.12);
+  color: #e0908a;
+}
+.dark-mode [data-run-state='suspended'] {
+  background: rgba(200, 160, 60, 0.08);
+}
+.dark-mode [data-run-state='failed'] {
+  background: rgba(200, 70, 60, 0.08);
+}
+.dark-mode [data-run-state='cancelled'] {
+  background: rgba(255, 255, 255, 0.04);
+}
+.dark-mode [data-run-state='completed'] {
+  background: rgba(82, 196, 136, 0.08);
+}
+.dark-mode [data-run-state='running'],
+.dark-mode [data-run-state='queued'] {
+  background: rgba(82, 196, 136, 0.06);
+}
+.dark-mode [data-state='blocked'] .task-state {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+.dark-mode [data-state='completed'] .task-state {
+  background: rgba(82, 196, 136, 0.12);
+  color: #7ecfa4;
+}
+
+/* ── Dark-mode: Schedules ──────────────────────────────────────── */
+.dark-mode .history-details {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Dark-mode: Workspace & file browser ───────────────────────── */
+.dark-mode .workspace-folder-mark {
+  background: rgba(255, 255, 255, 0.07);
+}
+.dark-mode .workspace-mount-card dl div {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.dark-mode .workspace-path button {
+  background: rgba(20, 24, 32, 0.85);
+  color: var(--ink);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.dark-mode .workspace-entry-icon {
+  background: rgba(255, 255, 255, 0.06);
+}
+.dark-mode .workspace-entry-icon.entry-directory {
+  background: rgba(82, 196, 136, 0.1);
+}
+.dark-mode .file-preview pre {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+}
+.dark-mode .git-changes-pill {
+  background: rgba(207, 159, 107, 0.15);
+  color: #d4b87a;
+}
+.dark-mode .git-clean-pill {
+  background: rgba(82, 196, 136, 0.12);
+  color: #7ecfa4;
+}
+
+/* ── Dark-mode: Models & providers ─────────────────────────────── */
+.dark-mode .primary-button {
+  background: #52866a;
+  color: #fff;
+}
+.dark-mode .primary-button:hover {
+  background: #5e9476;
+}
+.dark-mode .provider-row {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+}
+.dark-mode .provider-icon {
+  background: rgba(255, 255, 255, 0.07);
+}
+.dark-mode .provider-editor {
+  background: rgba(20, 24, 32, 0.85);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.dark-mode .provider-field-help {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* ── Dark-mode: Memory ─────────────────────────────────────────── */
+.dark-mode .memory-facts {
+  background: rgba(255, 255, 255, 0.04);
+}
+.dark-mode .memory-detail {
+  background: rgba(16, 20, 26, 0.75);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.dark-mode .memory-retrieval-status {
+  background: rgba(200, 160, 60, 0.1);
+  color: #d4b87a;
+}
+.dark-mode .memory-index-progress {
+  background: rgba(255, 255, 255, 0.04);
+}
+.dark-mode .memory-index-progress li[data-state='active'] {
+  background: rgba(82, 196, 136, 0.1);
+}
+.dark-mode .memory-access-list > label {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+}
+.dark-mode .memory-list > button:hover,
+.dark-mode .memory-list > button.selected {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Dark-mode: Permissions, tool policies & approvals ─────────── */
+.dark-mode .security-seal {
+  background: rgba(255, 255, 255, 0.07);
+}
+.dark-mode .permission-facts {
+  background: rgba(255, 255, 255, 0.04);
+}
+.dark-mode .permission-agents > button:hover,
+.dark-mode .permission-agents > button.selected {
+  background: rgba(255, 255, 255, 0.08);
+}
+.dark-mode .tool-access-panel,
+.dark-mode .approval-panel,
+.dark-mode .audit-panel {
+  background: rgba(16, 20, 26, 0.75);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.dark-mode .tool-policy-row {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.dark-mode .assignment-toggle {
+  background: rgba(255, 255, 255, 0.12);
+}
+.dark-mode .assignment-toggle span {
+  background: #2a2f3a;
+}
+.dark-mode .risk-label,
+.dark-mode .decision-badge {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--muted);
+}
+.dark-mode .risk-write,
+.dark-mode .risk-execute,
+.dark-mode .risk-external,
+.dark-mode .decision-deny {
+  background: rgba(200, 70, 60, 0.18);
+  color: #e0908a;
+}
+.dark-mode .run-tool-button,
+.dark-mode .approval-button {
+  background: rgba(82, 196, 136, 0.12);
+  color: #7ecfa4;
+}
+.dark-mode .decision-allow {
+  background: rgba(82, 196, 136, 0.15);
+  color: #7ecfa4;
+}
+.dark-mode .decision-ask {
+  background: rgba(200, 160, 60, 0.15);
+  color: #d4b87a;
+}
+.dark-mode .approval-status {
+  background: rgba(200, 160, 60, 0.15);
+  color: #d4b87a;
+}
+.dark-mode .approval-completed,
+.dark-mode .approval-approved {
+  background: rgba(82, 196, 136, 0.15);
+  color: #7ecfa4;
+}
+.dark-mode .approval-denied,
+.dark-mode .approval-failed {
+  background: rgba(200, 70, 60, 0.18);
+  color: #e0908a;
+}
+
+/* ── Dark-mode: Skills browser ─────────────────────────────────── */
+.dark-mode .skills-error {
+  background: rgba(200, 70, 60, 0.12);
+  color: #e0908a;
+}
+.dark-mode .skill-meta div {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.dark-mode .skills-tabs button {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+}
+.dark-mode .skills-tabs button.selected {
+  background: rgba(82, 196, 136, 0.12);
+  color: #7ecfa4;
+}
+
+/* ── Dark-mode: Dock ───────────────────────────────────────────── */
+.dark-mode .dock-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Dark-mode: Status badges & misc components ────────────────── */
+.dark-mode .generic-tool-status.status-running {
+  background: rgba(210, 160, 60, 0.12);
+  color: #d4b87a;
+}
+.dark-mode .generic-tool-status.status-completed {
+  background: rgba(82, 196, 136, 0.12);
+  color: #7ecfa4;
+}
+.dark-mode .generic-tool-status.status-failed,
+.dark-mode .generic-tool-status.status-denied {
+  background: rgba(200, 70, 60, 0.15);
+  color: #e0908a;
+}
+.dark-mode .progress-step .step-num {
+  background: rgba(255, 255, 255, 0.06);
+}
+.dark-mode .provider-card.selected {
+  background: rgba(82, 196, 136, 0.1);
+  border-color: rgba(82, 196, 136, 0.3);
+}
+.dark-mode .onboarding-footer,
+.dark-mode .update-footer {
+  background: rgba(255, 255, 255, 0.02);
+}
+.dark-mode .update-version-pill {
+  background: rgba(82, 196, 136, 0.15);
+  color: #7ecfa4;
+}
+.dark-mode .diff-stat-neutral {
+  background: rgba(255, 255, 255, 0.08);
+}
+.dark-mode .diff-viewer-truncated {
+  background: rgba(255, 255, 255, 0.03);
+}
+.dark-mode .channels-status-banner {
+  background: rgba(57, 219, 128, 0.08);
+}
+.dark-mode .channel-btn-primary {
+  background: rgba(57, 219, 128, 0.15);
+}
+.dark-mode .channel-btn-primary:hover {
+  background: rgba(57, 219, 128, 0.25);
+}
+.dark-mode .learned-skill-prompt-banner {
+  background: rgba(192, 132, 252, 0.08);
+}
+.dark-mode .learned-skill-badge {
+  background: rgba(192, 132, 252, 0.18);
+}
+.dark-mode .learned-skill-btn-save {
+  background: rgba(192, 132, 252, 0.18);
+}
+.dark-mode .learned-skill-btn-save:hover {
+  background: rgba(192, 132, 252, 0.3);
+}
+
+@media (max-width: 900px) {
+  .command-stage {
+    width: 65vw;
+  }
+  .desktop-objects {
+    left: 20px;
+  }
+}

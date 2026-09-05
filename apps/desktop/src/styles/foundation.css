@@ -1,0 +1,210 @@
+:root {
+  font-family:
+    Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  color: #24231f;
+  background: transparent;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --ink: #24231f;
+  --muted: #77736b;
+  --line: rgba(58, 54, 46, 0.11);
+  --surface: rgba(255, 254, 250, 0.88);
+  --shadow: 0 22px 70px rgba(70, 63, 48, 0.13), 0 5px 18px rgba(70, 63, 48, 0.07);
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button {
+  color: inherit;
+}
+
+.desktop-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 760px;
+  min-height: 520px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 19% 17%, rgba(232, 207, 176, 0.34), transparent 24%),
+    radial-gradient(circle at 85% 74%, rgba(177, 203, 191, 0.29), transparent 28%),
+    linear-gradient(145deg, #f7f4ee 0%, #f0ede5 52%, #f5f2eb 100%);
+}
+
+.desktop-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.28;
+  background-image:
+    linear-gradient(rgba(80, 72, 60, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(80, 72, 60, 0.025) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(to bottom, transparent, black 18%, black 78%, transparent);
+}
+
+.topbar {
+  position: absolute;
+  z-index: 9000;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  backdrop-filter: blur(24px) saturate(1.2);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 720;
+  letter-spacing: 0.12em;
+  font-size: 13px;
+}
+.brand svg {
+  width: 22px;
+  height: 22px;
+  color: #6c7d72;
+}
+.top-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  margin-right: 0;
+}
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.theme-toggle {
+  position: relative;
+  top: auto;
+  right: auto;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.theme-toggle:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+  transform: scale(1.08);
+}
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #73947f;
+  box-shadow: 0 0 0 4px rgba(115, 148, 127, 0.1);
+}
+
+.command-stage {
+  position: absolute;
+  z-index: 2;
+  top: 18%;
+  left: 50%;
+  width: min(840px, 82vw);
+  transform: translateX(-50%);
+  text-align: center;
+}
+.stage-mark {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 10px 28px rgba(75, 69, 57, 0.08);
+  color: #71867a;
+}
+.stage-mark svg {
+  width: 27px;
+  height: 27px;
+}
+.eyebrow {
+  margin: 0 0 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 10px;
+  font-weight: 700;
+  color: #8b857b;
+}
+.command-stage h1 {
+  margin: 0;
+  font-size: clamp(34px, 4.3vw, 58px);
+  letter-spacing: -0.045em;
+  font-weight: 620;
+  line-height: 1.04;
+}
+.command-bar {
+  margin: 30px auto 0;
+  width: min(610px, 100%);
+  height: 58px;
+  padding: 0 15px 0 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(60, 56, 48, 0.1);
+  border-radius: 20px;
+  background: rgba(255, 254, 250, 0.84);
+  box-shadow: 0 18px 48px rgba(74, 67, 53, 0.1);
+  backdrop-filter: blur(20px);
+}
+.command-bar svg {
+  width: 20px;
+  color: #8a867d;
+  flex: 0 0 auto;
+}
+.command-bar input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+}
+.command-bar input::placeholder {
+  color: #a19c92;
+}

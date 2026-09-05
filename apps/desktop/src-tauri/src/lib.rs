@@ -1,3 +1,4 @@
+use crate::process_output::{read_bounded, output_text};
 use serde::Serialize;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -7,6 +8,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::Manager;
 
+mod process_output;
+mod repository;
 mod catalog;
 mod browser;
 mod mcp;
@@ -623,16 +626,7 @@ fn run_janitor_command(
         done: Arc<AtomicBool>,
     ) -> std::thread::JoinHandle<Vec<u8>> {
         std::thread::spawn(move || {
-            let mut buffer = Vec::new();
-            let mut child_pipe = pipe;
-            let mut chunk = [0u8; 8192];
-            loop {
-                match child_pipe.read(&mut chunk) {
-                    Ok(0) => break,
-                    Ok(n) => buffer.extend_from_slice(&chunk[..n]),
-                    Err(_) => break,
-                }
-            }
+            let buffer = read_bounded(pipe);
             done.store(true, Ordering::SeqCst);
             buffer
         })
@@ -704,19 +698,8 @@ fn run_janitor_command(
         .unwrap_or_default();
     let exit_code = process.try_wait().ok().flatten().and_then(|status| status.code());
     cleanup_askpass();
-    let limit = 64 * 1024;
-    let truncate = |bytes: Vec<u8>| {
-        let text = String::from_utf8_lossy(&bytes).to_string();
-        if text.len() > limit {
-            format!(
-                "{}\n[output truncated]",
-                text.chars().take(limit).collect::<String>()
-            )
-        } else {
-            text
-        }
-    };
-    let mut stderr = truncate(stderr_bytes);
+
+    let mut stderr = output_text(stderr_bytes);
     if timed_out {
         stderr.push_str("\n[command timed out after 60 seconds and was stopped]");
     }
@@ -726,7 +709,7 @@ fn run_janitor_command(
     Ok(JanitorCommandResult {
         target,
         exit_code,
-        stdout: truncate(stdout_bytes),
+        stdout: output_text(stdout_bytes),
         stderr,
     })
 }
@@ -871,6 +854,9 @@ pub fn run() {
         .manage(browser::BrowserState::default())
         .manage(mcp::McpStdioState::default())
         .invoke_handler(tauri::generate_handler![
+            repository::repository_initialize,
+            repository::repository_snapshot,
+            repository::repository_commit,
             inspect_host,
             inspect_host_metrics,
             provider_http_get_json,
@@ -917,19 +903,6 @@ pub fn run() {
             oauth::oauth_cancel_listener
         ])
         .setup(|app| {
-            // Automatically ensure localStorage is synchronized between dev and release origins
-            if let Ok(data_dir) = app.path().app_local_data_dir() {
-                let ls_dir = data_dir.join("localstorage");
-                let dev_db = ls_dir.join("http_localhost_1420.localstorage");
-                let rel_db = ls_dir.join("tauri_localhost_0.localstorage");
-                if dev_db.exists() && (!rel_db.exists() || rel_db.metadata().map(|m| m.len() < 1024).unwrap_or(true)) {
-                    let _ = std::process::Command::new("sqlite3")
-                        .arg(&dev_db)
-                        .arg(format!(".backup {}", rel_db.to_string_lossy()))
-                        .output();
-                }
-            }
-
             let show_item = tauri::menu::MenuItem::with_id(app, "show", "Open IRIS Workspace", true, None::<&str>)?;
             let widget_item = tauri::menu::MenuItem::with_id(app, "widget", "Toggle Desktop Widget", true, None::<&str>)?;
             let quit_item = tauri::menu::MenuItem::with_id(app, "quit", "Quit IRIS", true, None::<&str>)?;
@@ -1060,3 +1033,25 @@ mod janitor_tests {
         assert!(!command_needs_sudo("docker ps"));
     }
 }
+
+#[cfg(test)]
+mod credential_integration_tests {
+    use super::*;
+    #[test]
+    #[ignore = "requires an unlocked OS credential store"]
+    fn isolated_os_keyring_roundtrip() {
+        let id = format!("iris-integration-test-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        struct Cleanup(String);
+        impl Drop for Cleanup { fn drop(&mut self) { let _ = delete_provider_secret(self.0.clone()); } }
+        let _cleanup = Cleanup(id.clone());
+        let payload = r#"{"version":1,"values":{"token":"iris-dummy-integration-value"}}"#;
+        set_provider_secret(id.clone(), payload.into()).expect("OS keyring write");
+        // Read through a fresh Entry to verify persistence beyond the writer's lifetime.
+        assert_eq!(get_provider_secret(id.clone()).expect("OS keyring read").as_deref(), Some(payload));
+        delete_provider_secret(id.clone()).expect("OS keyring delete");
+        assert!(get_provider_secret(id).expect("OS keyring deleted read").is_none());
+    }
+}
+
+#[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
+mod updater_integration;

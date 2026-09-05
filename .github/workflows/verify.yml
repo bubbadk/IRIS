@@ -54,6 +54,9 @@ jobs:
       - name: Verify TypeScript
         run: pnpm typecheck
 
+      - name: Verify lint
+        run: pnpm lint
+
       - name: Run TypeScript tests
         run: pnpm test
 

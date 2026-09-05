@@ -21,7 +21,7 @@ import {
   loadProviderSecrets,
   saveProviderSecrets,
 } from './credentials';
-import { formatMemoryDate } from './App';
+import { formatMemoryDate } from './ChatContent';
 
 export function ModelsState() {
   const [providers, setProviders] = useState<ProviderConfig[]>(() => loadProviderConfigs());
