@@ -5,7 +5,7 @@
   <h3>The Spatial Operating Environment for Autonomous AI Agents</h3>
   <p>An object-oriented, local-first desktop OS for creating, operating, and orchestrating autonomous AI agent systems.</p>
 
-  [![Version](https://img.shields.io/badge/Version-0.3.0-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
+  [![Version](https://img.shields.io/badge/Version-0.3.1-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
   [![FP-AMB Memory Benchmark](https://img.shields.io/badge/FP--AMB%20(verified)-70.1%25%20(155%2F221%20gradeable)-success.svg?style=flat-square)](#-memory-benchmark--verified-results)
   [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg?style=flat-square)](LICENSE)
   [![Platform](https://img.shields.io/badge/Platform-Linux%20verified%20%7C%20macOS%20%26%20Windows%20build%20targets-amber.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
@@ -91,7 +91,7 @@ IRIS is evaluated against the [FP-AMB question suite](https://github.com/munch2u
 
 ---
 
-## ✨ Key Features in v0.3.0
+## ✨ Key Features in v0.3.1
 
 ### 1. Cross-process execution authority
 
@@ -119,13 +119,13 @@ Optional Telegram polling routes approve/deny decisions from an allowlisted chat
 
 ### 7. Verified locally
 
-Verified on Linux (CachyOS/Arch family): **133 TypeScript test files / 1408 tests passed** (0 failed, 0 skipped, 0 todo) and **128 native tests passed** (0 failed, 13 ignored), alongside `pnpm typecheck`, `pnpm lint` (`--max-warnings=0`), `pnpm build` and `pnpm build:binary`, plus isolated native startup boots with no panic and successful repository, scheduler and queue initialisation. The final release gate additionally exercised the live browser runtime, the enforcing proxy, the native reader, Bubblewrap isolation, an OS keyring round trip and a signed-updater fixture. See the [0.3.0 release notes](dist-release/RELEASE_NOTES_v0.3.0.md) for the full implemented / limited / not-verified breakdown.
+Verified on Linux (CachyOS/Arch family): **133 TypeScript test files / 1408 tests passed** (0 failed, 0 skipped, 0 todo) and **128 native tests passed** (0 failed, 13 ignored), alongside `pnpm typecheck`, `pnpm lint` (`--max-warnings=0`), `pnpm build` and `pnpm build:binary`, plus isolated native startup boots with no panic and successful repository, scheduler and queue initialisation. The final release gate additionally exercised the live browser runtime, the enforcing proxy, the native reader, Bubblewrap isolation, an OS keyring round trip and a signed-updater fixture. See the [0.3.1 release notes](dist-release/RELEASE_NOTES_v0.3.1.md) for the full implemented / limited / not-verified breakdown. The release workflow also runs the native suite on hosted runners: **macOS 123 passed** (0 failed, 10 ignored) and **Windows 107 passed** (0 failed, 9 ignored), so those targets carry measured native coverage instead of being build-only. The totals differ because Unix-only cases run only where the platform supports them.
 
-**Retained capabilities:** FP-AMB memory benchmark view and Memory Constellation, dual-tier model takeover, GitHub operations, WebDriver browser tools, permission-gated workspace commands, agent teams, attachments, command palette, Project Flow Reactor, memory inspection, Subtitle Studio, and optional web/image integrations. Live remote channel delivery and identity, macOS/Windows packaging, the installed Linux background-service lifecycle and the production-signed updater lifecycle remain unverified.
+**Retained capabilities:** FP-AMB memory benchmark view and Memory Constellation, dual-tier model takeover, GitHub operations, WebDriver browser tools, permission-gated workspace commands, agent teams, attachments, command palette, Project Flow Reactor, memory inspection, Subtitle Studio, and optional web/image integrations. Live remote channel delivery and identity, installer launch on macOS and Windows, the installed Linux background-service lifecycle and the production-signed updater lifecycle remain unverified.
 
 ---
 
-## 🧩 What You Can Do With IRIS 0.3.0
+## 🧩 What You Can Do With IRIS 0.3.1
 
 - **Run a project as durable work.** Break a goal into tasks with acceptance criteria, let an agent run bounded 1–10-turn attempts, and pause or resume manually — completion requires a saved human assessment.
 - **Let schedules run unattended — safely.** Cron-style schedules keep an exclusive owner; if a run is interrupted with an unknown external outcome, IRIS reports it for inspection instead of replaying it.
@@ -140,11 +140,11 @@ Verified on Linux (CachyOS/Arch family): **133 TypeScript test files / 1408 test
 ## 🚀 Quickstart
 
 ### Download Standalone Release
-The source/build version is **v0.3.0**. Source tags and downloadable releases are separate. Use binaries only when they are attached to the corresponding [GitHub Release](https://github.com/bubbadk/IRIS/releases):
-- **Linux**: look for `iris-linux-x86_64-v0.3.0.tar.gz` or `IRIS_0.3.0_amd64.AppImage` when published.
-- **macOS / Windows**: use an installer only when it is attached to that release. These are build targets; this checkout does not verify their published asset availability.
+The source/build version is **v0.3.1**. Source tags and downloadable releases are separate. Use binaries only when they are attached to the corresponding [GitHub Release](https://github.com/bubbadk/IRIS/releases):
+- **Linux**: look for `iris-linux-x86_64-v0.3.1.tar.gz` or `IRIS_0.3.1_amd64.AppImage` when published.
+- **macOS / Windows**: use an installer only when it is attached to that release. The native test suite runs on hosted macOS and Windows runners, but this checkout does not verify their published asset availability, and no installer was launched on either platform.
 
-The updater polls `latest.json` from the newest published release. An in-app installation requires a supported package signed with the matching production key. Pushing the v0.3.0 source tag alone does not publish that package; the existing v0.2.10 manifest in `dist-release/latest.json` remains unsigned.
+The updater polls `latest.json` from the newest published release. An in-app installation requires a supported package signed with the matching production key. Pushing the v0.3.1 source tag alone does not publish that package; the earlier `v0.3.0` tag exists in source without a published release, and the existing v0.2.10 manifest in `dist-release/latest.json` remains unsigned.
 
 ### Build from Source
 
@@ -197,7 +197,7 @@ Some features need extra runtime prerequisites: Chrome plus a compatible ChromeD
 
 ## ⚠️ Known Limitations
 
-IRIS states its gaps as plainly as its capabilities. Three non-blocking Medium findings remain open by explicit release policy and were **not** repaired for 0.3.0:
+IRIS states its gaps as plainly as its capabilities. Three non-blocking Medium findings remain open by explicit release policy and were **not** repaired for 0.3.1:
 
 - **CSV export** can falsely refuse valid content that ends in a blank record.
 - The **Documents** window can keep showing a stale error after a successful reload.
@@ -205,12 +205,12 @@ IRIS states its gaps as plainly as its capabilities. Three non-blocking Medium f
 
 Other honest limits:
 
-- macOS and Windows packages are build targets in the release workflow, but no target machine was exercised; there is no launchd or Windows service implementation.
+- macOS and Windows are covered by the release workflow's native test suite on CI runners, but no end-user machine was exercised and no installer was launched there; there is no launchd or Windows service implementation.
 - Telegram and Discord channel operation is verified with controlled adapters only — live remote identity and delivery are unverified, and Discord is an outgoing webhook sender only.
 - The Linux background runtime installs a per-user systemd unit, but its full install/restart/crash/upgrade/removal lifecycle is unverified.
 - Workspace restore points cover native text write/patch only; shell changes, moves/deletes and binaries have no automatic undo.
 - There is no independent semantic quality evaluator and no automatic project replanning; acceptance uses saved human assessments plus configured-evidence checks.
-- In-app updating requires an asset signed with the matching production key, and no production-signed 0.3.0 asset exists yet.
+- In-app updating requires an asset signed with the matching production key; the release workflow refuses to build a release without it.
 
 The Medium backlog, the historical Low findings and the live status are tracked in [CURRENT_STATE.md](CURRENT_STATE.md) and the [gap plan](docs/IRIS_GAP_PLAN.md).
 

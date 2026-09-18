@@ -217,7 +217,10 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let port = free_port();
             let pinned = loopback(port, 1);
-            let decoy = loopback(port, 2);
+            // The decoy is a second origin on its own port rather than a second loopback address:
+            // macOS assigns only 127.0.0.1 to the loopback interface, so binding 127.0.0.2 fails
+            // there with `AddrNotAvailable`.
+            let decoy = loopback(free_port(), 1);
             let pinned_seen = spawn_origin(pinned, Reply::Body("PIN-ORIGIN"), 8);
             let decoy_seen = spawn_origin(decoy, Reply::Body("DECOY-REBIND"), 4);
 
@@ -278,7 +281,8 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let port = free_port();
             let pinned = loopback(port, 1);
-            let decoy = loopback(port, 2);
+            // See the note above: a distinct port keeps this bindable on macOS.
+            let decoy = loopback(free_port(), 1);
             let pinned_seen = spawn_origin(pinned, Reply::Body("PIN-ORIGIN"), 2);
             let decoy_seen = spawn_origin(decoy, Reply::Body("DECOY-REBIND"), 2);
 
@@ -291,7 +295,9 @@ mod tests {
                 if *count == 1 {
                     Ok(vec![SocketAddr::new(pinned.ip(), port)])
                 } else {
-                    Ok(vec![SocketAddr::new(decoy.ip(), port)])
+                    // The rebound answer is the decoy's own endpoint, which shares 127.0.0.1 but
+                    // differs by port, so it stays distinguishable on every platform.
+                    Ok(vec![decoy])
                 }
             };
             let fallback_calls = Arc::new(Mutex::new(Vec::new()));

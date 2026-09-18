@@ -113,8 +113,21 @@ fn path_text(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+/// The mounted root in canonical form, for containment comparisons.
+///
+/// A workspace root is frequently reached through a symbolic link: macOS temporary directories live
+/// under `/var/folders`, which is a link to `/private/var/folders`, and users commonly mount a
+/// workspace through a linked path. Containment has to compare canonical paths on both sides,
+/// otherwise a legitimate in-root path is rejected as an escape. Falls back to the given root when
+/// it cannot be canonicalised (for example because it does not exist yet).
+fn canonical_root(root: &Path) -> PathBuf {
+    root.canonicalize().unwrap_or_else(|_| root.to_path_buf())
+}
+
 fn relative_text(root: &Path, path: &Path) -> Result<String, String> {
+    let canonical = canonical_root(root);
     path.strip_prefix(root)
+        .or_else(|_| path.strip_prefix(&canonical))
         .map(path_text)
         .map_err(|_| "Workspace path escaped the mounted root.".to_string())
 }
@@ -148,7 +161,7 @@ fn resolve_path(root: &Path, relative_path: &str, allow_empty: bool) -> Result<P
     let canonical = candidate
         .canonicalize()
         .map_err(|error| format!("Workspace path is unavailable: {error}"))?;
-    if !canonical.starts_with(root) {
+    if !canonical.starts_with(canonical_root(root)) {
         return Err("Workspace path escaped the mounted root.".to_string());
     }
     Ok(canonical)
@@ -166,7 +179,7 @@ pub(crate) fn resolve_write_target(
         .ok_or_else(|| "Workspace write target requires a parent directory.".to_string())?
         .canonicalize()
         .map_err(|error| format!("Workspace parent directory is unavailable: {error}"))?;
-    if !parent.starts_with(root) {
+    if !parent.starts_with(canonical_root(root)) {
         return Err("Workspace path escaped the mounted root.".to_string());
     }
     if let Ok(metadata) = fs::symlink_metadata(&candidate) {
@@ -176,7 +189,7 @@ pub(crate) fn resolve_write_target(
         let canonical = candidate
             .canonicalize()
             .map_err(|error| format!("Workspace write target is unavailable: {error}"))?;
-        if !canonical.starts_with(root) {
+        if !canonical.starts_with(canonical_root(root)) {
             return Err("Workspace path escaped the mounted root.".to_string());
         }
     }
@@ -207,7 +220,7 @@ fn move_entry_at(
     let source_canonical = source
         .canonicalize()
         .map_err(|error| format!("Workspace move source is unavailable: {error}"))?;
-    if !source_canonical.starts_with(root) {
+    if !source_canonical.starts_with(canonical_root(root)) {
         return Err("Workspace path escaped the mounted root.".to_string());
     }
     let (_, target, parent) = resolve_write_target(root, &target_normalized)?;
@@ -250,7 +263,8 @@ fn delete_entry_at(
     let canonical = target
         .canonicalize()
         .map_err(|error| format!("Workspace delete target is unavailable: {error}"))?;
-    if !canonical.starts_with(root) || canonical == root {
+    let root = canonical_root(root);
+    if !canonical.starts_with(&root) || canonical == root {
         return Err("Workspace delete target must stay inside the mounted root.".to_string());
     }
     let kind = if metadata.is_dir() {
