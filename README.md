@@ -5,7 +5,7 @@
   <h3>A local-first desktop environment for AI agents that do durable work</h3>
   <p>Agents, projects, tools, browser sessions, memory, documents and schedules — as real objects on a spatial desktop, under permissions you can see.</p>
 
-[![Version](https://img.shields.io/badge/Version-0.3.2-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
+[![Version](https://img.shields.io/badge/Version-0.3.3-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
 [![Verify](https://github.com/bubbadk/IRIS/actions/workflows/verify.yml/badge.svg)](https://github.com/bubbadk/IRIS/actions/workflows/verify.yml)
 [![FP-AMB Memory Benchmark](<https://img.shields.io/badge/FP--AMB%20(measured)-70.1%25%20(155%2F221%20gradeable)-success.svg?style=flat-square>)](#memory-benchmark-measured)
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg?style=flat-square)](LICENSE)
@@ -31,15 +31,15 @@ IRIS is **local-first**. Conversations, memory, project state, documents and kno
 
 IRIS does not fabricate activity to look busy. If a provider is unreachable, a tool is unconfigured or a capability is missing, the interface says so. Empty state is preferred over simulated state.
 
-## New in 0.3.2
+## New in 0.3.3
 
-v0.3.2 is a small correctness release. Nothing else changed.
+v0.3.3 is a correctness patch. Nothing else changed.
 
-- **CSV export round-trips.** A valid document whose last record is blank is exported and re-imported with its record structure intact, instead of being refused as "incomplete".
-- **The Documents window stops showing an error it has already disproved.** After a successful reload, the stale "could not be read" message is cleared — while a refused save or export you have not read yet is still shown.
-- **Dropped channel updates are visible.** Channel updates IRIS could not apply are listed in the Channels window and stay listed until they are resolved.
+- **An offline tool provider no longer hides your agents.** Since 0.3.0, an agent or permission rule that referenced a tool whose provider was not connected made the whole agent workspace fail to read — with no visible reason, and with your stored data intact the entire time. An assigned tool whose provider is unreachable is now kept and reported as unavailable, and the Agents window names how many assignments are unavailable right now.
+- **A failed read explains itself.** If the agent workspace cannot be read at all, the window shows the actual error with a "Try again" action, instead of an empty list that reads as lost data.
+- **Nothing is rewritten to match a temporary outage.** A tool identity already stored for an agent survives its provider being offline and works again once that provider registers the tool; only a newly assigned identity has to exist at save time.
 
-The 0.3.x line as a whole introduced durable projects and schedules, cross-process execution ownership, documents and human-approved durable knowledge, a visible browser session, and native test coverage that builds and passes on Linux, macOS and Windows. See the [0.3.2 release notes](dist-release/RELEASE_NOTES_v0.3.2.md) for the full implemented / limited / not-verified breakdown.
+The 0.3.x line as a whole introduced durable projects and schedules, cross-process execution ownership, documents and human-approved durable knowledge, a visible browser session, and native test coverage that builds and passes on Linux, macOS and Windows; 0.3.2 added the CSV export round-trip, the Documents error reset and visible dropped channel updates. See the [0.3.3 release notes](dist-release/RELEASE_NOTES_v0.3.3.md) for the full implemented / limited / not-verified breakdown.
 
 ## What IRIS can do
 
@@ -51,7 +51,7 @@ The 0.3.x line as a whole introduced durable projects and schedules, cross-proce
 - **Approval gates.** Execution-capable tools can require `Apply` / `Deny` confirmation on every call. Mandatory approvals cannot be bypassed by autonomy settings, allow rules, delegation, schedules, channels or resumed runs.
 - **Delegation.** An agent can hand a bounded subtask to a child agent, which inherits strictly narrower authority than its parent.
 - **Durable execution state.** Streaming responses and pending approvals survive moving between views, and a model handoff keeps one truthful attributed transcript.
-- **MCP support.** A Model Context Protocol client with Stdio, SSE and HTTP transports connects external tool servers.
+- **MCP support.** A Model Context Protocol client with Stdio, SSE and HTTP transports connects external tool servers. An agent keeps its assignment while a server is offline: the Agents window reports that tool as unavailable, and it runs again once the server reconnects.
 
 ### Projects
 
@@ -249,11 +249,11 @@ pnpm build:binary
 
 ## Verification
 
-For the IRIS v0.3.2 candidate, verified on Linux:
+For the IRIS v0.3.3 candidate, verified on Linux:
 
 | Suite                                   | Result                                      |
 | :-------------------------------------- | :------------------------------------------ |
-| TypeScript (`pnpm test`)                | **134 test files · 1416 passed · 0 failed** |
+| TypeScript (`pnpm test`)                | **137 test files · 1428 passed · 0 failed** |
 | Rust, Linux (`cargo test`)              | **128 passed · 0 failed · 13 ignored**      |
 | Rust, `macos-14` runner                 | **123 passed · 0 failed · 10 ignored**      |
 | Rust, `windows-latest` runner (`--lib`) | **107 passed · 0 failed · 9 ignored**       |
@@ -273,6 +273,7 @@ IRIS states its gaps as plainly as its capabilities. Current product-scope limit
 - **Automated quality control is intentionally bounded.** There is no independent semantic evaluator and no automatic project replanning; acceptance combines saved human assessments with configured-evidence checks.
 - **Office exports are simple.** DOCX, PDF, XLSX and PPTX output is real but plain: no rich layout, formulas, themes or rendered-artifact validation.
 - **Restore points are limited in scope.** They cover native text writes and patches; shell changes, moves, deletes and binaries have no automatic undo.
+- **Assigned tools need their provider connected.** A tool published by an external MCP server can only run while that server is reachable. When it is not, the agent keeps the assignment, the Agents window lists it as unavailable, and the tool runs again once the server reconnects.
 - **External services need your credentials.** Hosted providers and optional integrations such as Firecrawl require your own API keys, and the in-app updater requires an asset signed with the matching production key.
 
 ## Contributing
