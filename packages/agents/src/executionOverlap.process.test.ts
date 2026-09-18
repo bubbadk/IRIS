@@ -1,7 +1,7 @@
 import { spawnSync, spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import { agentLeaseStorageKey, decodeExecutionLeases } from './leaseAuthority';
@@ -18,7 +18,32 @@ import { agentLeaseStorageKey, decodeExecutionLeases } from './leaseAuthority';
  */
 
 const here = import.meta.dirname ?? '';
-const esbuild = '/mnt/ai/IRIS/node_modules/.pnpm/esbuild@0.28.2/node_modules/esbuild/bin/esbuild';
+
+/**
+ * Locate the esbuild CLI from the installed dependency store instead of a fixed absolute path, so
+ * the suite runs from any checkout location (CI included), not only the authoring machine.
+ */
+function resolveEsbuildBinary(): string {
+  let directory = here;
+  for (let depth = 0; depth < 8; depth += 1) {
+    const store = join(directory, 'node_modules', '.pnpm');
+    if (existsSync(store)) {
+      const stored = readdirSync(store)
+        .filter((entry) => entry.startsWith('esbuild@'))
+        .map((entry) => join(store, entry, 'node_modules', 'esbuild', 'bin', 'esbuild'))
+        .find((candidate) => existsSync(candidate));
+      if (stored) return stored;
+      const hoisted = join(directory, 'node_modules', 'esbuild', 'bin', 'esbuild');
+      if (existsSync(hoisted)) return hoisted;
+    }
+    const parent = dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  throw new Error('Unable to locate the esbuild binary in node_modules.');
+}
+
+const esbuild = resolveEsbuildBinary();
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
