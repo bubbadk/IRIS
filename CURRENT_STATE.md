@@ -1,9 +1,10 @@
 # IRIS Current State
 
-Updated 2026-09-18. **Release version: 0.3.2.** Source, built binaries and published
-releases are separate. The current tree is **IRIS 0.3.2**: the 0.3.0 candidate — a large body of
+Updated 2026-09-18. **Release version: 0.3.3.** Source, built binaries and published
+releases are separate. The current tree is **IRIS 0.3.3**: the 0.3.0 candidate — a large body of
 post-0.2.11 work that passed the Phase 2J final adversarial release gate — plus the
-platform-portability repairs of 0.3.1 and the three truthfulness repairs of 0.3.2. Phase 2K.1 applied
+platform-portability repairs of 0.3.1, the three truthfulness repairs of 0.3.2 and the agent
+workspace availability repair of 0.3.3. Phase 2K.1 applied
 the 0.3.0 version decision across all version metadata and committed the candidate on `main`; Phase 2L
 tagged and pushed that commit as `v0.3.0`, and its `Release` run then failed on all three platform
 workers. Phase 2L.1 repaired the platform defects, applied 0.3.1, and tagged `v0.3.1`; its `Release`
@@ -16,9 +17,16 @@ place rather than moved or deleted.
 Phase 2M.1 repairs the three remaining Medium truthfulness findings in this tree — a CSV export that
 refused valid content ending in a blank record, a Documents window that kept denying data it was
 displaying after a successful reload, and durable channel-attention records that no part of the
-application read — and applies 0.3.2 across all version metadata. Publication still requires a fresh,
-explicit human approval for that exact invocation. Whether a release object exists for a tag is
-observable on the GitHub Releases page; this file describes the source tree.
+application read — and applies 0.3.2 across all version metadata. Phase 2M.2 applies 0.3.3 and repairs
+the agent workspace availability defect introduced with the 0.3.0 configuration guard: an agent or
+permission rule naming a tool identity the registry did not publish (an MCP server that has not
+connected yet, or is simply offline) aborted the whole agent and permission read, so the Agent
+workspace stayed on "Loading agents…" with no explanation while the stored data remained intact.
+Configured identities are now resolved without requiring a reachable provider, an existing assignment
+is kept and reported as unavailable, a newly assigned identity must still exist when it is saved, and
+a failed read names itself with a retry action. Publication still requires a fresh, explicit human
+approval for that exact invocation. Whether a release object exists for a tag is observable on the
+GitHub Releases page; this file describes the source tree.
 
 ## Release gate status
 
@@ -157,6 +165,7 @@ this release.
   store during setup; unified account/channel/profile/security onboarding remains partial.
 - macOS/Windows target machines, production updater signing keys and fresh explicit publication
   approval are external prerequisites. The 0.3.0 and 0.3.1 commits are published as the `v0.3.0`
-  (`4c4debda`) and `v0.3.1` (`a284144`) source tags with no release objects. `v0.3.2` carries the
-  three truthfulness repairs; publication is not authorized yet and remains a separate, explicit
-  human decision.
+  (`4c4debda`) and `v0.3.1` (`a284144`) source tags with no release objects. `v0.3.2` is published
+  and carries the three truthfulness repairs. `v0.3.3`, this tree, carries those plus the agent
+  workspace availability repair; its publication is not authorized yet and remains a separate,
+  explicit human decision.

@@ -2,6 +2,7 @@ import { createDesktopRepository } from './repositoryStorage';
 import { withStorageWrite } from './storageWrites';
 import { toolRegistry } from './toolRegistry';
 import {
+  assertAvailableConfiguredToolIds,
   canonicalConfiguredToolIds,
   canonicalConfiguredPermissionRules,
   type ToolRegistry,
@@ -485,8 +486,15 @@ export class LocalAgentRepository implements AgentRepository {
   async save(agent: AgentDefinition): Promise<void> {
     return withStorageWrite(this.store, async () => {
       if (!validateAgentDefinition(agent)) throw new Error('Cannot persist an invalid agent.');
-      const canonical = this.canonical(agent);
       const agents = await this.list();
+      // A new assignment must exist now. An assignment the durable record already carries is
+      // preserved through an unrelated edit while its provider (an MCP server) is unreachable.
+      assertAvailableConfiguredToolIds(
+        agent.toolIds,
+        this.registry,
+        agents.find((item) => item.id === agent.id)?.toolIds ?? [],
+      );
+      const canonical = this.canonical(agent);
       this.store.setItem(
         agentStorageKey,
         JSON.stringify([

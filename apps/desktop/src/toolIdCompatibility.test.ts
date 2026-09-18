@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createDelegationContext, type AgentDefinition } from '@iris/core';
-import { InvalidToolConfigurationError, StaticPermissionEngine } from '@iris/tools';
+import {
+  InvalidToolConfigurationError,
+  resolveConfiguredToolIds,
+  StaticPermissionEngine,
+} from '@iris/tools';
 import { createSystemJanitorPreset, ONBOARDING_COMPLETED_KEY } from './OnboardingWizard';
 import {
   createDefaultAgentTeam,
@@ -162,16 +166,48 @@ describe('legacy tool ID compatibility boundary', () => {
     ).resolves.toMatchObject({ decision: 'deny' });
   });
 
-  it('rejects an unknown tool ID as controlled invalid configuration', async () => {
+  it('keeps an agent whose tool provider is unavailable and reports the identity', async () => {
     const repository = new LocalAgentRepository(globalThis.localStorage, toolRegistry);
     globalThis.localStorage.setItem(
       'iris.agents.config.v2',
-      JSON.stringify([{ ...janitorAgent, toolIds: ['not.a.real.tool'] }]),
+      JSON.stringify([{ ...janitorAgent, toolIds: ['janitor.health', 'not.a.real.tool'] }]),
     );
-    await expect(repository.list()).rejects.toThrow(/unknown or unavailable tool ID "not.a.real.tool"/);
+    const agents = await repository.list();
+    // One unavailable provider must never hide the agent, and the assignment is never rewritten
+    // out of durable data just because the provider is unreachable.
+    expect(agents).toHaveLength(1);
+    expect(agents[0]?.toolIds).toEqual(['janitor.health', 'not.a.real.tool']);
+    expect(globalThis.localStorage.getItem('iris.agents.config.v2')).toContain('not.a.real.tool');
+    expect(resolveConfiguredToolIds(agents[0]!.toolIds, toolRegistry).unavailable).toEqual([
+      'not.a.real.tool',
+    ]);
   });
 
-  it('rejects a rule that targets an unregistered tool ID as controlled invalid configuration', async () => {
+  it('refuses a newly assigned unregistered tool ID', async () => {
+    const repository = new LocalAgentRepository(globalThis.localStorage, toolRegistry);
+    await repository.save({ ...janitorAgent, toolIds: ['janitor.health'] });
+    await expect(
+      repository.save({ ...janitorAgent, toolIds: ['janitor.health', 'not.a.real.tool'] }),
+    ).rejects.toThrow(InvalidToolConfigurationError);
+    await expect(repository.get(janitorAgent.id)).resolves.toMatchObject({
+      toolIds: ['janitor.health'],
+    });
+  });
+
+  it('preserves an existing unavailable assignment through an unrelated edit', async () => {
+    const repository = new LocalAgentRepository(globalThis.localStorage, toolRegistry);
+    globalThis.localStorage.setItem(
+      'iris.agents.config.v2',
+      JSON.stringify([{ ...janitorAgent, toolIds: ['janitor.health', 'not.a.real.tool'] }]),
+    );
+    const [stored] = await repository.list();
+    await repository.save({ ...stored!, name: 'Renamed while the provider is offline' });
+    const reloaded = await repository.get(janitorAgent.id);
+    expect(reloaded?.name).toBe('Renamed while the provider is offline');
+    expect(reloaded?.toolIds).toEqual(['janitor.health', 'not.a.real.tool']);
+  });
+
+  it('keeps a rule that targets an unregistered tool ID instead of hiding every rule', async () => {
     const repository = new LocalPermissionRuleRepository(globalThis.localStorage, toolRegistry);
     globalThis.localStorage.setItem(
       'iris.permissions.rules.v1',
@@ -179,7 +215,9 @@ describe('legacy tool ID compatibility boundary', () => {
         { id: 'r1', agentId: janitorAgent.id, toolId: 'ghost.tool', decision: 'ask' },
       ]),
     );
-    await expect(repository.list()).rejects.toThrow(/unknown or unavailable tool ID "ghost.tool"/);
+    await expect(repository.list()).resolves.toEqual([
+      { id: 'r1', agentId: janitorAgent.id, toolId: 'ghost.tool', decision: 'ask' },
+    ]);
   });
 
   it('canonicalizes a saved legacy configuration and never writes the legacy ID back', async () => {
@@ -205,15 +243,19 @@ describe('legacy tool ID compatibility boundary', () => {
     expect(first[0]?.toolIds).toEqual(['cortex.delegate-subagent', 'janitor.health']);
   });
 
-  it('rejects a mixed document that carries both a legacy and an unregistered ID', async () => {
+  it('maps a legacy ID in a document that also carries an unpublished ID', async () => {
     const repository = new LocalAgentRepository(globalThis.localStorage, toolRegistry);
     globalThis.localStorage.setItem(
       'iris.agents.config.v2',
       JSON.stringify([{ ...janitorAgent, toolIds: ['subagent.delegate', 'totally.unknown'] }]),
     );
-    await expect(repository.list()).rejects.toThrow(/totally\.unknown/);
-    // Controlled invalid: the legacy ID is not silently salvaged out of a broken document.
+    const agents = await repository.list();
+    // Mapping still happens in place; the unpublished identity is reported, not salvaged away.
+    expect(agents[0]?.toolIds).toEqual(['cortex.delegate-subagent', 'totally.unknown']);
     expect(globalThis.localStorage.getItem('iris.agents.config.v2')).toContain('totally.unknown');
+    expect(resolveConfiguredToolIds(agents[0]!.toolIds, toolRegistry).unavailable).toEqual([
+      'totally.unknown',
+    ]);
   });
 
   it('rejects two rules that disagree after mapping instead of silently picking one', async () => {

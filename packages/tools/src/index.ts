@@ -264,20 +264,63 @@ export class ToolRegistry {
   }
 }
 
-/** Configuration/migration boundary only. Runtime lookup and permission evaluation stay exact. */
-export function canonicalConfiguredToolId(id: string, registry: ToolRegistry): string {
-  const canonical = Object.hasOwn(legacyToolIds, id) ? legacyToolIds[id] : id;
-  if (!registry.get(canonical)) throw new InvalidToolConfigurationError(id);
-  return canonical;
+export interface ConfiguredToolIds {
+  /** Every configured identity after legacy translation, in configuration order, deduplicated. */
+  ids: string[];
+  /** Configured identities the registry does not currently publish (an unreachable provider). */
+  unavailable: string[];
 }
 
-export function canonicalConfiguredToolIds(ids: readonly string[], registry: ToolRegistry): string[] {
-  return [...new Set(ids.map((id) => canonicalConfiguredToolId(id, registry)))];
+/**
+ * Resolve configured identities without deciding that an unavailable provider invalidates them.
+ * An MCP server that is unreachable at start-up still owns the tools an agent was granted, so the
+ * assignment is kept and reported instead of thrown away: dropping it would rewrite the agent's
+ * authority merely because a provider was down, and one unreachable server must never hide every
+ * other agent in the workspace.
+ */
+export function resolveConfiguredToolIds(
+  ids: readonly string[],
+  registry: ToolRegistry,
+): ConfiguredToolIds {
+  const canonical = [
+    ...new Set(ids.map((id) => (Object.hasOwn(legacyToolIds, id) ? legacyToolIds[id] : id))),
+  ];
+  return { ids: canonical, unavailable: canonical.filter((id) => !registry.get(id)) };
+}
+
+/** The configured identities to read and persist. See {@link resolveConfiguredToolIds}. */
+export function canonicalConfiguredToolIds(
+  ids: readonly string[],
+  registry: ToolRegistry,
+): string[] {
+  return resolveConfiguredToolIds(ids, registry).ids;
+}
+
+/** One configured identity, translated but never rejected for being unavailable right now. */
+function canonicalConfiguredToolIdOrSelf(id: string, registry: ToolRegistry): string {
+  return resolveConfiguredToolIds([id], registry).ids[0] ?? id;
+}
+
+/**
+ * Writes stay exact: a newly assigned identity must exist now. An identity that was already
+ * persisted for this agent survives an unrelated edit while its provider is unreachable.
+ */
+export function assertAvailableConfiguredToolIds(
+  ids: readonly string[],
+  registry: ToolRegistry,
+  alreadyAssigned: readonly string[] = [],
+): void {
+  const existing = new Set(alreadyAssigned);
+  for (const id of resolveConfiguredToolIds(ids, registry).unavailable) {
+    if (!existing.has(id)) throw new InvalidToolConfigurationError(id);
+  }
 }
 
 /**
  * Preserve every rule ID and decision, including denies. A legacy/canonical collision is ambiguous:
  * reject conflicting decisions instead of allowing repository order to turn a deny into an allow.
+ * A rule that targets a provider which is unavailable right now keeps its identity: it cannot match
+ * a tool the registry does not publish, and dropping it would discard a recorded decision.
  */
 export function canonicalConfiguredPermissionRules(
   rules: readonly PermissionRule[],
@@ -285,7 +328,7 @@ export function canonicalConfiguredPermissionRules(
 ): PermissionRule[] {
   const canonical = rules.map((rule) => ({
     ...rule,
-    toolId: rule.toolId === '*' ? '*' : canonicalConfiguredToolId(rule.toolId, registry),
+    toolId: rule.toolId === '*' ? '*' : canonicalConfiguredToolIdOrSelf(rule.toolId, registry),
   }));
   for (const rule of canonical) {
     if (canonical.some((other) => other.agentId === rule.agentId &&
