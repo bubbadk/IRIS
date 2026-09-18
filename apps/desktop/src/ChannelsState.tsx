@@ -6,10 +6,12 @@ import {
   sendTelegramMessage,
   sendDiscordWebhookMessage,
   loadDurableChannelInbox,
+  loadChannelAttention,
   pollChannelOnce,
   ChannelEffectCompletedError,
   ChannelEffectRetryableError,
   type IncomingChannelMessage,
+  type ChannelUpdateAttention,
   type ChannelsConfig,
 } from './bridgeGateway';
 import { resolveRemoteApproval } from './channelApprovals';
@@ -22,6 +24,15 @@ export function ChannelsWindow() {
   const [testStatus, setTestStatus] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [inbox, setInbox] = useState<IncomingChannelMessage[]>([]);
+  /**
+   * Durable needs-attention truth (`unknown` / `poison` / `completed-with-warning` records).
+   *
+   * A dropped update is classified once and retained, so this is not a transient poll result: it is
+   * read whenever the window opens — independently of whether polling is configured — and refreshed
+   * after every poll. Reading it only from a poll would hide an update that was dropped before a
+   * restart, and disabling Telegram would hide it again.
+   */
+  const [attention, setAttention] = useState<ChannelUpdateAttention[]>([]);
 
   function handleSave(next: ChannelsConfig) {
     setConfig(next);
@@ -31,11 +42,16 @@ export function ChannelsWindow() {
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     let active = true;
-    void Promise.all([loadChannelConnection(), loadDurableChannelInbox()])
-      .then(([next, messages]) => {
+    void Promise.all([
+      loadChannelConnection(),
+      loadDurableChannelInbox(),
+      loadChannelAttention(),
+    ])
+      .then(([next, messages, records]) => {
         if (active) {
           setConfig(next);
           setInbox(messages);
+          setAttention(records);
           setLoaded(true);
         }
       })
@@ -90,6 +106,8 @@ export function ChannelsWindow() {
         const notice =
           result.error ?? (result.status !== 'completed' ? `Channel polling ${result.status}.` : null);
         if (notice) setTestStatus(notice);
+        const records = await loadChannelAttention();
+        if (active) setAttention(records);
         setInbox(await loadDurableChannelInbox());
       } catch {
         if (active) setTestStatus('Channel inbox could not be loaded. Existing data was retained.');
@@ -193,6 +211,17 @@ export function ChannelsWindow() {
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {attention.length > 0 && (
+        <div className="channels-status-banner" role="status">
+          <span>
+            {attention.length === 1
+              ? 'One channel update needs attention: it was not applied, and the record is retained across restarts.'
+              : `${attention.length} channel updates need attention: they were not applied, and the records are retained across restarts.`}{' '}
+            {attention.map((entry) => `Update ${entry.updateId}: ${entry.reason}`).join(' ')}
+          </span>
         </div>
       )}
 

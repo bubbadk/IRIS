@@ -17,6 +17,7 @@ import {
   spreadsheetDocument,
   type DocumentExportFormat,
 } from './documentExport';
+import { parseCsv } from './csv';
 
 /**
  * Phase 2E regression suite for document export integrity.
@@ -260,6 +261,23 @@ describe('M-18 CSV parsing and generation', () => {
     const source = 'name,note\r\n"Doe, Jane","say ""hi"" now"\r\n,empty\r\n"multi\nline",tail';
     const safe = csvDocument(makeDocument(source, 'csv'), source);
     expect(safe.type).toContain('text/csv');
+  });
+
+  it('exports content that ends with a blank record instead of refusing it', async () => {
+    // Regression: the writer never terminated the last record, so a trailing blank record was
+    // unrecoverable and the completeness gate refused these valid documents, telling the user the
+    // export was incomplete and unsaved. Every input here was previously refused.
+    for (const source of ['\n', '\r\n', '\n\n', 'a\n\n', 'a\r\n\r\n', 'a,b\n\n\n', '"q"\n\n']) {
+      const exported = await blobText(csvDocument(makeDocument(source, 'csv'), source));
+      expect(parseCsv(exported), JSON.stringify(source)).toEqual(parseCsv(source));
+    }
+  });
+
+  it('terminates the final record so the written file round-trips through the parser', async () => {
+    const source = 'a,b\nc,d';
+    const exported = await blobText(csvDocument(makeDocument(source, 'csv'), source));
+    expect(exported.endsWith('\r\n')).toBe(true);
+    expect(parseCsv(exported)).toEqual(parseCsv(source));
   });
 
   it('keeps a quoted comma inside a single XLSX cell', async () => {
