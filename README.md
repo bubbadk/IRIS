@@ -27,7 +27,7 @@
 
 Agents in IRIS do durable work rather than single replies. A project holds an ordered task queue with dependencies and acceptance criteria. A schedule keeps recurring work running under exclusive ownership. Every execution-capable tool call passes through an explicit permission policy, and anything you mark as requiring approval stops and waits for you before it happens. Interrupted work is reported rather than silently repeated.
 
-IRIS is **local-first**. Conversations, memory, project state, documents and knowledge live in a local SQLite store; provider credentials are written to the operating system keyring. The model layer is a provider contract, so you can run agents against a local Ollama model or point them at a hosted provider — OpenRouter, OpenAI, Anthropic or Gemini.
+IRIS is **local-first**. Conversations, memory, project state, documents and knowledge stay on your machine in local durable storage, and provider credentials are written to the operating system keyring. The model layer is a provider contract, so you can run agents against a local Ollama model or point them at a hosted provider — OpenRouter, OpenAI, Anthropic or Gemini.
 
 IRIS does not fabricate activity to look busy. If a provider is unreachable, a tool is unconfigured or a capability is missing, the interface says so. Empty state is preferred over simulated state.
 
@@ -80,7 +80,7 @@ The 0.3.x line as a whole introduced durable projects and schedules, cross-proce
 - **Durable memories.** Ordinary memories are retrieved with lexical and embedding search and hybrid ranking.
 - **Approved project knowledge.** Global and project facts and preferences require human approval, carry provenance and source attribution, keep immutable revisions, support optional expiry, and replace conflicting entries atomically.
 - **Project precedence.** Project knowledge takes precedence over global knowledge in a project's context.
-- **Inspectable retrieval.** The Memory window shows what was stored and why it was retrieved, including the Memory Constellation view of what an agent actually remembers.
+- **Inspectable retrieval.** The Memory window shows what is stored and which memories an agent retrieved, with click-through provenance and the Memory Constellation view of what an agent actually remembers.
 - **A benchmark you can run.** The FP-AMB evaluation runner ships in the app; see [Memory benchmark](#memory-benchmark-measured).
 
 ### Documents
