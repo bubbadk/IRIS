@@ -451,6 +451,7 @@ mod tests {
         assert_eq!(std::fs::read(&victim).unwrap(), b"untouched");
     }
 
+    #[cfg(unix)]
     #[test]
     fn refuses_a_destination_whose_directory_was_replaced() {
         let tree = TempTree::new("toctou");

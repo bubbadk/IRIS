@@ -205,6 +205,7 @@ mod tests {
         assert_eq!(process_own_pid(), std::process::id());
     }
 
+    #[cfg(unix)]
     #[test]
     fn this_process_is_alive_without_a_reason() {
         let verdict = process_is_alive(std::process::id());
@@ -213,6 +214,7 @@ mod tests {
         assert_eq!(verdict.reason, None);
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_deterministically_missing_positive_pid_is_dead_without_a_reason() {
         // Any pid above every mainstream Unix pid_max (Linux caps at 2^22, macOS far lower)
@@ -221,6 +223,20 @@ mod tests {
         assert_eq!(verdict, ProcessLiveness::dead());
         assert_eq!(verdict.status, ProcessLivenessStatus::Dead);
         assert_eq!(verdict.reason, None);
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn liveness_probing_degrades_to_unknown_rather_than_guessing() {
+        // No portable probe is wired up off Unix, so every well-formed pid - the caller's own
+        // included - must answer `unknown` with a reason instead of guessing alive or dead.
+        for pid in [std::process::id(), 1_000_000_000] {
+            let verdict = process_is_alive(pid);
+            assert_eq!(verdict.status, ProcessLivenessStatus::Unknown, "pid {pid}");
+            let reason = verdict.reason.expect("unknown verdicts carry a reason");
+            assert!(!reason.trim().is_empty(), "pid {pid}");
+            assert!(reason.contains("not implemented"), "pid {pid}: {reason}");
+        }
     }
 
     #[test]
