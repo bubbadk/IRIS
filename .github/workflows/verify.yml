@@ -62,3 +62,34 @@ jobs:
 
       - name: Run Rust tests
         run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+  # TEMPORARY (Phase 2L.1): validates the native suite on macOS and Windows before the v0.3.1
+  # release tag is created, because the hosted Release workflow is the only other place those
+  # platforms are exercised. Remove this job before the final merge to main.
+  platform-rust-tests:
+    name: Platform Rust tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml

@@ -311,6 +311,7 @@ pub fn save_document_export(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
     struct TempTree(PathBuf);
@@ -434,6 +435,7 @@ mod tests {
         assert_eq!(std::fs::read(&target).unwrap(), b"original");
     }
 
+    #[cfg(unix)]
     #[test]
     fn refuses_a_symlinked_destination() {
         let tree = TempTree::new("symlink");
