@@ -1,13 +1,16 @@
 # IRIS Current State
 
-Updated 2026-09-18. **Release candidate version: 0.3.0.** Source, built binaries and published
-releases are separate. The current tree is the **IRIS 0.3.0 release candidate**: a large body of
-post-0.2.11 work that passed the Phase 2J final adversarial release gate and was frozen by Phase 2K.
-Phase 2K.1 applied the explicit 0.3.0 version decision across all version metadata, refreshed this
-documentation and `README.md`, finalized the release notes, staged exactly the intended candidate and
-created the single release-candidate commit on `main`. **0.3.0 is not published** — no tag, push,
-published release or release-workflow invocation has occurred; tagging, signing and publication belong
-exclusively to Phase 2L.
+Updated 2026-09-18. **Release version: 0.3.1.** Source, built binaries and published
+releases are separate. The current tree is the **IRIS 0.3.1 release**: the 0.3.0 candidate — a large
+body of post-0.2.11 work that passed the Phase 2J final adversarial release gate — plus the
+platform-portability repairs that the hosted `Release` workflow proved mandatory before any platform
+could build and sign. Phase 2K.1 applied the 0.3.0 version decision across all version metadata and
+committed the candidate on `main`; Phase 2L tagged and pushed that commit as `v0.3.0`, and its `Release`
+run then failed on all three platform workers. **`v0.3.0` is a source tag with no published release**,
+and it was deliberately left in place rather than moved or deleted. Phase 2L.1 repairs the defects,
+applies 0.3.1 across all version metadata, refreshes this documentation and `README.md`, and releases
+the repaired build. Whether a release object exists for a tag is observable on the GitHub Releases
+page; this file describes the source tree.
 
 ## Release gate status
 
@@ -121,10 +124,11 @@ this release.
 
 ## Debt, blockers and next work
 
-- **Release version: 0.3.0 — release candidate, committed, not published.** The explicit user version
-  decision is applied and synchronized across the workspace manifests, `tauri.conf.json`, `Cargo.toml`
-  and this file. Publication (tag, signed build, GitHub release) is Phase 2L and still requires a
-  fresh, explicit human approval for that exact invocation.
+- **Release version: 0.3.1 — repairs applied, synchronized and prepared for publication.** The explicit
+  user version decision is applied and synchronized across the workspace manifests, `tauri.conf.json`,
+  `Cargo.toml`, `Cargo.lock` and this file. `v0.3.0` remains a source tag with no published release.
+  Publication (tag, signed build, GitHub release) still requires a fresh, explicit human approval for
+  that exact invocation.
 - An unintended partial QC-3 expansion was removed from active source and preserved separately in
   `/mnt/ai/IRIS-deferred/QC3-2026-09-12-z290fbrp`. It is unfinished and is not accepted evidence.
 - Independent semantic review and permission-gated test-command execution (QC-3) remain missing.
@@ -137,5 +141,5 @@ this release.
 - Onboarding does not validate provider connections or save entered secrets through the credential
   store during setup; unified account/channel/profile/security onboarding remains partial.
 - macOS/Windows target machines, production updater signing keys and fresh explicit publication
-  approval are external prerequisites. The 0.3.0 release-candidate commit exists locally on `main`;
-  no push, tag, PR, workflow invocation or release publication occurred.
+  approval are external prerequisites. The 0.3.0 commit is published as the `v0.3.0` source tag with
+  no release object; `v0.3.1` carries the platform repairs and is the version this tree releases.

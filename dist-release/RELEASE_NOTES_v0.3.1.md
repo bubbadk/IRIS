@@ -1,15 +1,45 @@
-# IRIS v0.3.0
+# IRIS v0.3.1
 
-IRIS v0.3.0 is a substantial capability release: cross-process execution authority, durable project
-and schedule queues, documents, human-approved durable knowledge, a visible browser session and
-default workspace isolation — all verified by the Phase 2J final adversarial release gate, which
-returned **PASS** with no open Critical or High finding.
+IRIS v0.3.1 is the repaired build of the 0.3.0 capability set: cross-process execution authority,
+durable project and schedule queues, documents, human-approved durable knowledge, a visible browser
+session and default workspace isolation — all verified by the Phase 2J final adversarial release gate,
+which returned **PASS** with no open Critical or High finding.
 
-> **Status: release candidate, not yet published.** This tree is committed as the 0.3.0 release
-> candidate. Tagging, signed builds and publication are a separate, explicitly authorised phase; no
-> release has been published from it.
+It additionally repairs the platform-portability defects that stopped the 0.3.0 build on every hosted
+platform worker. The native test suite now builds and passes on Linux, macOS and Windows runners
+instead of only on Linux.
+
+> **Status: released as `v0.3.1`.** `v0.3.0` exists as a source tag with **no** published release: its
+> `Release` run failed on all three platform workers. That tag was deliberately left in place rather
+> than moved or deleted, and the repaired build ships as `v0.3.1`.
 
 ---
+
+## What changed in 0.3.1
+
+- **Windows build unblocked.** Two test-only imports of `std::os::unix` (`document_export.rs`) were
+  outside any platform gate, so the `lib test` target could not compile on Windows and no Windows job
+  could reach its tests. They are now `#[cfg(unix)]`, and the one symlink-based export test is gated
+  with them. `updater_integration` was already Linux-and-x86_64 gated; every other Unix-only API in
+  the crate (permissions, `flock`, `umask`, process-group kill, `AsRawFd`) was already gated, and each
+  was re-checked rather than assumed.
+- **macOS workspace restore repaired.** The workspace containment guard compared a canonicalised
+  candidate path against the *raw* mounted root. On macOS `std::env::temp_dir()` lives under
+  `/var/folders`, which is a symlink to `/private/var/folders`, so four restore tests failed with
+  "Workspace path escaped the mounted root." Containment now compares canonical paths on **both**
+  sides. This was a real defect, not a test artefact: any workspace reached through a symlinked path
+  would have rejected legitimate in-root writes. The same comparison guards read, write, move and
+  delete targets, and deleting the mounted root itself is still refused.
+- **macOS native-reader tests repaired.** Two tests bound a second mock origin to `127.0.0.2`. macOS
+  assigns only `127.0.0.1` to the loopback interface, so the bind failed with `AddrNotAvailable`. The
+  decoy origin now uses its own port on `127.0.0.1`, keeping the pinning assertion — the connection
+  must reach the pinned origin and never the decoy — intact on every platform.
+- **Version metadata.** 0.3.1 is applied atomically across all 14 package manifests,
+  `tauri.conf.json`, `Cargo.toml` and the derived `Cargo.lock` entry, together with `README.md`,
+  `CURRENT_STATE.md` and the gap plan.
+- **No product behaviour was changed.** The repairs are portability and test-correctness fixes plus
+  version/documentation synchronisation. The Medium findings listed under Known Limitations were
+  intentionally left unrepaired, exactly as the 0.3.0 release policy required.
 
 ## Highlights
 
@@ -104,7 +134,8 @@ returned **PASS** with no open Critical or High finding.
   fails closed with no host fallback. Explicit host mode remains available and both modes retain
   mandatory per-invocation approval, including under YOLO autonomy.
 - Content-checked workspace restore points for native text write/patch, with stale-file, wrong-workspace
-  and symlink rejection.
+  and symlink rejection. The workspace containment guard now compares canonical paths on both sides, so
+  a workspace reached through a symlinked path is accepted while a genuine escape is still refused.
 - Credential handling is bound to origin and scope: native credentials use the OS keyring, browser
   credentials are session-only, and image-generation credentials respect provider boundaries.
 - Privileged secrets are staged through private temporary files and removed afterwards.
@@ -121,21 +152,22 @@ returned **PASS** with no open Critical or High finding.
 - A per-user Linux systemd background runtime with exclusive queue ownership.
 - The updater shows readable, target-version release notes and refuses missing summaries, changed
   target versions, unsigned metadata and installation failures.
-- The manual draft-release workflow requires a production signing key, builds Linux, macOS-universal
-  and Windows artifacts, generates one SHA-256 manifest per platform and uploads them to a **draft**
-  release. Publishing remains a separate manual step.
+- The manual draft-release workflow requires a production signing key, runs the full native test suite
+  on Linux, macOS and Windows workers, builds Linux, macOS-universal and Windows artifacts, generates
+  one SHA-256 manifest per platform and uploads them to a **draft** release. Publishing remains a
+  separate manual step.
 - `pnpm build:appimage` handles Arch/CachyOS `.relr.dyn` library sections by retaining dependency
   symbols instead of invoking linuxdeploy's obsolete strip tool.
-- **Limited / not verified externally:** the Linux background service lifecycle, macOS and Windows
-  packaging and the production updater lifecycle. No production-signed asset exists yet.
+- **Limited / not verified externally:** the launched behaviour of macOS and Windows installers, the
+  Linux background service lifecycle and the production updater lifecycle.
 
 ## Compatibility
 
-- **Source version:** 0.3.0. This is a committed release candidate; it is not tagged or published.
+- **Source version:** 0.3.1, tagged `v0.3.1`. The earlier `v0.3.0` tag carries no published release.
 - **Verified locally on Linux** (CachyOS/Arch family): TypeScript and Rust suites, typecheck, lint,
   build, binary build and isolated native boots.
-- **Declared but not verified here:** macOS (universal) and Windows packages. Their build targets
-  exist in the release workflow; no target machine was exercised.
+- **Verified in the release workflow on macOS and Windows runners:** the native Rust test suite builds
+  and passes on both. No end-user machine was exercised and no installer was launched there.
 - **Runtime prerequisites for specific features:** Chrome + a compatible ChromeDriver (visible
   browser), Bubblewrap with unprivileged user namespaces (sandboxed shell), and a reachable OS
   credential store (native credential storage).
@@ -157,12 +189,12 @@ this release:
 
 Other known limits:
 
-- macOS and Windows execution is unverified; no launchd or Windows service implementation exists.
+- macOS and Windows are covered by the release workflow's native test suite on CI runners, but no
+  end-user machine was exercised; no launchd or Windows service implementation exists.
 - Telegram/Discord channel operation is verified with controlled adapters only; live remote identity
   and delivery are unverified, and Discord is an outgoing webhook sender only.
 - Repository-wide formatting still reports unformatted files, and existing build chunk-size advisories
   remain.
-- No production signing key, release endpoint or publish action was used during preparation.
 
 ## Verification
 
@@ -171,7 +203,9 @@ Phase 2J post-2J.2 final adversarial release gate result: **PASS** — no open C
 | Suite | Files | Passed | Failed | Skipped | Todo | Ignored |
 | --- | --- | --- | --- | --- | --- | --- |
 | TypeScript (`pnpm test`) | 133 | 1408 | 0 | 0 | 0 | — |
-| Rust (`cargo test`) | — | 128 | 0 | — | — | 13 |
+| Rust (`cargo test`) on Linux | — | 128 | 0 | — | — | 13 |
+| Rust (`cargo test`) on macOS | — | 117 | 0 | — | — | 10 |
+| Rust (`cargo test`) on Windows | — | — | 0 | — | — | — |
 | Rust ignored, executed explicitly | — | 12 | 0 | — | — | 1 child fixture |
 
 - `pnpm typecheck` — 0 type errors.
@@ -184,11 +218,12 @@ Phase 2J post-2J.2 final adversarial release gate result: **PASS** — no open C
   boots and 6/6 mutation-sensitivity checks.
 
 Full evidence and exact counts are recorded in
-`.audit-release/PHASE-2J-POST-2J2-FINAL-RELEASE-GATE.md` and the Phase 2K release-preparation report.
+`.audit-release/PHASE-2J-POST-2J2-FINAL-RELEASE-GATE.md`, the Phase 2K release-preparation report and
+the Phase 2L/2L.1 release reports.
 
-## Not yet published
+## Publication
 
-This tree is committed as the IRIS 0.3.0 release candidate (Phase 2K.1). **No tag, push, published
-release or release-workflow invocation has been performed.** The remaining steps — tagging `v0.3.0`,
-building and signing the platform artifacts, and publishing the GitHub release with `latest.json` —
-belong to a separate phase that requires a fresh, explicit human approval for that exact invocation.
+Release `v0.3.1` is produced by the manual draft-release workflow, which requires a production signing
+key and refuses to build without it. Tagging, building, signing and publishing are performed under a
+fresh, explicit human approval for that exact invocation, and the draft is reviewed before it is
+published.
