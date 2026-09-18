@@ -29,6 +29,7 @@ import {
   permissionRuleRepository,
 } from './persistence';
 import { listSkills, subscribeSkills } from './skills';
+import { unavailableAgentTools } from './toolAvailability';
 import { toolRegistry } from './tooling';
 import { chatSessions, useChatSession } from './useChatSession';
 import { recordUserActivity } from './userActivity';
@@ -42,6 +43,8 @@ export function useAgentsWorkspace() {
   const [showEditor, setShowEditor] = useState(false);
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [loadFailure, setLoadFailure] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -60,6 +63,12 @@ export function useAgentsWorkspace() {
   const [editorSkillIds, setEditorSkillIds] = useState<string[]>([]);
   const [capabilityPopup, setCapabilityPopup] = useState<'tools' | 'skills' | null>(null);
   const [availableAgentTools, setAvailableAgentTools] = useState(() => toolRegistry.list());
+  // Assignments that no connected provider publishes right now. Reported, never silently dropped:
+  // the durable agent configuration keeps them and they return when the provider reconnects.
+  const unavailableTools = useMemo(
+    () => unavailableAgentTools(agents, availableAgentTools),
+    [agents, availableAgentTools],
+  );
   const [editorError, setEditorError] = useState('');
   const [draftMessage, setDraftMessage] = useState('');
   const [contextPacks, setContextPacks] = useState<ContextPack[]>([]);
@@ -172,8 +181,11 @@ export function useAgentsWorkspace() {
 
   useEffect(() => {
     let active = true;
-    void Promise.all([agentRepository.list(), permissionRuleRepository.list()]).then(
-      async ([storedAgents, storedRules]) => {
+    // A failed read must name itself. Without this the workspace stayed on "Loading agents…"
+    // forever, which reads as "everything is gone" instead of showing the actual problem.
+    setLoadFailure('');
+    void Promise.all([agentRepository.list(), permissionRuleRepository.list()])
+      .then(async ([storedAgents, storedRules]) => {
         const normalized = await Promise.all(storedAgents.map(normalizeDesktopAgent));
         const createdRules = await ensureAssignedToolsRequireApproval(
           permissionRuleRepository,
@@ -189,12 +201,20 @@ export function useAgentsWorkspace() {
         setSelectedAgentId(normalized[0]?.id ?? null);
         setShowEditor(normalized.length === 0);
         setLoaded(true);
-      },
-    );
+      })
+      .catch((failure: unknown) => {
+        if (!active) return;
+        setLoadFailure(
+          failure instanceof Error && failure.message
+            ? failure.message
+            : 'The agent workspace could not be read.',
+        );
+        setLoaded(true);
+      });
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadAttempt]);
 
   useEffect(() => {
     setShowContext(false);
@@ -515,6 +535,9 @@ export function useAgentsWorkspace() {
     setCapabilityPopup,
     availableAgentTools,
     setAvailableAgentTools,
+    unavailableTools,
+    loadFailure,
+    retryLoad: () => setLoadAttempt((attempt) => attempt + 1),
     editorError,
     setEditorError,
     draftMessage,

@@ -364,6 +364,27 @@ export function AgentEditor({
                   </article>
                 );
               })}
+              {editorToolIds
+                .filter((toolId) => !availableAgentTools.some((tool) => tool.id === toolId))
+                .map((toolId) => (
+                  <article className="agent-tool-option unavailable" key={toolId}>
+                    <label className="agent-tool-assignment">
+                      <input
+                        type="checkbox"
+                        checked
+                        onChange={() => toggleEditorTool(toolId, false)}
+                      />
+                      <span>
+                        <strong>{toolId}</strong>
+                        <small>
+                          Unavailable right now — the provider that publishes it is not connected.
+                          The assignment is kept, so it returns when that server does.
+                        </small>
+                      </span>
+                      <em>unavailable</em>
+                    </label>
+                  </article>
+                ))}
             </div>
           </section>
           <section className="agent-capabilities" aria-label="Agent skills">

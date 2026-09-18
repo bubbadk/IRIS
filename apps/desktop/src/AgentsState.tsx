@@ -21,6 +21,9 @@ export function AgentsState() {
     agents,
     providers,
     loaded,
+    unavailableTools,
+    loadFailure,
+    retryLoad,
     historyLoaded,
     draftMessage,
     setDraftMessage,
@@ -70,14 +73,44 @@ export function AgentsState() {
         </div>
         <button
           className="soft-button primary-button"
-          disabled={busy || Boolean(pendingApproval)}
+          disabled={busy || Boolean(pendingApproval) || Boolean(loadFailure)}
           onClick={beginNewAgent}
         >
           ＋ New agent
         </button>
       </div>
       <AgentEditor editor={state} />
-      {!loaded ? (
+      {unavailableTools.length > 0 && (
+        <div className="agent-tool-availability" role="status">
+          <strong>
+            {unavailableTools.length === 1
+              ? '1 assigned tool is unavailable right now'
+              : `${unavailableTools.length} assigned tools are unavailable right now`}
+          </strong>
+          <p>
+            {unavailableTools
+              .map((entry) => `${entry.agentName} → ${entry.toolId}`)
+              .join(' · ')}
+          </p>
+          <p>
+            The provider that publishes them is not connected, so they cannot run yet. Every
+            assignment is kept and returns as soon as that server reconnects.
+          </p>
+        </div>
+      )}
+      {loadFailure ? (
+        <div className="agent-load-failure" role="alert">
+          <strong>The agent workspace could not be read</strong>
+          <p>{loadFailure}</p>
+          <p>
+            Nothing was deleted by this failure: IRIS stopped before changing anything. Repair the
+            cause above, then try again.
+          </p>
+          <button className="soft-button" onClick={retryLoad}>
+            Try again
+          </button>
+        </div>
+      ) : !loaded ? (
         <div className="agent-empty">
           <strong>Loading agents…</strong>
         </div>

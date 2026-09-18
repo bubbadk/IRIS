@@ -297,6 +297,59 @@
   font-size: 0.86rem;
   line-height: 1.45;
 }
+.agent-tool-availability {
+  margin: 0.8rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid rgba(177, 133, 74, 0.35);
+  border-radius: 0.8rem;
+  background: rgba(236, 211, 167, 0.22);
+}
+.agent-tool-availability strong {
+  color: #77552e;
+  font-size: 11px;
+}
+.agent-tool-availability p {
+  margin: 5px 0 0;
+  color: #7e6c4d;
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.agent-load-failure {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  margin: 0.8rem 0 0;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid rgba(159, 74, 62, 0.35);
+  border-radius: 0.8rem;
+  background: rgba(196, 108, 94, 0.1);
+}
+.agent-load-failure strong {
+  color: #8d4034;
+  font-size: 11px;
+}
+.agent-load-failure p {
+  margin: 0;
+  color: #7c4a41;
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.agent-editor .agent-tool-option.unavailable {
+  border-style: dashed;
+  border-color: rgba(177, 133, 74, 0.4);
+  background: rgba(236, 211, 167, 0.18);
+}
+.agent-editor .agent-tool-option.unavailable small {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+.agent-editor .agent-tool-option.unavailable em {
+  background: rgba(177, 133, 74, 0.2);
+  color: #77552e;
+}
 .agent-tool-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
