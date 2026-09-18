@@ -156,7 +156,7 @@ IRIS ships the benchmark runner, the corpus and the grader, so the number below 
 - **Measured report:** [docs/verification/retrieval-baseline.json](docs/verification/retrieval-baseline.json) records the commit, working-tree state and source hashes.
 - **What it measures:** whether the accepted answer is present in the retrieved records, not whether an agent writes the correct final answer. The grading is word-boundary based.
 
-**Measured retrieval coverage: 70.1%** (155 of the 221 automatically gradeable questions) on the 262-question FP-AMB suite, over a 60-session, 739-turn corpus of 819,273 indexed tokens. Measured retrieval latency is 1.83 ms per query on local CPU; latency varies by machine and run.
+**Measured retrieval coverage: 70.1%** (155 of the 221 automatically gradeable questions) on the 262-question [FP-AMB suite](https://github.com/munch2u-a11y/FP-AMB), over a 60-session, 739-turn corpus of 819,273 indexed tokens. Measured retrieval latency is 1.83 ms per query on local CPU; latency varies by machine and run.
 
 | Category                                     | Retrieval coverage |    Result     |
 | :------------------------------------------- | :----------------: | :-----------: |
