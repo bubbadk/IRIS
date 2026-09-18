@@ -17,12 +17,25 @@ instead of only on Linux.
 
 ## What changed in 0.3.1
 
-- **Windows build unblocked.** Two test-only imports of `std::os::unix` (`document_export.rs`) were
+- **Windows compile unblocked.** Two test-only imports of `std::os::unix` (`document_export.rs`) were
   outside any platform gate, so the `lib test` target could not compile on Windows and no Windows job
   could reach its tests. They are now `#[cfg(unix)]`, and the one symlink-based export test is gated
   with them. `updater_integration` was already Linux-and-x86_64 gated; every other Unix-only API in
   the crate (permissions, `flock`, `umask`, process-group kill, `AsRawFd`) was already gated, and each
   was re-checked rather than assumed.
+- **Windows test binaries now load.** With the compile error gone, every Windows test binary still
+  aborted at load with `STATUS_ENTRYPOINT_NOT_FOUND` (`0xc0000139`) before running a single test.
+  Cargo gives test binaries no manifest, so the loader bound `comctl32` v5, which has no
+  `TaskDialogIndirect` entry point — the one tauri's dialog and tray stack imports. The build now
+  embeds a Common-Controls v6 manifest into test binaries when `IRIS_TEST_MANIFEST` is set, which the
+  release and verify workflows do for the Windows test step only. The application manifest, and
+  therefore the app's visual styles, is untouched.
+- **Three Unix-assuming tests gated.** `kill(pid, 0)` liveness probing is Unix-only, so off Unix the
+  probe deliberately answers `unknown` with a reason instead of guessing; the two tests asserting
+  `alive` and `dead` are now `#[cfg(unix)]`, and a new `#[cfg(not(unix))]` test covers the
+  conservative path that previously had no coverage at all. The export test that replaces an
+  authorized directory at the same path is also Unix-only, because the device-and-inode identity it
+  depends on has no non-Unix implementation here.
 - **macOS workspace restore repaired.** The workspace containment guard compared a canonicalised
   candidate path against the *raw* mounted root. On macOS `std::env::temp_dir()` lives under
   `/var/folders`, which is a symlink to `/private/var/folders`, so four restore tests failed with
@@ -37,9 +50,9 @@ instead of only on Linux.
 - **Version metadata.** 0.3.1 is applied atomically across all 14 package manifests,
   `tauri.conf.json`, `Cargo.toml` and the derived `Cargo.lock` entry, together with `README.md`,
   `CURRENT_STATE.md` and the gap plan.
-- **No product behaviour was changed.** The repairs are portability and test-correctness fixes plus
-  version/documentation synchronisation. The Medium findings listed under Known Limitations were
-  intentionally left unrepaired, exactly as the 0.3.0 release policy required.
+- **No product behaviour was changed.** The repairs are portability, test-linkage and test-correctness
+  fixes plus version/documentation synchronisation. The Medium findings listed under Known Limitations
+  were intentionally left unrepaired, exactly as the 0.3.0 release policy required.
 
 ## Highlights
 
@@ -203,10 +216,17 @@ Phase 2J post-2J.2 final adversarial release gate result: **PASS** — no open C
 | Suite | Files | Passed | Failed | Skipped | Todo | Ignored |
 | --- | --- | --- | --- | --- | --- | --- |
 | TypeScript (`pnpm test`) | 133 | 1408 | 0 | 0 | 0 | — |
-| Rust (`cargo test`) on Linux | — | 128 | 0 | — | — | 13 |
-| Rust (`cargo test`) on macOS | — | 117 | 0 | — | — | 10 |
-| Rust (`cargo test`) on Windows | — | — | 0 | — | — | — |
-| Rust ignored, executed explicitly | — | 12 | 0 | — | — | 1 child fixture |
+| Rust, Linux CachyOS `cargo test` (local) | — | 128 | 0 | — | — | 13 |
+| Rust, `macos-14` runner `cargo test` | — | 123 | 0 | — | — | 10 |
+| Rust, `windows-latest` runner `cargo test --lib` | — | 107 | 0 | — | — | 9 |
+| Rust ignored, executed explicitly (Linux) | — | 12 | 0 | — | — | 1 child fixture |
+
+Platform-gated tests are the reason the totals differ: Unix-only cases (process liveness via
+`kill(pid, 0)`, device-and-inode directory identity, `umask`, `flock`, symlink substitution) run only
+where the platform can support them, and each platform's discarded set is small and enumerated in the
+suite itself. The Windows step runs `--lib` because the manifest that lets a Windows test binary load
+cannot be applied per-target to a bin in the same invocation; the bin and doc test targets contain no
+tests, so no assertion is lost.
 
 - `pnpm typecheck` — 0 type errors.
 - `pnpm lint` (`--max-warnings=0`) — 0 errors, 0 warnings.

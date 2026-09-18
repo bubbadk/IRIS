@@ -25,12 +25,19 @@ Neither phase pushed, tagged or published anything.
 
 ## Latest verified counts
 
-Re-derived by the Phase 2J final gate and re-run after the Phase 2K documentation edits:
+Re-derived by the Phase 2J final gate, re-run after the Phase 2K documentation edits, and re-run on
+hosted runners for the 0.3.1 platform repairs:
 
 - **TypeScript** (`pnpm test`): **133 files / 1408 passed / 0 failed / 0 skipped / 0 todo**.
-- **Rust** (`cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml`): **128 passed / 0 failed /
-  13 ignored**. Twelve of the 13 ignored tests were additionally executed explicitly and passed; the
-  thirteenth is a child-process fixture, not a standalone assertion.
+- **Rust, Linux** (`cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml`): **128 passed /
+  0 failed / 13 ignored**. Twelve of the 13 ignored tests were additionally executed explicitly and
+  passed; the thirteenth is a child-process fixture, not a standalone assertion.
+- **Rust, macOS** (`macos-14` runner): **123 passed / 0 failed / 10 ignored**.
+- **Rust, Windows** (`windows-latest` runner, `--lib`): **107 passed / 0 failed / 9 ignored**. The
+  counts differ per platform because Unix-only cases run only where the platform supports them, and
+  the Windows step is scoped to the lib target because the manifest that lets a Windows test binary
+  load cannot be applied to a bin target in the same invocation. The bin and doc test targets contain
+  no tests.
 - `pnpm typecheck` and `pnpm lint` (`--max-warnings=0`): 0 errors, 0 warnings.
 - `pnpm build` and `pnpm build:binary`: success. Isolated native boots: no panic, repository and
   scheduler initialise, no `PluginInitialization`.
