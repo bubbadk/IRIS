@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- Embedded into TEST binaries only, by build.rs via cargo:rustc-link-arg-tests.
+
+     tauri-build embeds the application manifest into the app binary, but cargo
+     gives test binaries none, so the Windows loader binds comctl32 v5. That
+     version has no TaskDialogIndirect entry point, which tauri's dialog and tray
+     stack imports, so every test binary dies at load with
+     STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139) before a single test runs.
+     Declaring the Common-Controls v6 dependency here is the documented remedy. -->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+        type="win32"
+        name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0"
+        processorArchitecture="*"
+        publicKeyToken="6595b64144ccf1df"
+        language="*"
+      />
+    </dependentAssembly>
+  </dependency>
+</assembly>
