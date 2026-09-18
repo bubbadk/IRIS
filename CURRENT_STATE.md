@@ -1,18 +1,24 @@
 # IRIS Current State
 
-Updated 2026-09-18. **Release version: 0.3.1.** Source, built binaries and published
-releases are separate. The current tree is the **IRIS 0.3.1 release**: the 0.3.0 candidate — a large
-body of post-0.2.11 work that passed the Phase 2J final adversarial release gate — plus the
-platform-portability repairs that the hosted `Release` workflow proved mandatory before any platform
-could build and sign. Phase 2K.1 applied the 0.3.0 version decision across all version metadata and
-committed the candidate on `main`; Phase 2L tagged and pushed that commit as `v0.3.0`, and its `Release`
-run then failed on all three platform workers. **`v0.3.0` is a source tag with no published release**,
-and it was deliberately left in place rather than moved or deleted. Phase 2L.1 repairs the defects,
-applies 0.3.1 across all version metadata, and refreshes this documentation and `README.md`. Its
-`v0.3.1` `Release` run passed the native suite on Linux, macOS and Windows, then stopped at updater
-signing because the configured signing key and password are not a matching pair; it produced no
-release object, artifact, checksum, signature or updater metadata. Whether a release object exists for
-a tag is observable on the GitHub Releases page; this file describes the source tree.
+Updated 2026-09-18. **Release version: 0.3.2.** Source, built binaries and published
+releases are separate. The current tree is **IRIS 0.3.2**: the 0.3.0 candidate — a large body of
+post-0.2.11 work that passed the Phase 2J final adversarial release gate — plus the
+platform-portability repairs of 0.3.1 and the three truthfulness repairs of 0.3.2. Phase 2K.1 applied
+the 0.3.0 version decision across all version metadata and committed the candidate on `main`; Phase 2L
+tagged and pushed that commit as `v0.3.0`, and its `Release` run then failed on all three platform
+workers. Phase 2L.1 repaired the platform defects, applied 0.3.1, and tagged `v0.3.1`; its `Release`
+run passed the native suite on Linux, macOS and Windows and then stopped at updater signing, because
+the configured signing key and password were not a matching pair, producing no release object,
+artifact, checksum, signature or updater metadata. That signing configuration has since been
+corrected. **`v0.3.0` and `v0.3.1` are source tags with no published releases**, deliberately left in
+place rather than moved or deleted.
+
+Phase 2M.1 repairs the three remaining Medium truthfulness findings in this tree — a CSV export that
+refused valid content ending in a blank record, a Documents window that kept denying data it was
+displaying after a successful reload, and durable channel-attention records that no part of the
+application read — and applies 0.3.2 across all version metadata. Publication still requires a fresh,
+explicit human approval for that exact invocation. Whether a release object exists for a tag is
+observable on the GitHub Releases page; this file describes the source tree.
 
 ## Release gate status
 
@@ -27,10 +33,10 @@ Neither phase pushed, tagged or published anything.
 
 ## Latest verified counts
 
-Re-derived by the Phase 2J final gate, re-run after the Phase 2K documentation edits, and re-run on
-hosted runners for the 0.3.1 platform repairs:
+Re-derived by the Phase 2J final gate, re-run after the Phase 2K documentation edits, re-run on hosted
+runners for the 0.3.1 platform repairs, and re-run for the 0.3.2 truthfulness repairs:
 
-- **TypeScript** (`pnpm test`): **133 files / 1408 passed / 0 failed / 0 skipped / 0 todo**.
+- **TypeScript** (`pnpm test`): **134 files / 1415 passed / 0 failed / 0 skipped / 0 todo**.
 - **Rust, Linux** (`cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml`): **128 passed /
   0 failed / 13 ignored**. Twelve of the 13 ignored tests were additionally executed explicitly and
   passed; the thirteenth is a child-process fixture, not a standalone assertion.
@@ -133,11 +139,11 @@ this release.
 
 ## Debt, blockers and next work
 
-- **Release version: 0.3.1 — repairs applied, synchronized and prepared for publication.** The explicit
-  user version decision is applied and synchronized across the workspace manifests, `tauri.conf.json`,
-  `Cargo.toml`, `Cargo.lock` and this file. `v0.3.0` remains a source tag with no published release.
-  Publication (tag, signed build, GitHub release) still requires a fresh, explicit human approval for
-  that exact invocation.
+- **Release version: 0.3.2 — truthfulness repairs applied, synchronized and prepared for
+  publication.** The explicit user version decision is applied and synchronized across the workspace
+  manifests, `tauri.conf.json`, `Cargo.toml`, `Cargo.lock` and this file. `v0.3.0` and `v0.3.1` remain
+  source tags with no published releases. Publication (tag, signed build, GitHub release) still
+  requires a fresh, explicit human approval for that exact invocation.
 - An unintended partial QC-3 expansion was removed from active source and preserved separately in
   `/mnt/ai/IRIS-deferred/QC3-2026-09-12-z290fbrp`. It is unfinished and is not accepted evidence.
 - Independent semantic review and permission-gated test-command execution (QC-3) remain missing.
@@ -150,7 +156,7 @@ this release.
 - Onboarding does not validate provider connections or save entered secrets through the credential
   store during setup; unified account/channel/profile/security onboarding remains partial.
 - macOS/Windows target machines, production updater signing keys and fresh explicit publication
-  approval are external prerequisites. The 0.3.0 commit is published as the `v0.3.0` source tag with
-  no release object. `v0.3.1` carries the platform repairs: its tagged commit is `a284144`, its
-  `Release` run passes the native suite on Linux, macOS and Windows, and publication waits only on a
-  matching `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` pair.
+  approval are external prerequisites. The 0.3.0 and 0.3.1 commits are published as the `v0.3.0`
+  (`4c4debda`) and `v0.3.1` (`a284144`) source tags with no release objects. `v0.3.2` carries the
+  three truthfulness repairs; publication is not authorized yet and remains a separate, explicit
+  human decision.
