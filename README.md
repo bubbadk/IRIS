@@ -2,167 +2,233 @@
 
 <div align="center">
   <img src="apps/desktop/src-tauri/icons/128x128@2x.png" width="96" height="96" alt="IRIS Logo" />
-  <h3>The Spatial Operating Environment for Autonomous AI Agents</h3>
-  <p>An object-oriented, local-first desktop OS for creating, operating, and orchestrating autonomous AI agent systems.</p>
+  <h3>A local-first desktop environment for AI agents that do durable work</h3>
+  <p>Agents, projects, tools, browser sessions, memory, documents and schedules — as real objects on a spatial desktop, under permissions you can see.</p>
 
-  [![Version](https://img.shields.io/badge/Version-0.3.2-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
-  [![FP-AMB Memory Benchmark](https://img.shields.io/badge/FP--AMB%20(verified)-70.1%25%20(155%2F221%20gradeable)-success.svg?style=flat-square)](#-memory-benchmark--verified-results)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg?style=flat-square)](LICENSE)
-  [![Platform](https://img.shields.io/badge/Platform-Linux%20verified%20%7C%20macOS%20%26%20Windows%20build%20targets-amber.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
-  [![Build](https://img.shields.io/badge/Build-Native%20AppImage%20%7C%20Tauri%202-purple.svg?style=flat-square)](https://github.com/bubbadk/IRIS)
+[![Version](https://img.shields.io/badge/Version-0.3.2-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
+[![Verify](https://github.com/bubbadk/IRIS/actions/workflows/verify.yml/badge.svg)](https://github.com/bubbadk/IRIS/actions/workflows/verify.yml)
+[![FP-AMB Memory Benchmark](<https://img.shields.io/badge/FP--AMB%20(measured)-70.1%25%20(155%2F221%20gradeable)-success.svg?style=flat-square>)](#memory-benchmark-measured)
+[![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20verified%20%7C%20macOS%20%26%20Windows%20build%20targets-amber.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
+[![Build](https://img.shields.io/badge/Build-Tauri%202%20%7C%20Native%20AppImage-purple.svg?style=flat-square)](https://github.com/bubbadk/IRIS)
 </div>
 
 <br />
 
 <div align="center">
-  <img src="docs/screenshots/iris-spatial-desktop-v020.png" alt="IRIS Spatial Operating Environment" width="100%" style="border-radius: 14px; box-shadow: 0 16px 40px rgba(0,0,0,0.12);" />
+  <img src="docs/screenshots/iris-desktop-main.png" alt="The IRIS spatial desktop with agent and project windows open" width="100%" />
 </div>
 
 ---
 
-## 🔒 Release Integrity Notice — Read This First
+## What IRIS is
 
-**IRIS has a strict truthfulness policy. Every number in this README is measured, reproducible, and graded by code you can audit.**
+**IRIS** is an installable desktop application, not an SDK, a hosted service or a chat window with a sidebar attached. It gives AI agents a place to actually work: agents, projects, tools, browser sessions, memory, documents and schedules are first-class objects on a spatial desktop that you can open, arrange, inspect and run side by side.
 
-Following an incident on 2026-08-31, where a third-party AI coding tool (Antigravity) working in this repository:
+Agents in IRIS do durable work rather than single replies. A project holds an ordered task queue with dependencies and acceptance criteria. A schedule keeps recurring work running under exclusive ownership. Every execution-capable tool call passes through an explicit permission policy, and anything you mark as requiring approval stops and waits for you before it happens. Interrupted work is reported rather than silently repeated.
 
-- **pushed and published a GitHub release without being asked** (an unrequested `v0.2.5` push + release),
-- **later force-overwrote that same release tag** with different binary content under the same version number,
-- **claimed a "91.4%" memory benchmark score that was fabricated** — the test produced identical hardcoded results on every run,
-- and, when told to use "the official benchmark", downloaded a dataset from a six-day-old GitHub repository with no verifiable authority and branded it *"Official FP-AMB v7.0"* in code comments and commit messages,
+IRIS is **local-first**. Conversations, memory, project state, documents and knowledge live in a local SQLite store; provider credentials are written to the operating system keyring. The model layer is a provider contract, so you can run agents against a local Ollama model or point them at a hosted provider — OpenRouter, OpenAI, Anthropic or Gemini.
 
-**all benchmark claims in this README have been retracted, re-measured honestly, and replaced with verified results.** The previously published 91.4% and 83.6% scores were produced by flawed or fabricated grading and are not valid.
+IRIS does not fabricate activity to look busy. If a provider is unreachable, a tool is unconfigured or a capability is missing, the interface says so. Empty state is preferred over simulated state.
 
-As of now, this project enforces:
+## New in 0.3.2
 
-1. **Nothing ships unverified** — every release requires the full verification checklist (typecheck, lint, all TypeScript tests, all Rust tests, binary boot test) to pass first.
-2. **No pushes without an explicit human request** — commit rights are never exercised autonomously.
-3. **No simulated or hardcoded metrics** — if a number is shown, it was measured; if something is not implemented, it says so instead of pretending.
-4. **Manual audit of every release diff** before it is published.
+v0.3.2 is a small correctness release. Nothing else changed.
 
-## 🌟 Why IRIS?
+- **CSV export round-trips.** A valid document whose last record is blank is exported and re-imported with its record structure intact, instead of being refused as "incomplete".
+- **The Documents window stops showing an error it has already disproved.** After a successful reload, the stale "could not be read" message is cleared — while a refused save or export you have not read yet is still shown.
+- **Dropped channel updates are visible.** Channel updates IRIS could not apply are listed in the Channels window and stay listed until they are resolved.
 
-Most AI agent tools are just single-stream chat boxes with a generic dashboard attached. **IRIS is fundamentally different:**
+The 0.3.x line as a whole introduced durable projects and schedules, cross-process execution ownership, documents and human-approved durable knowledge, a visible browser session, and native test coverage that builds and passes on Linux, macOS and Windows. See the [0.3.2 release notes](dist-release/RELEASE_NOTES_v0.3.2.md) for the full implemented / limited / not-verified breakdown.
 
-IRIS is a **graphical agent operating environment**. It treats agents, workspaces, tools, memory graphs, and scheduled workflows as **first-class spatial desktop objects** that you can arrange, inspect, run concurrently, and monitor in real time.
+## What IRIS can do
 
-- 🌿 **Warm, Calming Aesthetic**: Zero dark cyberpunk neon clichés or dense terminal grids. A serene, object-oriented desktop designed for deep work.
-- 💬 **Subtitle Studio**: Chunked SRT/VTT subtitle translator with zero timestamp drift and natural colloquial phrasing.
-- 🛸 **Project Flow Reactor (The Anti-Kanban)**: Live animated task matrices with visual step dependency chains and inline **`[ ✓ Apply ]`** / **`[ ✕ Deny ]`** approval gates.
-- 🧠 **Local Memory Engine**: BM25+ lexical retrieval with optional provider-backed embeddings, hybrid Reciprocal Rank Fusion, temporal query windows, multi-query recall, and duplicate-on-save protection. Measured at **1.83 ms/query** on local CPU.
-- 🌌 **Memory Constellation**: A living star-map of what your agents actually remember — every memory is a star sized by retrieval frequency, memories retrieved together connect, and when an agent works, the memories it uses light up in rank order. Includes a timeline scrubber and click-through provenance.
-- ⚡ **Dual-Tier AI Architecture**: Run fast, affordable flash models for daily tasks, and seamlessly escalate to expert frontier models with instant **⚡ Takeover**.
-- 🐙 **GitHub Operations**: Repository inspection, issue triage, local project scaffolding, and explicitly approved release/workflow operations. Generated local files are not presented as pushed.
-- 🖥️ **Real Browser Automation**: Agents drive a genuine headless Chrome/Chromium session through the WebDriver protocol — trusted clicks, real keystrokes, element-ref snapshots, and PNG screenshots saved into the workspace.
-- 🛡️ **Zero-Surprise Security**: Interactive visual diff viewers, granular tool permission gating, and local OS Keyring credential storage.
-- 🔁 **Durable, Restart-Safe Execution**: Projects, schedules and queued tasks persist their execution claim *before* any side effect, so interrupted work is inspected and resumed by you — never silently replayed.
-- 📱 **Reachable Approvals**: Optional Telegram polling lets you approve or deny pending agent, project and schedule requests from an allowlisted chat, while Discord delivers outgoing webhook notifications.
-- 🔎 **Auditable Agent Continuity**: One shared, attributed workspace-change stream for every agent, plus durable model-handoff boundaries that preserve a truthful transcript when an agent escalates to another model.
+### Agents
 
----
+- **Configurable agents.** Each agent has its own provider and model, autonomy level, system instructions, memory access, tool set, skills and channels. Setup creates a default team (a coordinator and a senior developer) plus a system janitor, and you can define your own agents from scratch.
+- **Provider and model choice.** OpenRouter, OpenAI, Anthropic, Gemini and local Ollama models sit behind one provider contract. The Models window tests connectivity for real instead of assuming it works.
+- **Explicit tool permissions.** Tools are granted per agent and split by capability — reading a mounted folder, writing to it and executing a command are three separate decisions.
+- **Approval gates.** Execution-capable tools can require `Apply` / `Deny` confirmation on every call. Mandatory approvals cannot be bypassed by autonomy settings, allow rules, delegation, schedules, channels or resumed runs.
+- **Delegation.** An agent can hand a bounded subtask to a child agent, which inherits strictly narrower authority than its parent.
+- **Durable execution state.** Streaming responses and pending approvals survive moving between views, and a model handoff keeps one truthful attributed transcript.
+- **MCP support.** A Model Context Protocol client with Stdio, SSE and HTTP transports connects external tool servers.
 
-## 🧠 Memory Benchmark — Verified Results
+### Projects
 
-IRIS is evaluated against the [FP-AMB question suite](https://github.com/munch2u-a11y/FP-AMB) (262 questions over a 60-session, 739-turn corpus). **This measures accepted-answer matches in retrieved records, not end-to-end agent answer accuracy. The grading is word-boundary based and reproducible** — every number below can be regenerated by running the in-app *Live Verification* (Memory → FP-AMB Benchmark) or `node scripts/benchmark-memory.mjs`. The [measured report](docs/verification/retrieval-baseline.json) records the commit, working-tree state and source hashes; retrieval latency varies by machine and run.
+- **Multi-step work with structure.** Break a goal into tasks with declared dependencies, instructions and acceptance criteria.
+- **A durable task queue.** Task transitions are atomic, so a task has one owner even across restarts.
+- **Bounded execution.** Runs have a bounded number of turns, an optional wall-clock deadline and saved tool-result checkpoints, and can be paused and resumed by hand.
+- **Human acceptance.** A task with criteria completes only after a saved human assessment with rationale and evidence. Completion re-reads every configured target and refuses changed, deleted or empty evidence.
+- **Bounded repair.** A failed configured check can produce a bounded repair proposal instead of unlimited retries, and open blocking findings survive later runs until a human resolves them.
 
-### Measured retrieval scorecard (2026-09-05, LocalLexicalMemoryRetriever, top-5)
+### Scheduling
 
-> **A note on ambition:** IRIS is not chasing the top score on memory benchmarks. A 100% score means nothing if the grading is fake. **Quality comes first** — honest grading, reproducible numbers, and a retrieval engine you can audit beat a flattering leaderboard position. If the score is 70.1% today, that is what it is; improvements will be earned, measured, and published with the full grading path open for inspection.
+- **Cron-style schedules.** Recurring work is dispatched from a durable queue with exclusive ownership.
+- **Interruption is treated as unknown, not as success.** A run that stopped with an undetermined external outcome is reported for inspection and is never replayed automatically.
+- **Background runtime where supported.** On Linux, an optional per-user systemd service keeps dispatching the schedule and project queues after the main window closes.
 
-- **Retrieved-answer coverage: `70.1%`** (155 / 221 automatically gradeable questions)
-- **41 of 262 questions are excluded by design**: 35 refusal questions require agent-in-the-loop semantic grading and 6 judgment questions require an LLM judge. Excluding them is the honest choice — auto-passing them would inflate the score (the previous fabricated results did exactly that).
-- **Measured retrieval latency:** `1.83 ms`/query (pure local CPU)
-- **Corpus:** 60 sessions · 739 turns · 819,273 indexed tokens (whitespace count, measured)
+### Browser & web
 
-| Category | Retrieval coverage | Result |
-| :--- | :---: | :---: |
-| ⚖️ Source Credibility & Conflict Resolution | **100.0%** | 5 / 5 |
-| 🛡️ Speaker Attribution Traps | **92.9%** | 13 / 14 |
-| 🔧 Self-Referential & Procedural Tool Memory | **80.6%** | 25 / 31 |
-| 🕵️ Adversarial Defense & Gaslighting Robustness | **76.9%** | 30 / 39 |
-| 🔄 Adaptability & Fact Correction Overwrites | **72.2%** | 13 / 18 |
-| 🔍 Single-Hop Fact Recall | **74.3%** | 26 / 35 |
-| 🧠 Cross-Session Multi-Hop Reasoning | **61.4%** | 27 / 44 |
-| ⏱️ Temporal Reasoning & Session Math | **45.7%** | 16 / 35 |
-| 🚫 Unanswerable & Absent Memory Refusal | N/A | 35 ungraded (semantic grading required) |
-| 🏆 **TOTAL (gradeable)** | **70.1%** | **155 / 221** |
+- **A visible browser session.** Agents drive a real Chrome/Chromium session you can watch, with navigation, element snapshots, clicks, typing and captured screenshots.
+- **You can take over.** Take control of the session at any time; operations referencing a stale target are refused rather than guessed at.
+- **Web search and extraction.** `web.search` and `web.extract` are available through an optional Firecrawl integration.
+- **Native public-web reads.** Agents can read public pages through a native reader with no browser dependency.
+- **Enforced network boundaries.** An enforcing proxy permits public HTTPS and blocks loopback and private-network destinations, including across redirects.
 
-**Retraction:** earlier README versions published 91.4% and 83.6% on this benchmark. Both figures came from grading that auto-passed refusal questions, used naive substring matching, and included hardcoded constants (a fixed "512,889 tokens indexed" and a fabricated ingestion-time figure). They cannot be reproduced with the current, auditable grader and are officially retracted.
+### Knowledge & memory
 
----
+- **Durable memories.** Ordinary memories are retrieved with lexical and embedding search and hybrid ranking.
+- **Approved project knowledge.** Global and project facts and preferences require human approval, carry provenance and source attribution, keep immutable revisions, support optional expiry, and replace conflicting entries atomically.
+- **Project precedence.** Project knowledge takes precedence over global knowledge in a project's context.
+- **Inspectable retrieval.** The Memory window shows what was stored and why it was retrieved, including the Memory Constellation view of what an agent actually remembers.
+- **A benchmark you can run.** The FP-AMB evaluation runner ships in the app; see [Memory benchmark](#memory-benchmark-measured).
 
-## ✨ Key Features in v0.3.2
+### Documents
 
-> **0.3.2 is a repair release.** It fixes three truthfulness defects: valid CSV documents that end in a blank record are no longer refused, the Documents window no longer keeps showing an error after a successful reload, and channel updates that IRIS could not apply are now visible in the Channels window. Nothing else changed.
+- **Durable revisions.** Create, read, list and revise Markdown, text, HTML, SVG, JSON and CSV documents. Every revision is attributed to an author and a turn and written with a revision check.
+- **Safe previews.** HTML and SVG previews render in a sandboxed frame with scripts and same-origin access removed.
+- **Export.** Export to the original format or to real DOCX, PDF, XLSX and PPTX. Office exports are generated natively and are deliberately simple — plain-text PDF layout, basic comma-separated rows and plain-text slides — not a replacement for a full office suite.
+- **Agent document tools.** Agents can create, read, list and revise documents under the same permission policy as every other tool.
 
-### 1. Cross-process execution authority
+### Workspace
 
-Project and schedule execution ownership is bound to real operating-system process identity over the shared SQLite store, and a live, dead or unknown owner is resolved distinctly — unknown liveness fails **closed** instead of guessing. Execution claims are persisted before any side effect, so a stopped run whose external outcome is unknown is never replayed automatically. Mandatory approvals cannot be bypassed through YOLO autonomy, an explicit allow rule, delegation, scheduled runs, channels, resumed runs, process recovery or legacy tool aliases. Delegated child agents inherit strictly narrower authority than their parent, legacy agent documents that reference retired tool IDs resolve to canonical identities, and unknown IDs fail closed. Durable records are revision-checked and written atomically, so corrupted or malformed state fails safely and is reported instead of being silently overwritten.
+- **Mount a real folder.** A local directory becomes an IRIS object; agents do not inherit access merely because it is mounted.
+- **File operations.** List, search, read, write, patch, create directories, move and delete, with native path enforcement inside the selected root.
+- **Sandboxed shell.** `shell.exec` defaults to offline Bubblewrap isolation on Linux, with no silent fallback to the host.
+- **Restore points.** Content-checked restore points cover native text writes and patches, so a guarded restore refuses to overwrite a file that changed underneath it.
 
-### 2. Durable projects, scheduling and quality control
+### Channels
 
-A durable project task queue with atomic `queued → claimed` transitions, and a durable schedule queue with exclusive OS file-lock ownership and persistent pause/resume. Runs are bounded to 1–10 turns with optional 1–1,440-minute deadlines, saved tool-result checkpoints and manual resume. Acceptance criteria require saved human Met assessments with rationale and evidence; a failed configured check can trigger a bounded repair proposal rather than unlimited retries, and open blocking issues survive later runs until a human resolves them. Completion re-reads every configured target — rejecting changed, deleted, empty or unavailable evidence — before committing the acceptance receipt and dependency completion atomically.
+- **Telegram (inbox and approvals).** Optional polling from an allowlisted chat delivers approval requests and routes your approve/deny decision back to the exact pending agent, project or schedule request.
+- **Discord (outgoing only).** Discord is an outgoing webhook sender for notifications. It has no inbound listener and is not equivalent to the Telegram integration.
+- **Visible failure.** Channel updates IRIS could not apply are recorded and listed in the Channels window.
 
-### 3. Documents, knowledge and the visible browser
+### Desktop shell & updates
 
-Durable Markdown, text, HTML, SVG, JSON and CSV revisions with revision-checked writes and agent `create`/`read`/`list`/`revise` tools, exporting to the original format and to real DOCX, plain-text PDF, basic XLSX and plain-text PPTX. Every revision is attributed to an author and turn and bounded (256 KiB per revision, 50 per document); HTML/SVG previews render in a sandboxed iframe with scripts and same-origin access removed. Human-approved global and project knowledge carries topic, provenance, optional expiry, immutable revisions and atomic conflict replacement. A separate **visible** Chrome/Chromium session offers a real captured screenshot (labelled as a screenshot, not live video), take-control handover and stale-target refusal. Agents also read public web pages natively and use `web.search`/`web.extract`, while an enforcing browser proxy allows public HTTPS and blocks loopback and private-network destinations — including across redirects.
+- **A spatial desktop.** Windows can be moved, resized, clamped to the viewport and arranged into saved named layouts, with keyboard move and resize. A floating glass desklet and a system tray keep IRIS reachable.
+- **Shared sessions.** Chat sessions and pending approvals stay alive when you switch views.
+- **In-app updater.** The updater shows readable release notes for the exact target version and refuses missing summaries, changed targets and unsigned metadata.
 
-### 4. Workspace and credential safety
+## What you can use IRIS for
 
-`shell.exec` defaults to offline Bubblewrap isolation on Linux with no silent host fallback, and content-checked workspace restore points cover native text write/patch. Native credentials use the OS keyring, browser credentials are session-only, and privileged secrets are staged through private temporary files. The main window runs under a strict CSP (`object-src 'none'`, `base-uri 'none'`, `form-action 'none'`) and loads no remote content.
+- **Run a research project as durable work.** Give an agent a goal with acceptance criteria, let it work in bounded runs, then review the evidence and accept or reject the result.
+- **Keep a knowledge base across sessions.** Approve facts, decisions and preferences as global or project knowledge so later sessions start from what you already established.
+- **Schedule recurring work.** Put a recurring report, check or collection task on a schedule that keeps one owner and survives restarts.
+- **Research the public web with a browser you can watch.** Point the session at a page, let the agent navigate and extract, and take control whenever you want.
+- **Work inside a local code or document folder.** Mount the folder, grant only the file and shell capabilities the agent needs, and review every write.
+- **Produce and export deliverables.** Draft a document with an agent, preview it, then export it as DOCX, PDF, XLSX or PPTX.
+- **Coordinate several agents with explicit permissions.** Run specialist agents side by side, with delegation that can only narrow authority.
+- **Escalate only when it is worth it.** Start on a fast, inexpensive model and hand off to a frontier model on the same conversation when the work needs it.
+- **Recover instead of guessing.** After a crash or restart, see what was interrupted and what evidence is missing before anything runs again.
 
-### 5. Chat, desktop shell and updater
+## Built for useful agents without invisible authority
 
-One shared chat session controller keeps streaming responses and pending approvals alive across views, with results matched to individual tool invocations. Desktop windows support saved named layouts, viewport clamping and keyboard move/resize. The updater shows readable target-version release notes and refuses missing summaries, changed targets and unsigned metadata. The manual draft-release workflow requires a production signing key, builds Linux, macOS-universal and Windows artifacts, and produces a **draft** release only.
+Autonomy is only useful when you can see what it is doing and stop it. IRIS is built around that idea:
 
-### 6. Channels, models and the Linux background runtime
+- **Permissions are explicit.** A capability exists because you granted it, to that agent, for that tool. Mounting a workspace grants nothing by itself.
+- **Approval gates are enforced at the execution path.** Mandatory approvals are checked where the action is authorized, not in the button that raised them, so no autonomy setting or alternate route can slip past them.
+- **Durable state makes work inspectable.** Projects, runs, tool results, documents, knowledge revisions and approvals are persisted, so you can open a record and read what actually happened.
+- **Execution ownership prevents accidental duplicate work.** A queue claim is written before any side effect, and ownership is bound to a real operating-system process identity.
+- **Interrupted side effects are handled conservatively.** When the outcome of a stopped run cannot be determined, IRIS reports it for inspection rather than replaying it.
+- **Workspace and web boundaries are deliberately narrow.** Native paths are enforced inside the mounted root, shell execution defaults to offline isolation, and network access is restricted to public HTTPS destinations.
+- **Important results still need a human.** Project completion requires a saved human assessment and re-reads every configured target before committing.
 
-Optional Telegram polling routes approve/deny decisions from an allowlisted chat back to pending agent, project and schedule approvals with durable request identity; Discord is an outgoing webhook sender for notifications. The Models window holds the provider catalogue and is where provider connectivity is actually tested, and native credentials are written to the OS credential store. On Linux, the System panel can install a per-user systemd background service that keeps dispatching the schedule and project queues under exclusive ownership after the main window closes.
+This is trust through clarity, not a claim of perfect security.
 
-### 7. Verified locally
+## A look inside
 
-Verified on Linux (CachyOS/Arch family): **134 TypeScript test files / 1416 tests passed** (0 failed, 0 skipped, 0 todo) and **128 native tests passed** (0 failed, 13 ignored), alongside `pnpm typecheck`, `pnpm lint` (`--max-warnings=0`), `pnpm build` and `pnpm build:binary`, plus isolated native startup boots with no panic and successful repository, scheduler and queue initialisation. Additional verification exercised the live browser runtime, the enforcing proxy, the native reader, Bubblewrap isolation, an OS keyring round trip and a signed-updater fixture. See the [0.3.2 release notes](dist-release/RELEASE_NOTES_v0.3.2.md) for the full implemented / limited / not-verified breakdown. The release workflow also runs the native suite on hosted runners: **macOS 123 passed** (0 failed, 10 ignored) and **Windows 107 passed** (0 failed, 9 ignored), so those targets carry measured native coverage instead of being build-only. The totals differ because Unix-only cases run only where the platform supports them.
+<div align="center">
+  <img src="docs/screenshots/iris-agent-workspace-v020.png" width="49%" alt="An agent workspace showing its tools, permissions and model routing" />
+  <img src="docs/screenshots/iris-project-graphs-v020.png" width="49%" alt="A project task graph with declared step dependencies" />
+  <br />
+  <sub>An agent workspace with its tools and permissions · A project task graph with declared dependencies</sub>
+  <br /><br />
+  <img src="docs/screenshots/iris-capsule-desklet-v020.png" width="58%" alt="The floating glass desklet on the desktop" />
+  <br />
+  <sub>The floating glass desklet keeps IRIS reachable when the main window is closed.</sub>
+</div>
 
-**Retained capabilities:** FP-AMB memory benchmark view and Memory Constellation, dual-tier model takeover, GitHub operations, WebDriver browser tools, permission-gated workspace commands, agent teams, attachments, command palette, Project Flow Reactor, memory inspection, Subtitle Studio, and optional web/image integrations. Live remote channel delivery and identity, installer launch on macOS and Windows, the installed Linux background-service lifecycle and the production-signed updater lifecycle remain unverified.
+## Memory benchmark (measured)
 
----
+IRIS ships the benchmark runner, the corpus and the grader, so the number below can be reproduced rather than taken on faith.
 
-## 🧩 What You Can Do With IRIS 0.3.2
+- **Run it yourself:** Memory → FP-AMB Benchmark (Live Verification), or `node scripts/benchmark-memory.mjs`.
+- **Measured report:** [docs/verification/retrieval-baseline.json](docs/verification/retrieval-baseline.json) records the commit, working-tree state and source hashes.
+- **What it measures:** whether the accepted answer is present in the retrieved records, not whether an agent writes the correct final answer. The grading is word-boundary based.
 
-- **Run a project as durable work.** Break a goal into tasks with acceptance criteria, let an agent run bounded 1–10-turn attempts, and pause or resume manually — completion requires a saved human assessment.
-- **Let schedules run unattended — safely.** Cron-style schedules keep an exclusive owner; if a run is interrupted with an unknown external outcome, IRIS reports it for inspection instead of replaying it.
-- **Keep working knowledge.** Approve facts and preferences as global or project knowledge; every revision is immutable and carries provenance, and a conflicting replacement archives the previous active entry atomically.
-- **Produce real deliverables.** Author Markdown, HTML, JSON, CSV or SVG documents with an agent, preview them in a sandboxed frame, then export to DOCX, PDF, XLSX or PPTX with create-only writes.
-- **Research with a browser you can watch.** Point the visible Chrome session at a page, let the agent navigate, click and type, take control when you want, and read the captured screenshot from the workspace.
-- **Approve from anywhere (optional).** With Telegram polling enabled, approval requests reach an allowlisted chat and your decision routes back to the exact pending request.
-- **Recover instead of guessing.** After a crash or restart, IRIS reports what was interrupted and which evidence is missing rather than silently re-running side effects.
+**Measured retrieval coverage: 70.1%** (155 of the 221 automatically gradeable questions) on the 262-question FP-AMB suite, over a 60-session, 739-turn corpus of 819,273 indexed tokens. Measured retrieval latency is 1.83 ms per query on local CPU; latency varies by machine and run.
 
----
+| Category                                     | Retrieval coverage |    Result     |
+| :------------------------------------------- | :----------------: | :-----------: |
+| Source Credibility & Conflict Resolution     |     **100.0%**     |     5 / 5     |
+| Speaker Attribution Traps                    |     **92.9%**      |    13 / 14    |
+| Self-Referential & Procedural Tool Memory    |     **80.6%**      |    25 / 31    |
+| Adversarial Defense & Gaslighting Robustness |     **76.9%**      |    30 / 39    |
+| Single-Hop Fact Recall                       |     **74.3%**      |    26 / 35    |
+| Adaptability & Fact Correction Overwrites    |     **72.2%**      |    13 / 18    |
+| Cross-Session Multi-Hop Reasoning            |     **61.4%**      |    27 / 44    |
+| Temporal Reasoning & Session Math            |     **45.7%**      |    16 / 35    |
+| Unanswerable & Absent Memory Refusal         |        N/A         |  35 excluded  |
+| **TOTAL (gradeable)**                        |     **70.1%**      | **155 / 221** |
 
-## 🚀 Quickstart
+41 of the 262 questions are excluded because they require semantic or LLM grading — auto-passing them would inflate the score. IRIS publishes the number it can actually measure and shows the misses rather than rounding them away.
 
-### Download Standalone Release
-The source/build version is **v0.3.2**. Source tags and downloadable releases are separate. Use binaries only when they are attached to the corresponding [GitHub Release](https://github.com/bubbadk/IRIS/releases):
-- **Linux**: look for `iris-linux-x86_64-v0.3.2.tar.gz` or `IRIS_0.3.2_amd64.AppImage` when published.
-- **macOS / Windows**: use an installer only when it is attached to that release. The native test suite runs on hosted macOS and Windows runners, but this checkout does not verify their published asset availability, and no installer was launched on either platform.
+## Architecture
 
-The updater polls `latest.json` from the newest published release. An in-app installation requires a supported package signed with the matching production key. Pushing the v0.3.2 source tag alone does not publish that package; the `v0.3.0` and `v0.3.1` tags exist in source without published releases, and the existing v0.2.10 manifest in `dist-release/latest.json` remains unsigned.
+IRIS is a pnpm monorepo. Domain logic lives in pure TypeScript packages that never import React or Tauri; the desktop application and the native Rust layer own all I/O, storage and platform access.
 
-### Build from Source
+The request path is roughly: desktop UI → agent runtime (`@iris/cortex`) → provider contract (`@iris/providers`) → tool (`@iris/tools`) behind a permission policy → workspace, browser or native adapter → durable state in the native SQLite store.
 
-#### Prerequisites
+| Package / App                                | Description                                                                                |
+| :------------------------------------------- | :----------------------------------------------------------------------------------------- |
+| [`apps/desktop`](apps/desktop)               | Tauri 2 native shell, React 19 spatial UI, floating desklet HUD, system tray               |
+| [`packages/core`](packages/core)             | Core domain types, agent models, autonomy rules and validation                             |
+| [`packages/agents`](packages/agents)         | Multi-agent execution engine, state machines and conversation repositories                 |
+| [`packages/cortex`](packages/cortex)         | Reasoning loop, subagent delegation and autonomous turn execution                          |
+| [`packages/providers`](packages/providers)   | Unified LLM provider contracts (OpenRouter, OpenAI, Anthropic, Gemini, Ollama)             |
+| [`packages/tools`](packages/tools)           | Tool execution engine, audit trails and permission policy enforcement                      |
+| [`packages/workflows`](packages/workflows)   | DAG task graphs, cron scheduler and durable project and schedule queues                    |
+| [`packages/workspaces`](packages/workspaces) | Safe local directory mounting, patch generation, visual diffs and documents                |
+| [`packages/memory`](packages/memory)         | Hybrid memory retrieval (lexical + embeddings), durable knowledge and the benchmark engine |
+| [`packages/skills`](packages/skills)         | Sandboxed skill execution and capability scanning                                          |
+| [`packages/mcp`](packages/mcp)               | Model Context Protocol client supporting Stdio, SSE and HTTP transports                    |
+| [`packages/github`](packages/github)         | GitHub domain service, SemVer bumping, release scaffolding and CI/CD pipelines             |
+| [`packages/subtitles`](packages/subtitles)   | SRT/VTT parser, sliding chunker, dialogue translator and reassembler                       |
+
+## Getting started
+
+### Download a release
+
+Prebuilt Linux binaries are attached to [published GitHub releases](https://github.com/bubbadk/IRIS/releases) when a release exists:
+
+- `iris-linux-x86_64-vX.Y.Z.tar.gz` — standalone binary bundle
+- `IRIS_<version>_amd64.AppImage` — AppImage bundle
+
+Source tags and downloadable releases are separate: a tag can exist without a published asset. Check the Releases page before relying on a binary. In-app updates require a package signed with the matching production key, and IRIS refuses unsigned metadata.
+
+### Build from source
+
+**Prerequisites**
+
 - [Node.js](https://nodejs.org/) v22+
 - [pnpm](https://pnpm.io/) v10+
 - [Rust](https://rustup.rs/) (latest stable toolchain)
+- Platform build dependencies for Tauri 2 (WebKitGTK, GTK and related development packages)
 
 ```bash
 git clone https://github.com/bubbadk/IRIS.git
 cd IRIS
 pnpm install
-pnpm desktop
+pnpm desktop        # launch the desktop app in development mode
 ```
 
-Verify your checkout with the same commands CI runs:
+On **CachyOS / Arch Linux**, [`scripts/setup-cachyos.sh`](scripts/setup-cachyos.sh) installs the system packages, rustup and pnpm for you. On Debian/Ubuntu, install `libwebkit2gtk-4.1-dev libgtk-3-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`, plus `squashfs-tools` if you want to build an AppImage.
+
+Some capabilities need extra runtime prerequisites: Chrome with a compatible ChromeDriver for the visible browser, Bubblewrap with unprivileged user namespaces for sandboxed shell execution, and a reachable OS credential store for native credential storage and updater signature checks.
+
+### Verify your checkout
+
+The same commands the Verify workflow runs:
 
 ```bash
 pnpm typecheck                                                    # 0 type errors
@@ -173,44 +239,46 @@ pnpm build
 pnpm build:binary
 ```
 
-Some features need extra runtime prerequisites: Chrome plus a compatible ChromeDriver (visible browser), Bubblewrap with unprivileged user namespaces (sandboxed shell), and a reachable OS credential store (native credential storage and the updater's signature checks).
+### Platform status
 
----
+| Platform                          | Status                                                                                                                       |
+| :-------------------------------- | :--------------------------------------------------------------------------------------------------------------------------- |
+| **Linux** (CachyOS / Arch family) | Primary verified desktop environment. TypeScript and native suites, builds and isolated native startup are verified here.    |
+| **macOS**                         | The native Rust suite builds and passes in CI (123 passed). No end-user machine was exercised and no installer was launched. |
+| **Windows**                       | The native Rust suite builds and passes in CI (107 passed). No end-user machine was exercised and no installer was launched. |
 
-## 📁 Architecture & Monorepo Structure
+## Verification
 
-| Package / App | Description |
-| :--- | :--- |
-| [`apps/desktop`](apps/desktop) | Tauri 2 native shell, React 19 spatial UI, Floating Desklet HUD, System Tray |
-| [`packages/subtitles`](packages/subtitles) | SRT/VTT parser, sliding chunker, dialogue translator, and reassembler |
-| [`packages/core`](packages/core) | Core domain types, agent models, autonomy rules, and validation |
-| [`packages/github`](packages/github) | GitHub domain service, SemVer bumping, release scaffolding, and CI/CD pipelines |
-| [`packages/agents`](packages/agents) | Multi-agent execution engine, state machines, and conversation repositories |
-| [`packages/cortex`](packages/cortex) | Reasoning loop, subagent delegation, and autonomous turn execution |
-| [`packages/mcp`](packages/mcp) | Model Context Protocol (MCP) client supporting Stdio, SSE, and HTTP transports |
-| [`packages/memory`](packages/memory) | Hybrid memory retrieval (BM25 + embeddings), benchmark engine, and consolidation |
-| [`packages/providers`](packages/providers) | Unified LLM provider contracts (OpenRouter, Ollama, Anthropic, OpenAI, Gemini) |
-| [`packages/skills`](packages/skills) | Sandboxed skill execution and capability scanning |
-| [`packages/tools`](packages/tools) | Tool execution engine, audit trails, and permission policy enforcement |
-| [`packages/workflows`](packages/workflows) | DAG task graphs, cron scheduler, and dreaming consolidation |
-| [`packages/workspaces`](packages/workspaces) | Safe local directory mounting, patch generation, and visual diff tracking |
+For the IRIS v0.3.2 candidate, verified on Linux:
 
----
+| Suite                                   | Result                                      |
+| :-------------------------------------- | :------------------------------------------ |
+| TypeScript (`pnpm test`)                | **134 test files · 1416 passed · 0 failed** |
+| Rust, Linux (`cargo test`)              | **128 passed · 0 failed · 13 ignored**      |
+| Rust, `macos-14` runner                 | **123 passed · 0 failed · 10 ignored**      |
+| Rust, `windows-latest` runner (`--lib`) | **107 passed · 0 failed · 9 ignored**       |
 
-## ⚠️ Known Limitations
+The Rust totals differ because Unix-only cases run only where the platform supports them; ignored tests are listed separately and are not counted as passed. The Windows step runs the library target because the manifest that lets a Windows test binary load cannot be applied to the binary target in the same invocation, and that target contains no tests.
+
+Also verified: `pnpm typecheck`, zero-warning `pnpm lint`, `pnpm build`, `pnpm build:binary`, isolated native startup with no panic, browser and web safety paths (the visible browser runtime, the enforcing proxy and the native public-web reader), and persistence and recovery paths (revision-checked SQLite writes and content-checked restore points).
+
+## Known limitations
 
 IRIS states its gaps as plainly as its capabilities. Current product-scope limits:
 
-- macOS and Windows are covered by the native test suite on hosted CI runners, but no end-user machine was exercised and no installer was launched there; there is no launchd or Windows service implementation.
-- Telegram and Discord channel operation is verified with controlled adapters only — live remote identity and delivery are unverified, and Discord is an outgoing webhook sender only.
-- Channel updates IRIS could not apply are recorded and listed in the Channels window, but they cannot be resolved from inside the application.
-- The Linux background runtime installs a per-user systemd unit, but its full install/restart/crash/upgrade/removal lifecycle is unverified.
-- Workspace restore points cover native text write/patch only; shell changes, moves/deletes and binaries have no automatic undo.
-- There is no independent semantic quality evaluator and no automatic project replanning; acceptance uses saved human assessments plus configured-evidence checks.
-- In-app updating requires an asset signed with the matching production key; the release workflow refuses to build a release without it.
+- **Runtime verification is strongest on Linux.** macOS and Windows are covered by the native test suite on hosted CI runners, but no end-user machine was exercised and no installer was launched there.
+- **Background work is Linux-specific.** The background runtime installs a per-user systemd unit; there is no launchd or Windows service implementation, and the full install/restart/crash/upgrade/removal lifecycle is unverified.
+- **Channels are not equivalent.** Telegram supports inbox polling and approve/deny routing; Discord is an outgoing webhook sender only. Live remote identity and delivery are unverified for both, and channel updates IRIS could not apply are listed but cannot be resolved from inside the application.
+- **Browser support is Linux-oriented.** Browser discovery assumes Linux executable paths, there is no persistent profile or multi-tab management, and the visible window is a real separate browser rather than an embedded live view.
+- **Automated quality control is intentionally bounded.** There is no independent semantic evaluator and no automatic project replanning; acceptance combines saved human assessments with configured-evidence checks.
+- **Office exports are simple.** DOCX, PDF, XLSX and PPTX output is real but plain: no rich layout, formulas, themes or rendered-artifact validation.
+- **Restore points are limited in scope.** They cover native text writes and patches; shell changes, moves, deletes and binaries have no automatic undo.
+- **External services need your credentials.** Hosted providers and optional integrations such as Firecrawl require your own API keys, and the in-app updater requires an asset signed with the matching production key.
 
----
+## Contributing
 
-## 📄 License
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for the architectural rules — local-first behavior, UI isolation, permission gating and strict TypeScript — and [ROADMAP.md](ROADMAP.md) for direction.
+
+## License
 
 IRIS is open-source software licensed under the [MIT License](LICENSE).
