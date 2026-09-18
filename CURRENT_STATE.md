@@ -8,9 +8,11 @@ could build and sign. Phase 2K.1 applied the 0.3.0 version decision across all v
 committed the candidate on `main`; Phase 2L tagged and pushed that commit as `v0.3.0`, and its `Release`
 run then failed on all three platform workers. **`v0.3.0` is a source tag with no published release**,
 and it was deliberately left in place rather than moved or deleted. Phase 2L.1 repairs the defects,
-applies 0.3.1 across all version metadata, refreshes this documentation and `README.md`, and releases
-the repaired build. Whether a release object exists for a tag is observable on the GitHub Releases
-page; this file describes the source tree.
+applies 0.3.1 across all version metadata, and refreshes this documentation and `README.md`. Its
+`v0.3.1` `Release` run passed the native suite on Linux, macOS and Windows, then stopped at updater
+signing because the configured signing key and password are not a matching pair; it produced no
+release object, artifact, checksum, signature or updater metadata. Whether a release object exists for
+a tag is observable on the GitHub Releases page; this file describes the source tree.
 
 ## Release gate status
 
@@ -149,4 +151,6 @@ this release.
   store during setup; unified account/channel/profile/security onboarding remains partial.
 - macOS/Windows target machines, production updater signing keys and fresh explicit publication
   approval are external prerequisites. The 0.3.0 commit is published as the `v0.3.0` source tag with
-  no release object; `v0.3.1` carries the platform repairs and is the version this tree releases.
+  no release object. `v0.3.1` carries the platform repairs: its tagged commit is `a284144`, its
+  `Release` run passes the native suite on Linux, macOS and Windows, and publication waits only on a
+  matching `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` pair.

@@ -9,9 +9,11 @@ It additionally repairs the platform-portability defects that stopped the 0.3.0 
 platform worker. The native test suite now builds and passes on Linux, macOS and Windows runners
 instead of only on Linux.
 
-> **Status: released as `v0.3.1`.** `v0.3.0` exists as a source tag with **no** published release: its
-> `Release` run failed on all three platform workers. That tag was deliberately left in place rather
-> than moved or deleted, and the repaired build ships as `v0.3.1`.
+> **Status: `v0.3.1` is a source tag, and this text is the release body prepared for it.** A
+> downloadable release exists only once one is attached to `v0.3.1` on the GitHub Releases page; it is
+> produced by the manual draft-release workflow, which requires a production signing key and refuses
+> to build without one. `v0.3.0` is likewise a source tag with **no** published release, because its
+> `Release` run failed on all three platform workers. Neither tag was moved or deleted.
 
 ---
 
