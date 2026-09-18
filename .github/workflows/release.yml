@@ -122,3 +122,18 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }} --config src-tauri/tauri.updater.conf.json
+
+      - name: Generate SHA-256 checksums
+        shell: bash
+        run: |
+          mkdir -p dist-release
+          find apps/desktop/src-tauri/target -type f \( \
+            -name '*.AppImage' -o -name '*.dmg' -o -name '*.msi' -o -name '*.exe' -o -name '*.tar.gz' -o -name '*.sig' \
+          \) -print0 | sort -z | xargs -0 sha256sum > dist-release/SHA256SUMS-${{ matrix.platform }}.txt
+          test -s dist-release/SHA256SUMS-${{ matrix.platform }}.txt
+
+      - name: Attach SHA-256 checksums to draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ inputs.tag }}" "dist-release/SHA256SUMS-${{ matrix.platform }}.txt" --clobber

@@ -45,6 +45,7 @@ export interface WorkspaceSearchResult {
 }
 
 export interface WorkspaceMutationResult {
+  restorePointId?: string;
   relativePath: string;
   kind: 'file' | 'directory';
   created: boolean;
@@ -80,11 +81,7 @@ export interface WorkspaceTextDiff {
 }
 
 export type WorkspaceChangeKind =
-  | 'directory-created'
-  | 'file-written'
-  | 'moved'
-  | 'deleted'
-  | 'patched';
+  'directory-created' | 'file-written' | 'moved' | 'deleted' | 'patched';
 
 export interface WorkspaceChange {
   version: 1;
@@ -293,3 +290,21 @@ export function diffWorkspaceText(
   }
   return { changed: original !== updated, lines, truncated: false };
 }
+
+export interface WorkspaceIsolationStatus {
+  available: boolean;
+  detail: string;
+}
+export interface WorkspaceRestorePoint {
+  id: string;
+  path: string;
+  createdAtMs: number;
+  state: 'ready' | 'original' | 'conflict' | 'unavailable';
+}
+export interface WorkspaceRestorePreview {
+  summary: WorkspaceRestorePoint;
+  before: string | null;
+  after: string;
+}
+
+export * from './documents';

@@ -21,52 +21,16 @@ const commonLanguages = [
   { code: 'fr', label: 'French' },
 ];
 
-const defaultModelsByKind: Record<string, string[]> = {
-  anthropic: [
-    'claude-3-7-sonnet-20250219',
-    'claude-3-5-sonnet-20241022',
-    'claude-3-5-haiku-20241022',
-    'claude-3-opus-20240229',
-  ],
-  openai: [
-    'gpt-4o',
-    'gpt-4o-mini',
-    'gpt-4.5-preview',
-    'o3-mini',
-    'o1',
-    'gpt-4-turbo',
-  ],
-  google: [
-    'gemini-2.0-flash',
-    'gemini-2.0-flash-lite',
-    'gemini-1.5-pro',
-    'gemini-1.5-flash',
-  ],
-  openrouter: [
-    'anthropic/claude-3.7-sonnet',
-    'openai/gpt-4o',
-    'google/gemini-2.0-flash-001',
-    'deepseek/deepseek-chat',
-    'meta-llama/llama-3.3-70b-instruct',
-  ],
-  groq: [
-    'llama-3.3-70b-versatile',
-    'llama-3.1-8b-instant',
-    'mixtral-8x7b-32768',
-  ],
-  mistral: [
-    'mistral-large-latest',
-    'mistral-small-latest',
-    'codestral-latest',
-  ],
-  ollama: [
-    'llama3.3',
-    'llama3.2',
-    'mistral',
-    'qwen2.5',
-    'deepseek-r1',
-  ],
-};
+/**
+ * A provider's default model comes from the shared catalog classification (the capability-aware
+ * default chosen when the provider was added), with the first chat-compatible advertised model as a
+ * fallback. The previous per-provider hardcoded arrays (gpt-4.5-preview, o1, mixtral-8x7b-32768,
+ * claude-3-7-sonnet, …) were a stale second model list that hid the models actually configured
+ * (M-28).
+ */
+function providerDefaultModel(provider: ProviderConfig): string {
+  return provider.model.trim() || selectableAgentModels(provider)[0] || '';
+}
 
 export function SubtitlesState() {
   const session = useSyncExternalStore(subtitleRuntime.subscribe, subtitleRuntime.getSnapshot);
@@ -89,10 +53,7 @@ export function SubtitlesState() {
     const preferred =
       initial.find((c) => c.id.includes('anthropic') || c.id.includes('gemini') || c.id.includes('openai') || c.id.includes('openrouter')) ??
       initial[0];
-    if (!preferred) return '';
-    const models = selectableAgentModels(preferred);
-    const defaults = defaultModelsByKind[preferred.catalogId || preferred.kind] ?? [];
-    return preferred.model || models[0] || defaults[0] || '';
+    return preferred ? providerDefaultModel(preferred) : '';
   });
 
   const [targetLanguage, setTargetLanguage] = useState<string>(session.settings?.targetLanguage ?? 'Danish');
@@ -119,9 +80,7 @@ export function SubtitlesState() {
           fresh.find((c) => c.id.includes('anthropic') || c.id.includes('gemini') || c.id.includes('openai') || c.id.includes('openrouter')) ??
           fresh[0];
         setSelectedProviderId(preferred.id);
-        const models = selectableAgentModels(preferred);
-        const defaults = defaultModelsByKind[preferred.catalogId || preferred.kind] ?? [];
-        setSelectedModel(preferred.model || models[0] || defaults[0] || '');
+        setSelectedModel(providerDefaultModel(preferred));
       }
     };
     refresh();
@@ -136,26 +95,18 @@ export function SubtitlesState() {
     [providers, selectedProviderId],
   );
 
-  const availableModels = useMemo(() => {
-    if (!selectedProvider) return [];
-    const catalogKey = selectedProvider.catalogId || selectedProvider.kind;
-    const defaults = defaultModelsByKind[catalogKey] ?? defaultModelsByKind[selectedProvider.kind] ?? [];
-    const configured = selectableAgentModels(selectedProvider);
-    const combined = [...new Set([...configured, ...defaults, selectedProvider.model].filter(Boolean))];
-    return combined.length > 0 ? combined : ['gpt-4o', 'claude-3-7-sonnet', 'gemini-2.0-flash'];
-  }, [selectedProvider]);
+  // The advertised, chat-compatible models only: no fallback list of model names that may not
+  // exist on this provider any more. An empty list leaves the custom-identifier path available.
+  const availableModels = useMemo(
+    () => (selectedProvider ? selectableAgentModels(selectedProvider) : []),
+    [selectedProvider],
+  );
 
   function handleProviderChange(id: string) {
     setSelectedProviderId(id);
     setIsCustomModel(false);
     const prov = providers.find((p) => p.id === id);
-    if (prov) {
-      const models = selectableAgentModels(prov);
-      const catalogKey = prov.catalogId || prov.kind;
-      const defaults = defaultModelsByKind[catalogKey] ?? defaultModelsByKind[prov.kind] ?? [];
-      const bestDefault = prov.model || models[0] || defaults[0] || '';
-      setSelectedModel(bestDefault);
-    }
+    if (prov) setSelectedModel(providerDefaultModel(prov));
   }
 
   function handleFileContent(name: string, content: string) {
@@ -497,7 +448,7 @@ export function SubtitlesState() {
                     value={selectedModel}
                     onChange={(e) => setSelectedModel(e.target.value)}
                     disabled={progress.status === 'translating'}
-                    placeholder="e.g. gpt-4o, claude-3-7-sonnet..."
+                    placeholder="Provider model identifier"
                     style={{
                       width: '100%',
                       padding: '6px 10px',

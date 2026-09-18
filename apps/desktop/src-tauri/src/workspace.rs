@@ -74,10 +74,12 @@ pub struct NativeWorkspaceSearchResult {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeWorkspaceMutationResult {
-    relative_path: String,
-    kind: &'static str,
-    created: bool,
-    bytes_written: Option<usize>,
+    pub(crate) relative_path: String,
+    pub(crate) kind: &'static str,
+    pub(crate) created: bool,
+    pub(crate) bytes_written: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) restore_point_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -98,11 +100,13 @@ pub struct NativeWorkspaceDeleteResult {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeWorkspacePatchResult {
-    relative_path: String,
-    kind: &'static str,
-    created: bool,
-    bytes_written: Option<usize>,
-    changed: bool,
+    pub(crate) relative_path: String,
+    pub(crate) kind: &'static str,
+    pub(crate) created: bool,
+    pub(crate) bytes_written: Option<usize>,
+    pub(crate) changed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) restore_point_id: Option<String>,
 }
 
 fn path_text(path: &Path) -> String {
@@ -150,7 +154,7 @@ fn resolve_path(root: &Path, relative_path: &str, allow_empty: bool) -> Result<P
     Ok(canonical)
 }
 
-fn resolve_write_target(
+pub(crate) fn resolve_write_target(
     root: &Path,
     relative_path: &str,
 ) -> Result<(String, PathBuf, PathBuf), String> {
@@ -267,26 +271,17 @@ fn delete_entry_at(
     })
 }
 
-fn apply_patch_at(
-    root: &Path,
-    relative_path: &str,
+pub(crate) fn patched_content(
+    current: &str,
     expected_content: &str,
     updated_content: &str,
-) -> Result<NativeWorkspacePatchResult, String> {
-    let (normalized, target, _) = resolve_write_target(root, relative_path)?;
-    let metadata = fs::metadata(&target)
-        .map_err(|error| format!("Workspace patch target is unavailable: {error}"))?;
-    if !metadata.is_file() {
-        return Err("Workspace patches can only update regular text files.".to_string());
-    }
-    let current = fs::read_to_string(&target)
-        .map_err(|error| format!("Workspace patch target is not readable UTF-8 text: {error}"))?;
-
+) -> Result<String, String> {
     let final_content: String;
 
     if current == expected_content {
         final_content = updated_content.to_string();
-    } else if current.replace("\r\n", "\n").trim() == expected_content.replace("\r\n", "\n").trim() {
+    } else if current.replace("\r\n", "\n").trim() == expected_content.replace("\r\n", "\n").trim()
+    {
         final_content = updated_content.to_string();
     } else if current.contains(expected_content) {
         let occurrences = current.matches(expected_content).count();
@@ -314,8 +309,30 @@ fn apply_patch_at(
         }
     }
 
+    Ok(final_content)
+}
+
+#[cfg(test)]
+fn apply_patch_at(
+    root: &Path,
+    relative_path: &str,
+    expected_content: &str,
+    updated_content: &str,
+) -> Result<NativeWorkspacePatchResult, String> {
+    let (normalized, target, _) = resolve_write_target(root, relative_path)?;
+    let metadata = fs::metadata(&target)
+        .map_err(|error| format!("Workspace patch target is unavailable: {error}"))?;
+    if !metadata.is_file() {
+        return Err("Workspace patches can only update regular text files.".to_string());
+    }
+    let current = fs::read_to_string(&target)
+        .map_err(|error| format!("Workspace patch target is not readable UTF-8 text: {error}"))?;
+
+    let final_content = patched_content(&current, expected_content, updated_content)?;
+
     if current == final_content {
         return Ok(NativeWorkspacePatchResult {
+            restore_point_id: None,
             relative_path: normalized,
             kind: "file",
             created: false,
@@ -326,6 +343,7 @@ fn apply_patch_at(
 
     write_file_at(root, relative_path, &final_content, true)?;
     Ok(NativeWorkspacePatchResult {
+        restore_point_id: None,
         relative_path: normalized,
         kind: "file",
         created: false,
@@ -341,6 +359,7 @@ fn create_directory_at(
     let (normalized, target, _) = resolve_write_target(root, relative_path)?;
     match fs::symlink_metadata(&target) {
         Ok(metadata) if metadata.is_dir() => Ok(NativeWorkspaceMutationResult {
+            restore_point_id: None,
             relative_path: normalized,
             kind: "directory",
             created: false,
@@ -353,6 +372,7 @@ fn create_directory_at(
             fs::create_dir(&target)
                 .map_err(|error| format!("Workspace directory could not be created: {error}"))?;
             Ok(NativeWorkspaceMutationResult {
+                restore_point_id: None,
                 relative_path: normalized,
                 kind: "directory",
                 created: true,
@@ -407,7 +427,7 @@ fn replace_file_atomically(target: &Path, parent: &Path, content: &[u8]) -> Resu
     Ok(())
 }
 
-fn write_file_at(
+pub(crate) fn write_file_at(
     root: &Path,
     relative_path: &str,
     content: &str,
@@ -442,6 +462,7 @@ fn write_file_at(
         create_new_file(&target, bytes)?;
     }
     Ok(NativeWorkspaceMutationResult {
+        restore_point_id: None,
         relative_path: normalized,
         kind: "file",
         created: !existing,
@@ -614,6 +635,59 @@ pub fn read_workspace_file(
     })
 }
 
+// A root-bound, read-only snapshot for user-configured project checks.
+fn read_check_file_at(
+    root: &Path,
+    expected_root: &str,
+    relative_path: &str,
+) -> Result<Option<NativeWorkspaceTextFile>, String> {
+    if path_text(root) != expected_root {
+        return Err(
+            "The mounted workspace changed. Mount the configured check folder before continuing."
+                .to_string(),
+        );
+    }
+    let relative = validate_relative(relative_path, false)?;
+    let mut path = root.to_path_buf();
+    for component in relative.components() {
+        path.push(component);
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err("Result checks do not read symbolic links.".to_string())
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(format!("The result check file is unavailable: {error}")),
+        }
+    }
+    let canonical = resolve_path(root, relative_path, false)?;
+    if !canonical.is_file() {
+        return Err("The result check target must be a text file.".to_string());
+    }
+    let (bytes, truncated) = read_limited(
+        fs::File::open(canonical)
+            .map_err(|error| format!("The result check file could not be opened: {error}"))?,
+        MAX_READ_BYTES,
+    )?;
+    let bytes_read = bytes.len();
+    Ok(Some(NativeWorkspaceTextFile {
+        relative_path: path_text(&relative),
+        content: utf8_content(bytes, truncated)?,
+        bytes_read,
+        truncated,
+    }))
+}
+
+#[tauri::command]
+pub fn read_project_check_file(
+    state: State<'_, WorkspaceState>,
+    expected_root: String,
+    relative_path: String,
+) -> Result<Option<NativeWorkspaceTextFile>, String> {
+    let root = mounted_root(&state)?;
+    read_check_file_at(&root, &expected_root, &relative_path)
+}
+
 fn search_root(
     root: &Path,
     query: &str,
@@ -724,18 +798,31 @@ pub fn create_workspace_directory(
     relative_path: String,
 ) -> Result<NativeWorkspaceMutationResult, String> {
     let root = mounted_root(&state)?;
+    let _guard = crate::workspace_undo::FILE_EDIT_LOCK
+        .lock()
+        .map_err(|_| "Workspace edit lock is unavailable.")?;
     create_directory_at(&root, &relative_path)
 }
 
 #[tauri::command]
 pub fn write_workspace_file(
+    app: tauri::AppHandle,
     state: State<'_, WorkspaceState>,
     relative_path: String,
     content: String,
     overwrite: Option<bool>,
 ) -> Result<NativeWorkspaceMutationResult, String> {
     let root = mounted_root(&state)?;
-    write_file_at(&root, &relative_path, &content, overwrite.unwrap_or(false))
+    let _guard = crate::workspace_undo::FILE_EDIT_LOCK
+        .lock()
+        .map_err(|_| "Workspace edit lock is unavailable.")?;
+    crate::workspace_undo::write_reversible_at(
+        &root,
+        &crate::workspace_undo::storage_path(&app)?,
+        &relative_path,
+        &content,
+        overwrite.unwrap_or(false),
+    )
 }
 
 #[tauri::command]
@@ -745,6 +832,9 @@ pub fn move_workspace_entry(
     target_path: String,
 ) -> Result<NativeWorkspaceMoveResult, String> {
     let root = mounted_root(&state)?;
+    let _guard = crate::workspace_undo::FILE_EDIT_LOCK
+        .lock()
+        .map_err(|_| "Workspace edit lock is unavailable.")?;
     move_entry_at(&root, &source_path, &target_path)
 }
 
@@ -754,18 +844,31 @@ pub fn delete_workspace_entry(
     relative_path: String,
 ) -> Result<NativeWorkspaceDeleteResult, String> {
     let root = mounted_root(&state)?;
+    let _guard = crate::workspace_undo::FILE_EDIT_LOCK
+        .lock()
+        .map_err(|_| "Workspace edit lock is unavailable.")?;
     delete_entry_at(&root, &relative_path)
 }
 
 #[tauri::command]
 pub fn apply_workspace_patch(
+    app: tauri::AppHandle,
     state: State<'_, WorkspaceState>,
     relative_path: String,
     expected_content: String,
     updated_content: String,
 ) -> Result<NativeWorkspacePatchResult, String> {
     let root = mounted_root(&state)?;
-    apply_patch_at(&root, &relative_path, &expected_content, &updated_content)
+    let _guard = crate::workspace_undo::FILE_EDIT_LOCK
+        .lock()
+        .map_err(|_| "Workspace edit lock is unavailable.")?;
+    crate::workspace_undo::patch_reversible_at(
+        &root,
+        &crate::workspace_undo::storage_path(&app)?,
+        &relative_path,
+        &expected_content,
+        &updated_content,
+    )
 }
 
 #[derive(Serialize)]
@@ -856,7 +959,8 @@ pub fn workspace_git_status(
 mod tests {
     use super::{
         apply_patch_at, create_directory_at, delete_entry_at, list_directory, move_entry_at,
-        resolve_path, search_root, utf8_content, write_file_at,
+        path_text, read_check_file_at, resolve_path, search_root, utf8_content, write_file_at,
+        MAX_READ_BYTES,
     };
     use std::{fs, path::PathBuf, time::SystemTime};
 
@@ -870,6 +974,37 @@ mod tests {
         fs::write(root.join("src/main.ts"), "export const iris = true;\n")
             .expect("write test file");
         root.canonicalize().expect("canonical root")
+    }
+
+    #[test]
+    fn project_checks_read_real_files_and_refuse_changed_roots_and_unsafe_paths() {
+        let root = test_root();
+        fs::write(root.join("result.txt"), "Actual content").unwrap();
+        let file = read_check_file_at(&root, &path_text(&root), "result.txt")
+            .unwrap()
+            .unwrap();
+        assert_eq!(file.content, "Actual content");
+        assert!(!file.truncated);
+        assert!(
+            read_check_file_at(&root, &path_text(&root), "missing/nested.txt")
+                .unwrap()
+                .is_none()
+        );
+        assert!(read_check_file_at(&root, "/another-root", "result.txt").is_err());
+        assert!(read_check_file_at(&root, &path_text(&root), "../outside.txt").is_err());
+        fs::write(root.join("large.txt"), vec![b'x'; MAX_READ_BYTES + 1]).unwrap();
+        assert!(
+            read_check_file_at(&root, &path_text(&root), "large.txt")
+                .unwrap()
+                .unwrap()
+                .truncated
+        );
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.join("result.txt"), root.join("link.txt")).unwrap();
+            assert!(read_check_file_at(&root, &path_text(&root), "link.txt").is_err());
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -989,13 +1124,8 @@ mod tests {
             "export const iris = false;\n"
         );
         // Test snippet replacement
-        let result_snippet = apply_patch_at(
-            &root,
-            "src/main.ts",
-            "iris = false",
-            "iris = true",
-        )
-        .expect("snippet patch file");
+        let result_snippet = apply_patch_at(&root, "src/main.ts", "iris = false", "iris = true")
+            .expect("snippet patch file");
         assert!(result_snippet.changed);
         assert_eq!(
             fs::read_to_string(root.join("src/main.ts")).expect("read"),

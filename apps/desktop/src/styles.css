@@ -20,3 +20,9 @@
 @import './styles/project-stream.css';
 @import './styles/project-stage.css';
 @import './styles/layouts.css';
+
+@import "./styles/documents.css";
+
+@import './styles/browser.css';
+
+@import './styles/knowledge.css';

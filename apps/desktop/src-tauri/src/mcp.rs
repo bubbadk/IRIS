@@ -241,7 +241,9 @@ pub fn mcp_stdio_request(
         let mut bytes = Vec::new();
         match reader.read_until(b'\n', &mut bytes) {
             Ok(0) => {
-                let _ = sender.send(Err("read:the server closed stdout without a reply".to_string()));
+                let _ = sender.send(Err(
+                    "read:the server closed stdout without a reply".to_string()
+                ));
                 return;
             }
             Ok(_) => {}
@@ -315,11 +317,7 @@ fn release_session_busy(state: &tauri::State<'_, McpStdioState>, id: &str) {
     with_session_mut(state, id, |session| session.busy = false);
 }
 
-fn release_session_stdout(
-    state: &tauri::State<'_, McpStdioState>,
-    id: &str,
-    stdout: ChildStdout,
-) {
+fn release_session_stdout(state: &tauri::State<'_, McpStdioState>, id: &str, stdout: ChildStdout) {
     with_session_mut(state, id, |session| {
         session.busy = false;
         session.child.stdout = Some(stdout);
@@ -570,9 +568,17 @@ mod tests {
         };
 
         let cmd = prepare_stdio_command(&req);
-        let envs: HashMap<_, _> = cmd.get_envs().filter_map(|(k, v)| {
-            v.map(|val| (k.to_string_lossy().to_string(), val.to_string_lossy().to_string()))
-        }).collect();
+        let envs: HashMap<_, _> = cmd
+            .get_envs()
+            .filter_map(|(k, v)| {
+                v.map(|val| {
+                    (
+                        k.to_string_lossy().to_string(),
+                        val.to_string_lossy().to_string(),
+                    )
+                })
+            })
+            .collect();
 
         assert_eq!(envs.get("CUSTOM_VAR"), Some(&"test_value".to_string()));
         if std::env::var("PATH").is_ok() {

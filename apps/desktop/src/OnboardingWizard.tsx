@@ -1,10 +1,79 @@
 import { useState } from 'react';
 import type { AgentDefinition } from '@iris/core';
-import { saveProviderConfigs, loadProviderConfigs, type ProviderConfig } from '@iris/providers';
-import { agentRepository, workspaceRepository } from './persistence';
+import {
+  createProviderConfig,
+  loadProviderCatalog,
+  loadProviderConfigs,
+  refreshProviderModels,
+  saveProviderConfigs,
+  type ProviderCatalogId,
+  type ProviderConfig,
+} from '@iris/providers';
+import { open } from '@tauri-apps/plugin-dialog';
+import { isTauri } from '@tauri-apps/api/core';
+import { agentRepository, permissionRuleRepository } from './persistence';
+import { ensureAssignedToolsRequireApproval } from './agentPermissions';
+// The lightweight registry identity only: importing './tooling' here would pull the full tool
+// initialization (memory service, host inspection) into onboarding and its tests.
+import { toolRegistry } from './toolRegistry';
 import { mountWorkspace } from './workspace';
+import { resolveProviderConnection, saveProviderSecrets } from './credentials';
+import { createDefaultAgentTeam, createSystemJanitorPreset } from './agentPresets';
+
+// Re-exported so existing callers and tests keep one import site for the system preset; the
+// definition itself lives with the rest of the fresh-install tool identities.
+export { createSystemJanitorPreset };
 
 export const ONBOARDING_COMPLETED_KEY = 'iris.onboarding.completed.v1';
+
+type OnboardingProviderType = 'ollama' | 'openrouter' | 'anthropic' | 'openai' | 'gemini';
+
+/**
+ * Setup writes the capability-aware catalog default instead of a hardcoded model name (M-27/M-28):
+ * the previous literals (`gpt-4o`, `claude-3-7-sonnet-20250219`, `anthropic/claude-3.7-sonnet`, …)
+ * were a second, stale model list, and one of them named a model that does not exist. When the
+ * catalog is not synced yet the model stays empty and is discovered from the provider itself.
+ */
+const setupCatalogIds: Record<OnboardingProviderType, ProviderCatalogId> = {
+  ollama: 'ollama',
+  openrouter: 'openrouter',
+  anthropic: 'anthropic',
+  openai: 'openai',
+  gemini: 'google',
+};
+
+const setupEndpoints: Record<OnboardingProviderType, string> = {
+  ollama: 'http://localhost:11434',
+  openrouter: 'https://openrouter.ai/api/v1',
+  anthropic: 'https://api.anthropic.com/v1',
+  openai: 'https://api.openai.com/v1',
+  gemini: 'https://generativelanguage.googleapis.com/v1beta',
+};
+
+const setupKinds: Record<OnboardingProviderType, ProviderConfig['kind']> = {
+  ollama: 'ollama',
+  openrouter: 'openai-compatible',
+  anthropic: 'anthropic',
+  openai: 'openai-compatible',
+  gemini: 'gemini',
+};
+
+/** Builds the setup configuration from the shared provider catalog, never from a literal list. */
+export function setupProviderDefaults(providerType: OnboardingProviderType): ProviderConfig {
+  const catalogId = setupCatalogIds[providerType];
+  const entry = loadProviderCatalog().find((candidate) => candidate.id === catalogId);
+  return entry
+    ? createProviderConfig(entry)
+    : {
+        id: `${catalogId}-${crypto.randomUUID()}`,
+        name: providerType,
+        kind: setupKinds[providerType],
+        endpoint: setupEndpoints[providerType],
+        model: '',
+        enabled: true,
+        catalogId,
+      };
+}
 
 export function isOnboardingNeeded(): boolean {
   if (localStorage.getItem(ONBOARDING_COMPLETED_KEY) === 'true') {
@@ -17,8 +86,7 @@ export function isOnboardingNeeded(): boolean {
       localStorage.getItem('iris.agents.v2') ||
       localStorage.getItem('iris.agents.config.v2');
     const hasProviders =
-      localStorage.getItem('iris.providers.v1') ||
-      localStorage.getItem('iris.providers.config.v2');
+      localStorage.getItem('iris.providers.v1') || localStorage.getItem('iris.providers.config.v2');
     const hasWindows = localStorage.getItem('iris.desktop.windows.v1');
     const hasMemory = localStorage.getItem('iris.memory.records.v1');
     if (hasAgents || hasProviders || hasWindows || hasMemory) {
@@ -71,164 +139,109 @@ export function OnboardingWizard({
     setStep(3);
   };
 
+  const chooseWorkspace = async () => {
+    if (!isTauri()) return;
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Choose a project workspace',
+      });
+      if (typeof selected === 'string') {
+        setWorkspacePath(selected);
+        setStatusMessage(null);
+      }
+    } catch (error) {
+      setStatusMessage(
+        `Could not open the folder chooser: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+
   const handleComplete = async () => {
     setIsSaving(true);
     setStatusMessage('Configuring your IRIS operating environment…');
     try {
-      // 1. Save Provider
+      // 1. Prepare the provider. The workspace is verified before any configuration is saved.
       const providerId = `${providerType}-${crypto.randomUUID().slice(0, 8)}`;
-      let providerConfig: ProviderConfig;
+      const defaults = setupProviderDefaults(providerType);
+      let providerConfig: ProviderConfig =
+        providerType === 'ollama'
+          ? {
+              ...defaults,
+              id: providerId,
+              name: 'Local Ollama',
+              endpoint: ollamaUrl.trim() || setupEndpoints.ollama,
+              // The local model name is a user choice made in this form, not a capability guess.
+              model: ollamaModel.trim() || defaults.model,
+            }
+          : {
+              ...defaults,
+              id: providerId,
+              connectionValues: { apiKey: apiKey.trim() },
+            };
 
-      if (providerType === 'ollama') {
+      // 2. Mount Workspace if provided. Never create an unverified fallback record.
+      if (workspacePath.trim()) {
+        await mountWorkspace(workspacePath.trim());
+      }
+
+      // 3. Store a cloud key before persisting its public configuration. Provider configuration
+      // intentionally removes secret fields, so saving it first would leave setup unusable.
+      if (providerType !== 'ollama') {
+        const storedInOsKeyring = await saveProviderSecrets(providerId, { apiKey: apiKey.trim() });
         providerConfig = {
-          id: providerId,
-          name: 'Local Ollama',
-          kind: 'ollama',
-          endpoint: ollamaUrl.trim() || 'http://localhost:11434',
-          model: ollamaModel.trim() || 'llama3.2',
-          enabled: true,
+          ...providerConfig,
+          connectionValues: storedInOsKeyring ? undefined : providerConfig.connectionValues,
+          ...(storedInOsKeyring ? { storedSecretFields: ['apiKey'] } : {}),
         };
-      } else if (providerType === 'openrouter') {
-        providerConfig = {
-          id: providerId,
-          name: 'OpenRouter',
-          kind: 'openai-compatible',
-          endpoint: 'https://openrouter.ai/api/v1',
-          model: 'anthropic/claude-3.7-sonnet',
-          connectionValues: { apiKey: apiKey.trim() },
-          enabled: true,
-          catalogId: 'openrouter',
-        };
-      } else if (providerType === 'anthropic') {
-        providerConfig = {
-          id: providerId,
-          name: 'Anthropic Claude',
-          kind: 'anthropic',
-          endpoint: 'https://api.anthropic.com/v1',
-          model: 'claude-3-7-sonnet-20250219',
-          connectionValues: { apiKey: apiKey.trim() },
-          enabled: true,
-          catalogId: 'anthropic',
-        };
-      } else if (providerType === 'openai') {
-        providerConfig = {
-          id: providerId,
-          name: 'OpenAI',
-          kind: 'openai-compatible',
-          endpoint: 'https://api.openai.com/v1',
-          model: 'gpt-4o',
-          connectionValues: { apiKey: apiKey.trim() },
-          enabled: true,
-          catalogId: 'openai',
-        };
-      } else {
-        providerConfig = {
-          id: providerId,
-          name: 'Google Gemini',
-          kind: 'gemini',
-          endpoint: 'https://generativelanguage.googleapis.com/v1beta',
-          model: 'gemini-2.5-flash',
-          connectionValues: { apiKey: apiKey.trim() },
-          enabled: true,
-          catalogId: 'gemini',
-        };
+      }
+
+      // 3b. When the shared catalog has no model list yet (it syncs from models.dev on first run of
+      // the Models surface), ask the provider for its real models and let the same capability-aware
+      // policy pick the default. An offline or failing provider keeps the empty model state instead
+      // of a guessed name; nothing is hardcoded and setup still completes.
+      if (providerType !== 'ollama' && !providerConfig.model.trim()) {
+        try {
+          const connected = await resolveProviderConnection(providerConfig);
+          const discovered = await refreshProviderModels(connected);
+          providerConfig = {
+            ...discovered,
+            connectionValues: providerConfig.connectionValues,
+            storedSecretFields: providerConfig.storedSecretFields,
+          };
+        } catch {
+          /* The Models surface can refresh and choose a default later. */
+        }
       }
 
       const existingConfigs = loadProviderConfigs();
       saveProviderConfigs([providerConfig, ...existingConfigs]);
 
-      // 2. Mount Workspace if provided
-      if (workspacePath.trim()) {
-        try {
-          await mountWorkspace(workspacePath.trim());
-        } catch {
-          await workspaceRepository.save({
-            version: 1,
-            id: `workspace-${crypto.randomUUID().slice(0, 8)}`,
-            name: 'Main Project',
-            rootPath: workspacePath.trim(),
-            connectedAt: new Date().toISOString(),
-            verifiedAt: new Date().toISOString(),
-          });
-        }
-      }
-
-      // 3. Ensure Default Agents exist
+      // 4. Ensure Default Agents exist
       const existingAgents = await agentRepository.list();
       if (existingAgents.length === 0) {
-        const workspaceTools = [
-          'workspace.list',
-          'workspace.search',
-          'workspace.read',
-          'workspace.directory',
-          'workspace.write',
-          'workspace.patch',
-          'workspace.move',
-          'workspace.delete',
-          'memory.remember',
-          'host.inspect',
-          'subagent.delegate',
-        ];
-        const defaultAgents: AgentDefinition[] = [
-          {
-            id: `agent-iris-${crypto.randomUUID().slice(0, 8)}`,
-            name: 'IRIS Coordinator',
-            description:
-              'Primary intelligent coordinator with spatial integration and sub-agent delegation.',
-            persona:
-              'You are IRIS (Intelligent Reasoning & Integration System). You are helpful, precise, and delegate to specialized sub-agents and tools effectively.',
-            providerPolicyId: providerId,
-            model: providerConfig.model,
-            autonomy: 'operate',
-            skillIds: [],
-            toolIds: workspaceTools,
-          },
-          {
-            id: `agent-dev-${crypto.randomUUID().slice(0, 8)}`,
-            name: 'Senior Developer',
-            description: 'Specialist in code architecture, refactoring, diagnostics, and Git.',
-            persona:
-              'You are the Senior Developer Specialist in IRIS. You write clean, type-safe, and thoroughly tested code, strictly adhering to architecture rules and verifying patches with diffs.',
-            providerPolicyId: providerId,
-            model: providerConfig.model,
-            autonomy: 'act',
-            skillIds: [],
-            toolIds: workspaceTools,
-          },
-          {
-            id: `agent-janitor-${crypto.randomUUID().slice(0, 8)}`,
-            name: 'System Janitor',
-            description: 'Monitors system health, cleans memory, and maintains workspaces.',
-            persona:
-              'You are the System Janitor in IRIS. Your job is to keep the system healthy, consolidate long-term memories, and maintain workspace hygiene.',
-            providerPolicyId: providerId,
-            model: providerConfig.model,
-            autonomy: 'act',
-            skillIds: [],
-            toolIds: [
-              'janitor.health',
-              'janitor.diagnostics',
-              'janitor.command',
-              'memory.remember',
-              'workspace.list',
-              'workspace.read',
-              'workspace.write',
-            ],
-          },
-        ];
+        const defaultAgents: AgentDefinition[] = createDefaultAgentTeam(
+          providerId,
+          providerConfig.model,
+        );
 
         for (const agent of defaultAgents) {
           await agentRepository.save(agent);
         }
+        await ensureAssignedToolsRequireApproval(
+          permissionRuleRepository,
+          defaultAgents,
+          toolRegistry.list(),
+          await permissionRuleRepository.list(),
+        );
       }
 
       markOnboardingComplete();
       onFinish();
     } catch (error) {
       setIsSaving(false);
-      setStatusMessage(
-        `Setup error: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      setStatusMessage(`Setup error: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -404,13 +417,24 @@ export function OnboardingWizard({
 
               <div className="input-group">
                 <label htmlFor="workspace-folder">Path to project folder:</label>
-                <input
-                  id="workspace-folder"
-                  type="text"
-                  value={workspacePath}
-                  onChange={(e) => setWorkspacePath(e.target.value)}
-                  placeholder="/path/to/project or leave empty"
-                />
+                <div className="onboarding-workspace-picker">
+                  <input
+                    id="workspace-folder"
+                    type="text"
+                    value={workspacePath}
+                    onChange={(e) => setWorkspacePath(e.target.value)}
+                    placeholder="/path/to/project or leave empty"
+                  />
+                  {isTauri() && (
+                    <button
+                      type="button"
+                      className="onboarding-btn-secondary"
+                      onClick={chooseWorkspace}
+                    >
+                      Choose folder
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )}

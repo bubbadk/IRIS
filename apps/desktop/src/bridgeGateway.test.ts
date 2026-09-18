@@ -7,11 +7,18 @@ import {
   sendTelegramMessage,
   sendDiscordWebhookMessage,
   pollTelegramUpdates,
+  allowedTelegramUpdates,
   type ChannelsConfig,
 } from './bridgeGateway';
 
-const { loadSecrets, saveSecrets } = vi.hoisted(() => ({ loadSecrets: vi.fn(), saveSecrets: vi.fn() }));
-vi.mock('./credentials', () => ({ loadProviderSecrets: loadSecrets, saveProviderSecrets: saveSecrets }));
+const { loadSecrets, saveSecrets } = vi.hoisted(() => ({
+  loadSecrets: vi.fn(),
+  saveSecrets: vi.fn(),
+}));
+vi.mock('./credentials', () => ({
+  loadProviderSecrets: loadSecrets,
+  saveProviderSecrets: saveSecrets,
+}));
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -104,6 +111,7 @@ describe('bridgeGateway', () => {
 
   it('pollTelegramUpdates transforms incoming messages into standard shape', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
       json: async () => ({
         ok: true,
         result: [
@@ -129,12 +137,47 @@ describe('bridgeGateway', () => {
     expect(result.updates[0].text).toBe('run status check');
     expect(result.updates[0].chatId).toBe('12345');
   });
-});
 
+  it('accepts incoming Telegram messages only from configured chat ids', () => {
+    expect(
+      allowedTelegramUpdates(
+        [
+          {
+            id: 'x',
+            platform: 'telegram',
+            chatId: 'safe',
+            senderName: 'A',
+            text: 'Hi',
+            timestamp: new Date(0).toISOString(),
+          },
+        ],
+        ['safe'],
+      ),
+    ).toHaveLength(1);
+    expect(
+      allowedTelegramUpdates(
+        [
+          {
+            id: 'x',
+            platform: 'telegram',
+            chatId: 'other',
+            senderName: 'A',
+            text: 'Hi',
+            timestamp: new Date(0).toISOString(),
+          },
+        ],
+        ['safe'],
+      ),
+    ).toHaveLength(0);
+  });
+});
 
 it('migrates legacy credentials only after verified durable storage', async () => {
   const storage = memoryStorage();
-  const raw = JSON.stringify({ telegram: { botToken: 'legacy-token' }, discord: { webhookUrl: 'legacy-webhook' } });
+  const raw = JSON.stringify({
+    telegram: { botToken: 'legacy-token' },
+    discord: { webhookUrl: 'legacy-webhook' },
+  });
   storage.setItem('iris.channels.config.v1', raw);
   loadSecrets.mockResolvedValue(null);
   saveSecrets.mockRejectedValueOnce(new Error('Keyring unavailable'));

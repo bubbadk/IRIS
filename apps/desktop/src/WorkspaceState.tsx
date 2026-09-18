@@ -8,6 +8,7 @@ import type {
   WorkspaceTextFile,
 } from '@iris/workspaces';
 import { DiffViewer } from './DiffViewer';
+import { WorkspaceRecoveryPanel } from './WorkspaceRecoveryPanel';
 import { workspaceChangeRepository } from './persistence';
 import { isTauriRuntime } from './credentials';
 import {
@@ -226,6 +227,7 @@ export function WorkspaceState() {
         </div>
       ) : (
         <>
+          {native && <WorkspaceRecoveryPanel key={mount.id} />}
           <section className="workspace-change-feed" aria-label="Combined agent changes">
             <div className="workspace-change-heading">
               <div>

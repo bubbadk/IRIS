@@ -62,11 +62,11 @@ describe('summarizeActivity', () => {
       [
         {
           type: 'tool-approval-required',
-          call: { id: 'c1', name: 'workspace_write', input: {} },
+          call: { id: 'c1', name: 'workspace_write', input: { path: 'notes/today.md' } },
           approval: { id: 'a1', toolId: 'workspace.write', toolName: 'Write file', reason: 'Ask' },
         },
         'warn',
-        'IRIS is waiting for approval to run workspace_write',
+        'IRIS needs approval to run workspace_write — Write notes/today.md — Path · notes/today.md',
       ],
       [
         { type: 'assistant-complete', message: { role: 'assistant', content: 'done' } },

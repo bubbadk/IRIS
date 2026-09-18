@@ -44,6 +44,7 @@ import {
 } from './mcp';
 import { supportedMcpServerRequestMethods } from '@iris/mcp';
 import { loadProviderConfigs } from '@iris/providers';
+import { selectableAgentModels } from './agentModelSelection';
 import { toolRegistry } from './tooling';
 
 function formatDate(value: string | null): string {
@@ -945,7 +946,12 @@ export function McpState() {
                           const next = providerConfigs.find(
                             (provider) => provider.id === event.target.value,
                           );
-                          const model = next?.model ?? next?.availableModels?.[0] ?? '';
+                          // The provider's own (capability-aware) selected model, or the first
+                          // chat-compatible advertised model — never the alphabetically first entry,
+                          // which can be an image or embedding model.
+                          const model = next
+                            ? next.model.trim() || selectableAgentModels(next)[0] || ''
+                            : '';
                           setSamplingProviderId(event.target.value);
                           setSamplingModel(model);
                           void configureMcpSampling(selected.id, event.target.value, model).catch(
@@ -980,11 +986,7 @@ export function McpState() {
                           const provider = providerConfigs.find(
                             (candidate) => candidate.id === samplingProviderId,
                           );
-                          const models = provider?.availableModels?.length
-                            ? provider.availableModels
-                            : provider?.model
-                              ? [provider.model]
-                              : [];
+                          const models = provider ? selectableAgentModels(provider) : [];
                           return models.map((model) => (
                             <option value={model} key={model}>
                               {model}

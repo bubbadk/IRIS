@@ -1,4 +1,6 @@
+import { ApprovalSummaryById } from './ApprovalSummaryView';
 import { useEffect, useState } from 'react';
+import { ProjectRunReview } from './ProjectRunReview';
 import type { AgentDefinition } from '@iris/core';
 import {
   addProjectTask,
@@ -36,9 +38,12 @@ export function ProjectFlowStage({
   const [workerMessages, setWorkerMessages] = useState<ConversationMessage[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDesc, setNewTaskDesc] = useState('');
+  const [newTaskCriteria, setNewTaskCriteria] = useState('');
+  const [newTaskTurnLimit, setNewTaskTurnLimit] = useState(4);
   const [newTaskDep, setNewTaskDep] = useState<string>('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [error, setError] = useState('');
 
   // Load project & runs
@@ -101,9 +106,11 @@ export function ProjectFlowStage({
 
   const progress = projectProgress(project);
   const latestRun = runs[0] ?? null;
-  const isWorkerActive = latestRun?.status === 'running' || latestRun?.status === 'queued';
+  const isWorkerActive =
+    latestRun !== null && ['running', 'queued', 'suspended'].includes(latestRun.status);
   const isSuspended = latestRun?.status === 'suspended' && latestRun?.approval;
-  const selectedTask = project.tasks.find((t) => t.id === selectedTaskId) ?? project.tasks[0] ?? null;
+  const selectedTask =
+    project.tasks.find((t) => t.id === selectedTaskId) ?? project.tasks[0] ?? null;
   const selectedTaskState = selectedTask ? projectTaskState(project, selectedTask.id) : 'ready';
 
   async function handleLaunchTask(taskId: string) {
@@ -136,7 +143,7 @@ export function ProjectFlowStage({
 
   async function handleCancelRun() {
     if (!latestRun || !isWorkerActive) return;
-    setBusy(true);
+    setStopping(true);
     try {
       await projectWorkflowRuntime.cancel(latestRun.id);
       const updatedRuns = await projectTaskRunRepository.list(projectId);
@@ -144,7 +151,7 @@ export function ProjectFlowStage({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      setStopping(false);
     }
   }
 
@@ -172,6 +179,8 @@ export function ProjectFlowStage({
         id: `task-${crypto.randomUUID()}`,
         title: newTaskTitle.trim(),
         description: newTaskDesc.trim() || undefined,
+        acceptanceCriteria: newTaskCriteria,
+        turnLimit: newTaskTurnLimit,
         dependencyIds: depIds,
         createdAt: new Date().toISOString(),
       });
@@ -179,6 +188,7 @@ export function ProjectFlowStage({
       setProject(updated);
       setNewTaskTitle('');
       setNewTaskDesc('');
+      setNewTaskCriteria('');
       setNewTaskDep('');
       setShowAddForm(false);
     } catch (err) {
@@ -204,7 +214,9 @@ export function ProjectFlowStage({
             <div className="project-flow-stats">
               <span className="stat-pill ready">Ready: {progress.ready}</span>
               <span className="stat-pill blocked">Blocked: {progress.blocked}</span>
-              <span className="stat-pill done">Done: {progress.completed}/{progress.total}</span>
+              <span className="stat-pill done">
+                Done: {progress.completed}/{progress.total}
+              </span>
             </div>
             <button type="button" onClick={onClose} className="row-button close-btn">
               ✕
@@ -234,9 +246,10 @@ export function ProjectFlowStage({
             <select
               value={selectedAgentId}
               onChange={(e) => setSelectedAgentId(e.target.value)}
-              disabled={isWorkerActive}
+              disabled={isWorkerActive || agents.length === 0}
               className="project-worker-select"
             >
+              {agents.length === 0 && <option value="">No agents configured</option>}
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name} ({a.autonomy})
@@ -246,7 +259,7 @@ export function ProjectFlowStage({
             {isWorkerActive && (
               <span className="project-running-pulse">
                 <span className="status-dot working" />
-                Working on active task…
+                {isSuspended ? 'Waiting for your permission…' : 'Working on active task…'}
               </span>
             )}
           </div>
@@ -256,18 +269,19 @@ export function ProjectFlowStage({
               <button
                 type="button"
                 onClick={handleCancelRun}
-                disabled={busy}
+                disabled={stopping}
                 className="soft-button"
                 style={{ color: '#dc2626' }}
               >
                 ⏹ Stop Worker
               </button>
             ) : (
-              selectedTask && selectedTaskState === 'ready' && (
+              selectedTask &&
+              selectedTaskState === 'ready' && (
                 <button
                   type="button"
                   onClick={() => handleLaunchTask(selectedTask.id)}
-                  disabled={busy}
+                  disabled={busy || agents.length === 0}
                   className="soft-button primary-button"
                 >
                   ▶ Launch &quot;{selectedTask.title}&quot;
@@ -291,8 +305,10 @@ export function ProjectFlowStage({
               <span className="approval-warning-icon">🛡️</span>
               <div>
                 <strong>Worker requests permission for: {latestRun.approval.toolName}</strong>
+                <ApprovalSummaryById approvalId={latestRun.approval.id} />
                 <p style={{ margin: '2px 0 0', fontSize: '11px', color: 'var(--muted)' }}>
-                  {latestRun.approval.reason || 'Confirm this action to proceed with the task execution.'}
+                  {latestRun.approval.reason ||
+                    'Confirm this action to proceed with the task execution.'}
                 </p>
               </div>
             </div>
@@ -344,17 +360,44 @@ export function ProjectFlowStage({
             </div>
             <textarea
               rows={2}
-              placeholder="Completion criteria / instructions for the worker agent…"
+              placeholder="Instructions for the worker agent…"
               value={newTaskDesc}
               onChange={(e) => setNewTaskDesc(e.target.value)}
             />
+            <label>
+              Acceptance criteria <span>optional</span>
+              <textarea
+                rows={2}
+                value={newTaskCriteria}
+                onChange={(event) => setNewTaskCriteria(event.target.value)}
+                placeholder="Which observable checks must pass?"
+              />
+            </label>
+            <label>
+              Maximum agent turns
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={newTaskTurnLimit}
+                onChange={(event) => setNewTaskTurnLimit(Number(event.target.value))}
+              />
+              <small>
+                Continues automatically at the tool limit. Pause is available between turns.
+              </small>
+            </label>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
               <button type="button" onClick={() => setShowAddForm(false)} className="row-button">
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={!newTaskTitle.trim()}
+                disabled={
+                  !newTaskTitle.trim() ||
+                  !Number.isInteger(newTaskTurnLimit) ||
+                  newTaskTurnLimit < 1 ||
+                  newTaskTurnLimit > 10
+                }
                 className="soft-button primary-button"
               >
                 Insert Step
@@ -394,9 +437,7 @@ export function ProjectFlowStage({
                         <span className="flow-node-index">Step {index + 1}</span>
                       </div>
                       <strong className="flow-node-title">{task.title}</strong>
-                      {task.description && (
-                        <p className="flow-node-desc">{task.description}</p>
-                      )}
+                      {task.description && <p className="flow-node-desc">{task.description}</p>}
                     </button>
                     {index < project.tasks.length - 1 && (
                       <div className="flow-connector-arrow">↓</div>
@@ -419,11 +460,23 @@ export function ProjectFlowStage({
             </div>
 
             <div className="project-worker-stream">
+              {latestRun && (
+                <ProjectRunReview
+                  key={latestRun.id}
+                  run={latestRun}
+                  canAct={
+                    project.tasks.some((task) => task.id === latestRun.taskId) &&
+                    projectTaskState(project, latestRun.taskId) === 'ready'
+                  }
+                />
+              )}
+
               {workerMessages.length === 0 ? (
                 <div className="project-flow-empty" style={{ margin: 'auto' }}>
                   <strong>Agent Standing By</strong>
                   <p style={{ margin: 0, fontSize: '11px' }}>
-                    Select a ready step on the left and click &quot;Launch&quot; to execute it autonomously.
+                    Select a ready step on the left and click &quot;Launch&quot; to execute it
+                    autonomously.
                   </p>
                 </div>
               ) : (

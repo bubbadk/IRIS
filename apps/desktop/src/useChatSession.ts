@@ -1,9 +1,12 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { agentRuntime, subscribeAgentRuntime } from './agentRuntime';
+import { subscribeAgentRuntime } from './agentRuntime';
 import { conversationRepository } from './persistence';
+import { chatAgentRuntime } from './agentApproval';
 import { ChatSessions } from './chatSession';
 
-export const chatSessions = new ChatSessions(agentRuntime, conversationRepository);
+// The chat window resolves approvals through the central path, so a decision made here updates the
+// scheduled run the approval belongs to just like the global permissions window does.
+export const chatSessions = new ChatSessions(chatAgentRuntime, conversationRepository);
 export function useChatSession(agentId: string | null) {
   const state = useSyncExternalStore(chatSessions.subscribe, () =>
     chatSessions.getSnapshot(agentId ?? ''),

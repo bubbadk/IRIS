@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   defaultWindow,
+  loadWindows,
   moveWindow,
   normalizeWindow,
   resizeWindow,
@@ -47,8 +48,8 @@ describe('desktop window bounds', () => {
   it('opens a project graph with enough room for its spatial work surface', () => {
     expect(defaultWindow('projects', windowLayerBase + 1)).toMatchObject({
       title: 'Projects',
-      width: 760,
-      height: 560,
+      width: 980,
+      height: 720,
     });
   });
 
@@ -73,4 +74,11 @@ describe('desktop window bounds', () => {
       height: 260,
     });
   });
+});
+
+it('retains browser and document windows in a saved desktop layout', () => {
+  const windows = [defaultWindow('browser', 11), defaultWindow('documents', 12)];
+  vi.stubGlobal('localStorage', { getItem: () => JSON.stringify(windows) });
+  try { expect(loadWindows().map((window) => window.objectType)).toEqual(['browser', 'documents']); }
+  finally { vi.unstubAllGlobals(); }
 });

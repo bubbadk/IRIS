@@ -44,6 +44,7 @@ import {
   isTauriRuntime,
   deleteProviderSecrets,
   loadProviderSecrets,
+  resolveProviderConnection,
   saveProviderSecrets,
 } from './credentials';
 import {
@@ -366,15 +367,8 @@ async function sampleFromConfiguredProvider(
   );
   if (!config || !config.enabled)
     throw new Error('The configured sampling provider is unavailable.');
-  const storedSecrets = await loadProviderSecrets(config.id);
-  const connected = {
-    ...config,
-    connectionValues: {
-      ...(storedSecrets ?? {}),
-      ...(config.connectionValues ?? {}),
-      ...(config.apiKey ? { apiKey: config.apiKey } : {}),
-    },
-  };
+  // The trusted keyring credential always outranks legacy plaintext state (M-29).
+  const connected = await resolveProviderConnection(config);
   const missing = missingProviderConnectionFields({ ...connected, storedSecretFields: [] });
   if (missing.length) {
     throw new Error(

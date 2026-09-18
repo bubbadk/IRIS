@@ -6,14 +6,14 @@ import {
   type AgentSystemContextBuilder,
 } from '@iris/agents';
 import type { AgentDefinition } from '@iris/core';
+import { describeApproval, formatApprovalLine } from '@iris/tools';
 import {
   createModelProvider,
   loadProviderConfigs,
   missingProviderConnectionFields,
-  providerConnectionFields,
   type ProviderConfig,
 } from '@iris/providers';
-import { loadProviderSecrets } from './credentials';
+import { resolveProviderConnection } from './credentials';
 import {
   agentRepository,
   contextPackRepository,
@@ -28,6 +28,8 @@ import { toolRegistry, agentToolRuntime, janitorHealthToolId } from './tooling';
 import { createSubAgentTool, createSubAgentTeamTool } from './subagentTool';
 import { agentContextBuilder } from './memory';
 import { agentWorkspaceContext } from './workspace';
+import { standardGitHubTools, standardWorkspaceTools } from './agentPresets';
+import { agentExecutionLeases, agentRuntimeOwnerId, crossProcessAuthority } from './agentExecution';
 
 type AgentRuntimeListener = (agentId: string) => void;
 
@@ -72,11 +74,20 @@ export function summarizeActivity(
       return { kind: 'warn', summary: `${agentName}: ${event.call.name} was denied` };
     case 'tool-failed':
       return { kind: 'error', summary: `${agentName}: ${event.call.name} failed` };
-    case 'tool-approval-required':
+    case 'tool-approval-required': {
+      // An approval prompt is only consent if it names the operation. This feed is also the source
+      // for channel/remote notifications, so the concrete arguments have to travel with it.
+      const description = describeApproval({
+        toolId: event.approval.toolId,
+        toolName: event.approval.toolName,
+        input: event.call.input,
+        agentName,
+      });
       return {
         kind: 'warn',
-        summary: `${agentName} is waiting for approval to run ${event.call.name}`,
+        summary: `${agentName} needs approval to run ${event.call.name} — ${formatApprovalLine(description)}`,
       };
+    }
     case 'assistant-complete':
       return { kind: 'success', summary: `${agentName} finished replying` };
     default:
@@ -107,36 +118,7 @@ export function subscribeAgentActivity(
   return () => activityListeners.delete(listener);
 }
 
-export const standardWorkspaceTools: readonly string[] = [
-  'workspace.list',
-  'workspace.search',
-  'workspace.read',
-  'workspace.directory',
-  'workspace.write',
-  'workspace.patch',
-  'workspace.move',
-  'workspace.delete',
-  'memory.remember',
-  'host.inspect',
-  'subagent.delegate',
-];
-
-export const standardGitHubTools = [
-  'github.list_repos',
-  'github.get_repo',
-  'github.create_repo',
-  'github.create_release',
-  'github.trigger_workflow',
-  'github.get_workflow_status',
-  'github.list_issues',
-  'github.create_pull_request',
-  'workspace.list',
-  'workspace.search',
-  'workspace.read',
-  'workspace.write',
-  'workspace.patch',
-  'memory.remember',
-];
+export { standardGitHubTools, standardWorkspaceTools };
 
 export async function normalizeDesktopAgent(agent: AgentDefinition): Promise<AgentDefinition> {
   let modified = false;
@@ -202,19 +184,9 @@ export const providerResolver: AgentProviderResolver = {
     }
     if (!config.enabled) throw new Error('This model provider is disabled.');
     const model = configuredAgentModel(agent, config, suspended?.model);
-    const hasSecretFields = providerConnectionFields(config).some((field) => field.secret);
-    const storedSecrets =
-      hasSecretFields || config.storedSecretFields?.length
-        ? await loadProviderSecrets(config.id)
-        : null;
-    const connected = {
-      ...config,
-      connectionValues: {
-        ...(storedSecrets ?? {}),
-        ...(config.connectionValues ?? {}),
-        ...(config.apiKey ? { apiKey: config.apiKey } : {}),
-      },
-    };
+    // One canonical precedence contract for every runtime provider connection (M-29): the trusted
+    // keyring credential always outranks legacy plaintext state.
+    const connected = await resolveProviderConnection(config);
     const missingFields = missingProviderConnectionFields({
       ...connected,
       storedSecretFields: [],
@@ -236,6 +208,15 @@ toolRegistry.register(
     agentRepository,
     providerResolver,
     agentToolRuntime,
+    // A delegated child is ephemeral, so its suspension is persisted here: that is what lets the
+    // permission UI resume the same child turn instead of executing the tool outside its turn.
+    suspendedTurns: suspendedAgentTurnRepository,
+    // A resumed parent turn recovers a settled child's recorded report from here, so a chain that was
+    // interrupted by an approval never re-runs the child (and never re-runs its side effects).
+    conversations: conversationRepository,
+    // Delegation-capable tools are found through `delegationCapable` metadata, so a future alias or
+    // wrapper is covered by the same nesting policy.
+    toolRegistry,
   }),
 );
 toolRegistry.register(
@@ -243,6 +224,9 @@ toolRegistry.register(
     agentRepository,
     providerResolver,
     agentToolRuntime,
+    suspendedTurns: suspendedAgentTurnRepository,
+    conversations: conversationRepository,
+    toolRegistry,
   }),
 );
 
@@ -295,7 +279,28 @@ export const agentRuntime = new AgentRuntimeCoordinator(
   normalizeDesktopAgent,
   cortexTurnStepRepository,
   recordActivity,
+  {
+    leases: agentExecutionLeases,
+    ownerKind: 'interactive',
+    ownerId: agentRuntimeOwnerId,
+    // Phase 2H.1: same-agent turns in another live IRIS process are refused here. The port
+    // resolves lazily on first real admission — never at module import — so importing this
+    // module touches no native storage and browser tests stay isolated.
+    get crossProcess() {
+      if (agentRuntimeCrossProcess === undefined && !crossProcessResolutionStarted) {
+        crossProcessResolutionStarted = true;
+        void crossProcessAuthority().then((port) => {
+          agentRuntimeCrossProcess = port;
+        });
+      }
+      return agentRuntimeCrossProcess;
+    },
+  },
 );
+
+// Resolved lazily on first admission; stays undefined in browser preview and unit tests.
+let agentRuntimeCrossProcess: Awaited<ReturnType<typeof crossProcessAuthority>> | undefined;
+let crossProcessResolutionStarted = false;
 
 export function subscribeAgentRuntime(listener: AgentRuntimeListener): () => void {
   listeners.add(listener);
@@ -311,7 +316,7 @@ export async function consumeAgentEvents(events: AsyncIterable<AgentEvent>): Pro
 export async function* scheduledAgentEvents(
   events: AsyncIterable<AgentEvent>,
 ): AsyncGenerator<
-  | { type: 'started' }
+  | { type: 'started'; turnId?: string }
   | { type: 'approval-required'; approvalId: string }
   | { type: 'completed'; output: string }
 > {
@@ -324,10 +329,23 @@ export async function* scheduledAgentEvents(
         event.type === 'tool-call')
     ) {
       started = true;
-      yield { type: 'started' };
+      // The turn id is what lets a scheduled run be reconciled later against the exact turn it
+      // started, instead of guessing from whichever transcript happens to look newest.
+      yield event.type === 'user-message'
+        ? { type: 'started', turnId: event.message.turnId }
+        : { type: 'started' };
     }
-    if (event.type === 'tool-approval-required')
+    if (event.type === 'tool-approval-required') {
       yield { type: 'approval-required', approvalId: event.approval.id };
+    }
+    if (event.type === 'tool-suspended') {
+      // The turn stopped on a *descendant's* approval. From the scheduled run's point of view that is
+      // still "waiting for an approval", and the approval that unblocks it is the descendant's.
+      const blocking = event.suspension.children.find((child) => child.approvalId);
+      if (blocking?.approvalId) {
+        yield { type: 'approval-required', approvalId: blocking.approvalId };
+      }
+    }
     if (event.type === 'assistant-complete') {
       if (!started) yield { type: 'started' };
       yield { type: 'completed', output: event.message.content };

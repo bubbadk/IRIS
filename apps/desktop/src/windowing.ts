@@ -91,29 +91,30 @@ export function defaultWindow(objectType: DesktopWindow['objectType'], z: number
     width:
       objectType === 'welcome'
         ? 560
+        : objectType === 'memory' ? 860
+        : objectType === 'documents' || objectType === 'browser' || objectType === 'projects' ? 980
         : objectType === 'github'
           ? 920
           : objectType === 'subtitles'
             ? 880
             : objectType === 'settings' ||
-              objectType === 'memory' ||
-              objectType === 'projects' ||
               objectType === 'schedules' ||
               objectType === 'workspace' || objectType === 'channels'
-            ? objectType === 'projects' || objectType === 'workspace' || objectType === 'channels'
+            ? objectType === 'workspace' || objectType === 'channels'
               ? 760
               : 680
             : objectType === 'agents' ? 860 : 520,
     height:
       objectType === 'welcome'
         ? 360
+        : objectType === 'memory' ? 700
+        : objectType === 'projects' ? 720
+        : objectType === 'documents' || objectType === 'browser' ? 680
         : objectType === 'github'
           ? 640
           : objectType === 'subtitles'
             ? 580
             : objectType === 'settings' ||
-              objectType === 'memory' ||
-              objectType === 'projects' ||
               objectType === 'schedules' ||
               objectType === 'workspace' || objectType === 'channels'
             ? 560
@@ -127,7 +128,7 @@ function isDesktopWindow(value: unknown): value is DesktopWindow {
   if (!value || typeof value !== 'object') return false;
   const win = value as Partial<DesktopWindow>;
   return typeof win.id === 'string' && typeof win.title === 'string' &&
-    ['welcome', 'agents', 'projects', 'schedules', 'workspace', 'models', 'memory', 'skills', 'subtitles', 'connections', 'channels', 'settings', 'github', 'systems'].includes(win.objectType ?? '') &&
+    ['welcome', 'browser', 'documents', 'agents', 'projects', 'schedules', 'workspace', 'models', 'memory', 'skills', 'subtitles', 'connections', 'channels', 'settings', 'github', 'systems'].includes(win.objectType ?? '') &&
     [win.x, win.y, win.width, win.height, win.z].every((n) => typeof n === 'number' && Number.isFinite(n));
 }
 

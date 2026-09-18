@@ -13,6 +13,7 @@ import { OnboardingWizard, isOnboardingNeeded } from './OnboardingWizard';
 import { workspaceRepository } from './persistence';
 import { ProjectFlowStage } from './ProjectFlowStage';
 import { startScheduledRuntime } from './scheduledRuntime';
+import { startProjectQueueRuntime } from './projectQueueRuntime';
 import {
   onSudoPasswordRequestChange,
   resolveSudoPasswordRequest,
@@ -187,6 +188,7 @@ export function App() {
   }, [darkMode]);
 
   useEffect(() => startScheduledRuntime(), []);
+  useEffect(() => startProjectQueueRuntime(), []);
   useEffect(() => subscribeDesktopActivity(() => undefined), []);
 
   useEffect(() => {

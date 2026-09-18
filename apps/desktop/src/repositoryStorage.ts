@@ -88,12 +88,25 @@ export class RepositoryTransactions {
 }
 
 let transactions: RepositoryTransactions | undefined;
-let initialization: Promise<void> | undefined;
+type InitializationState =
+  | { status: 'idle' }
+  | { status: 'initializing'; promise: Promise<void> }
+  | { status: 'ready' };
+let initialization: InitializationState = { status: 'idle' };
+/** The active native transaction view, or `undefined` before initialization succeeds. */
+export function currentRepositoryTransactions(): RepositoryTransactions | undefined {
+  return transactions;
+}
 export function initializeRepositoryStorage(): Promise<void> {
-  if (!isTauri()) return Promise.resolve();
-  initialization ??= (async () => {
+  if (!isTauri() || initialization.status === 'ready') return Promise.resolve();
+  if (initialization.status === 'initializing') return initialization.promise;
+  const promise = (async () => {
     const legacy: Record<string, string> = {};
     for (const key of repositoryKeys) {
+      // Channel state migrates through the controlled gateway migration (Phase 2H.2), which
+      // validates records and moves secrets before cleanup; the native one-shot import must
+      // never silently copy raw legacy channel metadata (or its secrets) into SQLite.
+      if (key.startsWith('iris.channels.')) continue;
       const value = globalThis.localStorage.getItem(key);
       if (value !== null) legacy[key] = value;
     }
@@ -105,8 +118,16 @@ export function initializeRepositoryStorage(): Promise<void> {
     });
     await ready.initialize();
     transactions = ready;
-  })();
-  return initialization;
+  })().then(
+    () => { initialization = { status: 'ready' }; },
+    (error: unknown) => {
+      // No internal retry loop: the next legitimate operation may start one shared attempt.
+      initialization = { status: 'idle' };
+      throw error;
+    },
+  );
+  initialization = { status: 'initializing', promise };
+  return promise;
 }
 
 /** Preserve repository contracts while isolating each call in its own SQLite transaction view. */

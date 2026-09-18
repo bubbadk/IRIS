@@ -5,6 +5,7 @@ import {
   createBrowserNavigateLiveTool,
   createBrowserTypeLiveTool,
   createBrowserVisionLiveTool,
+  guardedBrowserFetch,
   type LiveBrowserDependencies,
 } from './liveBrowserTools';
 
@@ -108,7 +109,7 @@ describe('browser.click live tool input validation', () => {
       tool.run({ url: 'https://x' }, { agentId: 'a', agentName: 'A' }),
     ).rejects.toThrow(/unsupported input field/);
     await expect(
-      tool.run({ ref: 500 }, { agentId: 'a', agentName: 'A' }),
+      tool.run({ ref: -1 }, { agentId: 'a', agentName: 'A' }),
     ).rejects.toThrow(/ref must be an integer/);
   });
 
@@ -203,5 +204,89 @@ describe('browser.vision live tool', () => {
     })) as Record<string, unknown>;
     expect(calls).toEqual(['browser_navigate', 'browser_vision']);
     expect(result.screenshotPath).toBe('/tmp/x.png');
+  });
+});
+
+
+describe('native browser ownership boundaries', () => {
+  it('never falls back to HTTP while the user owns the browser', async () => {
+    let fetched = false;
+    const tool = createBrowserNavigateLiveTool({ invokeNative: async () => { throw 'Browser is under your control.'; }, fetchImpl: async () => { fetched = true; return new Response('not expected'); } });
+    await expect(tool.run({ url: 'https://example.com' }, { agentId: 'a', agentName: 'A' })).rejects.toBe('Browser is under your control.');
+    expect(fetched).toBe(false);
+  });
+  it('accepts opaque snapshot refs and treats page navigation as executable', async () => {
+    let args: Record<string, unknown> | undefined;
+    const tool = createBrowserClickLiveTool(depsWith(async (_command, input) => { args = input; return samplePage; }));
+    await tool.run({ ref: 2001 }, { agentId: 'a', agentName: 'A' });
+    expect(args?.reference).toBe(2001);
+    expect(createBrowserNavigateLiveTool(depsWith(async () => samplePage)).risk).toBe('execute');
+    expect(createBrowserVisionLiveTool(depsWith(async () => samplePage)).risk).toBe('execute');
+  });
+});
+
+describe('the browser fallback transport is the guarded native reader', () => {
+  it('refuses to fetch on its own outside the desktop app', async () => {
+    const original = globalThis.fetch;
+    let ambientCalls = 0;
+    globalThis.fetch = (async () => {
+      ambientCalls += 1;
+      return new Response('should never be used', { status: 200 });
+    }) as typeof fetch;
+    try {
+      // H-01: the browser tools share the web tools' native transport. In a browser preview there is
+      // no native policy to consult, so the fallback fails closed instead of fetching the
+      // model-chosen URL with the page's own network access.
+      await expect(guardedBrowserFetch('https://example.com/')).rejects.toThrow(
+        /installed IRIS desktop app/,
+      );
+      expect(ambientCalls).toBe(0);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it('refuses a private destination without contacting it', async () => {
+    const original = globalThis.fetch;
+    let ambientCalls = 0;
+    globalThis.fetch = (async () => {
+      ambientCalls += 1;
+      return new Response('secret', { status: 200 });
+    }) as typeof fetch;
+    try {
+      await expect(guardedBrowserFetch('http://127.0.0.1:8080/admin')).rejects.toThrow();
+      await expect(guardedBrowserFetch('http://169.254.169.254/latest/meta-data/')).rejects.toThrow();
+      expect(ambientCalls).toBe(0);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
+
+describe('browser tool URLs are validated before any transport call', () => {
+  it('refuses non-web schemes and credential URLs in navigate and vision', async () => {
+    let calls = 0;
+    const deps: LiveBrowserDependencies = {
+      invokeNative: async () => {
+        throw NO_SESSION;
+      },
+      fetchImpl: (async () => {
+        calls += 1;
+        return new Response('<title>x</title>', { status: 200 });
+      }) as unknown as LiveBrowserDependencies['fetchImpl'],
+    };
+    const navigate = createBrowserNavigateLiveTool(deps);
+    const vision = createBrowserVisionLiveTool(deps);
+    for (const url of [
+      'file:///etc/passwd',
+      'ftp://example.com/x',
+      'javascript:alert(1)',
+      'http://user:pass@example.com/',
+      'not-a-url',
+    ]) {
+      await expect(navigate.run({ url }, { agentId: 'a', agentName: 'A' })).rejects.toThrow();
+      await expect(vision.run({ url }, { agentId: 'a', agentName: 'A' })).rejects.toThrow();
+    }
+    expect(calls).toBe(0);
   });
 });

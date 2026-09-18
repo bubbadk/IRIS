@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   addProjectTask,
   createProjectGraph,
@@ -20,6 +20,8 @@ import {
   type ProjectTaskRun,
   type ProjectTaskRunRepository,
   type ProjectWorkerEvent,
+  verifyProjectRun,
+  resumeProjectRun,
   type ProjectWorkerExecutor,
   type ScheduleDefinition,
   type ScheduledRun,
@@ -147,9 +149,24 @@ describe('project task graph', () => {
     const cyclicGraph: ProjectGraph = {
       ...t3,
       tasks: [
-        { id: 'task-1', title: 'Task 1', dependencyIds: ['task-3'], createdAt: '2026-08-27T12:01:00.000Z' },
-        { id: 'task-2', title: 'Task 2', dependencyIds: ['task-1'], createdAt: '2026-08-27T12:02:00.000Z' },
-        { id: 'task-3', title: 'Task 3', dependencyIds: ['task-2'], createdAt: '2026-08-27T12:03:00.000Z' },
+        {
+          id: 'task-1',
+          title: 'Task 1',
+          dependencyIds: ['task-3'],
+          createdAt: '2026-08-27T12:01:00.000Z',
+        },
+        {
+          id: 'task-2',
+          title: 'Task 2',
+          dependencyIds: ['task-1'],
+          createdAt: '2026-08-27T12:02:00.000Z',
+        },
+        {
+          id: 'task-3',
+          title: 'Task 3',
+          dependencyIds: ['task-2'],
+          createdAt: '2026-08-27T12:03:00.000Z',
+        },
       ],
     };
     expect(validateProjectGraph(cyclicGraph)).toBe(false);
@@ -221,7 +238,7 @@ describe('schedules', () => {
     expect(next).toBe('2026-09-01T09:00:00.000Z');
   });
 
-  it('computes an idle schedule\'s due time from the last real activity, defaulting to 60 minutes', () => {
+  it("computes an idle schedule's due time from the last real activity, defaulting to 60 minutes", () => {
     expect(nextIdleScheduleRun({ idleMinutes: 30 }, new Date('2026-08-29T10:00:00.000Z'))).toBe(
       '2026-08-29T10:30:00.000Z',
     );
@@ -337,7 +354,7 @@ describe('schedules', () => {
     expect(result[0]?.status).toBe('completed');
     expect(runs[0]?.output).toBe('Reviewed.');
     expect(schedule.nextRunAt).toBe('2026-08-29T09:00:00.000Z');
-    expect(changes).toBe(2);
+    expect(changes).toBe(4);
   });
 
   it('dispatches a due idle schedule and goes quiet instead of computing a calendar next-run', async () => {
@@ -405,6 +422,7 @@ describe('schedules', () => {
     const neverStartedRun: ScheduledRun = {
       version: 1,
       id: 'run-queued',
+      queueVersion: 1,
       scheduleId: 's',
       agentId: 'a',
       prompt: 'Do other work',
@@ -446,7 +464,7 @@ describe('schedules', () => {
     expect(saved['run-queued'].failure).toBeUndefined();
   });
 
-  it('persists retry timing and retries a failed run without duplicating its history row', async () => {
+  it('persists retry timing for read-only preflight failures without duplicating history', async () => {
     let now = new Date('2026-08-28T09:01:00.000Z');
     let schedule: ScheduleDefinition = {
       version: 1,
@@ -484,10 +502,12 @@ describe('schedules', () => {
       schedules,
       runs,
       {
-        run: async function* () {
+        prepare: async () => {
           executions += 1;
+          if (executions === 1) throw new Error('Configuration unavailable.');
+        },
+        run: async function* () {
           yield { type: 'started' as const };
-          if (executions === 1) throw new Error('Provider unavailable.');
           yield { type: 'completed' as const, output: 'Recovered.' };
         },
         resume: async function* () {},
@@ -523,6 +543,7 @@ describe('schedules', () => {
     const retry: ScheduledRun = {
       version: 1,
       id: 'retry-overlap',
+      retrySafe: true,
       scheduleId: schedule.id,
       agentId: schedule.agentId,
       prompt: schedule.prompt,
@@ -620,7 +641,7 @@ function workerExecutor(
 }
 
 describe('project workflow runtime', () => {
-  it('persists a real worker lifecycle and completes the originating task only on success', async () => {
+  it('keeps dependencies blocked when a worker returns even a confident success claim', async () => {
     const graph = graphWithDependency();
     const state = repositories(graph);
     const statuses: string[] = [];
@@ -629,7 +650,7 @@ describe('project workflow runtime', () => {
       state.runs,
       workerExecutor(async function* () {
         yield { type: 'started', runtimeTurnId: 'turn-1' };
-        yield { type: 'completed', runtimeTurnId: 'turn-1', output: 'Desktop build verified.' };
+        yield { type: 'returned', runtimeTurnId: 'turn-1', output: 'Desktop build verified.' };
       }),
       () => {
         statuses.push(state.currentRuns()[0]?.status ?? 'missing');
@@ -648,13 +669,13 @@ describe('project workflow runtime', () => {
       id: 'run-1',
       agentId: 'agent-1',
       agentName: 'Release worker',
-      status: 'completed',
+      status: 'awaiting-review',
       runtimeTurnId: 'turn-1',
       output: 'Desktop build verified.',
     });
-    expect(statuses).toEqual(['queued', 'running', 'running', 'completed']);
-    expect(projectTaskState(state.currentProject(), 'task-1')).toBe('completed');
-    expect(projectTaskState(state.currentProject(), 'task-2')).toBe('ready');
+    expect(statuses).toEqual(['queued', 'running', 'running', 'awaiting-review']);
+    expect(projectTaskState(state.currentProject(), 'task-1')).toBe('ready');
+    expect(projectTaskState(state.currentProject(), 'task-2')).toBe('blocked');
     expect(validateProjectTaskRun(run)).toBe(true);
   });
 
@@ -705,7 +726,7 @@ describe('project workflow runtime', () => {
         },
         async function* () {
           yield {
-            type: 'completed',
+            type: 'returned',
             runtimeTurnId: 'turn-approval',
             output: 'Approved inspection completed.',
           };
@@ -730,10 +751,10 @@ describe('project workflow runtime', () => {
     const completed = await runtime.resolveApproval('approval-1', 'approve');
     expect(completed).toMatchObject({
       id: 'run-approval',
-      status: 'completed',
+      status: 'awaiting-review',
       output: 'Approved inspection completed.',
     });
-    expect(projectTaskState(state.currentProject(), 'task-1')).toBe('completed');
+    expect(projectTaskState(state.currentProject(), 'task-1')).toBe('ready');
   });
 
   it('refuses blocked tasks and agents already occupied by another active run', async () => {
@@ -755,7 +776,7 @@ describe('project workflow runtime', () => {
       state.projects,
       state.runs,
       workerExecutor(async function* () {
-        yield { type: 'completed', runtimeTurnId: 'unused', output: '' };
+        yield { type: 'returned', runtimeTurnId: 'unused', output: '' };
       }),
     );
 
@@ -767,47 +788,51 @@ describe('project workflow runtime', () => {
     ).rejects.toThrow('active worker');
   });
 
-  it('reconciles a completed persisted Cortex worker after restart', async () => {
-    const graph = graphWithDependency();
-    const state = repositories(graph);
-    await state.runs.save({
-      version: 1,
-      id: 'run-recovered',
-      projectId: graph.id,
-      taskId: 'task-1',
-      agentId: 'agent-1',
-      agentName: 'Release worker',
-      status: 'running',
-      createdAt: '2026-08-27T14:00:00.000Z',
-      updatedAt: '2026-08-27T14:01:00.000Z',
-      startedAt: '2026-08-27T14:01:00.000Z',
-      runtimeTurnId: 'turn-recovered',
-    });
-    const workers = workerExecutor(async function* () {
-      yield { type: 'completed', runtimeTurnId: 'unused', output: '' };
-    });
-    workers.recover = async () => ({
-      status: 'completed',
-      runtimeTurnId: 'turn-recovered',
-      output: 'Recovered verified output.',
-    });
-    const runtime = new ProjectWorkflowRuntime(
-      state.projects,
-      state.runs,
-      workers,
-      undefined,
-      () => new Date('2026-08-27T14:05:00.000Z'),
-    );
-
-    await expect(runtime.reconcile(graph.id)).resolves.toEqual([
-      expect.objectContaining({
+  it.each([undefined, 'tool-limit'] as const)(
+    'recovers a returned worker with stop reason %s without completing its task',
+    async (stopReason) => {
+      const graph = graphWithDependency();
+      const state = repositories(graph);
+      await state.runs.save({
+        version: 1,
         id: 'run-recovered',
-        status: 'completed',
+        projectId: graph.id,
+        taskId: 'task-1',
+        agentId: 'agent-1',
+        agentName: 'Release worker',
+        status: 'running',
+        createdAt: '2026-08-27T14:00:00.000Z',
+        updatedAt: '2026-08-27T14:01:00.000Z',
+        startedAt: '2026-08-27T14:01:00.000Z',
+        runtimeTurnId: 'turn-recovered',
+      });
+      const workers = workerExecutor(async function* () {
+        yield { type: 'returned', runtimeTurnId: 'unused', output: '' };
+      });
+      workers.recover = async () => ({
+        status: 'returned',
+        runtimeTurnId: 'turn-recovered',
         output: 'Recovered verified output.',
-      }),
-    ]);
-    expect(projectTaskState(state.currentProject(), 'task-1')).toBe('completed');
-  });
+        stopReason,
+      });
+      const runtime = new ProjectWorkflowRuntime(
+        state.projects,
+        state.runs,
+        workers,
+        undefined,
+        () => new Date('2026-08-27T14:05:00.000Z'),
+      );
+
+      await expect(runtime.reconcile(graph.id)).resolves.toEqual([
+        expect.objectContaining({
+          id: 'run-recovered',
+          status: stopReason ? 'needs-attention' : 'awaiting-review',
+          output: 'Recovered verified output.',
+        }),
+      ]);
+      expect(projectTaskState(state.currentProject(), 'task-1')).toBe('ready');
+    },
+  );
 
   it('cancels an active worker without completing its task', async () => {
     const graph = graphWithDependency();
@@ -874,5 +899,520 @@ describe('project workflow runtime', () => {
       'No suspended project worker',
     );
     expect(projectTaskState(state.currentProject(), 'task-1')).toBe('ready');
+  });
+
+  it('preserves a stopped report and requires continued work before verification', async () => {
+    const graph = graphWithDependency();
+    const state = repositories(graph);
+    const runtime = new ProjectWorkflowRuntime(
+      state.projects,
+      state.runs,
+      workerExecutor(async function* () {
+        yield {
+          type: 'returned',
+          runtimeTurnId: 'limited',
+          output: 'Only inspected files.',
+          stopReason: 'tool-limit',
+        };
+      }),
+    );
+    const run = await runtime.launch({ projectId: graph.id, taskId: 'task-1', agentId: 'agent-1' });
+    expect(run.status).toBe('needs-attention');
+    expect(run.output).toBe('Only inspected files.');
+    expect(validateProjectTaskRun(run)).toBe(true);
+    expect(projectTaskState(state.currentProject(), 'task-2')).toBe('blocked');
+    expect(() => verifyProjectRun(graph, run, [run], 'Looks fine', run.updatedAt)).toThrow(
+      'Continue stopped work',
+    );
+    expect(validateProjectTaskRun({ ...run, status: 'awaiting-review' })).toBe(false);
+  });
+
+  it('unlocks dependencies only after an explicit review with evidence', async () => {
+    const graph = graphWithDependency();
+    const state = repositories(graph);
+    const runtime = new ProjectWorkflowRuntime(
+      state.projects,
+      state.runs,
+      workerExecutor(async function* () {
+        yield { type: 'returned', runtimeTurnId: 'review', output: 'Build report.' };
+      }),
+      undefined,
+      undefined,
+      undefined,
+      {
+        async verify(id, note, at) {
+          const run = await state.runs.get(id);
+          const result = verifyProjectRun(
+            state.currentProject(),
+            run!,
+            state.currentRuns(),
+            note,
+            at,
+          );
+          await state.runs.save(result.run);
+          await state.projects.save(result.project);
+          return result.run;
+        },
+      },
+    );
+    const run = await runtime.launch({ projectId: graph.id, taskId: 'task-1', agentId: 'agent-1' });
+    await expect(runtime.verifyRun(run.id, '  ')).rejects.toThrow('Record what you checked');
+    expect(projectTaskState(state.currentProject(), 'task-2')).toBe('blocked');
+    const completed = await runtime.verifyRun(run.id, 'I ran the build and checked the UI.');
+    expect(completed.verification).toMatchObject({
+      method: 'human-review',
+      note: 'I ran the build and checked the UI.',
+    });
+    expect(validateProjectTaskRun(completed)).toBe(true);
+    expect(projectTaskState(state.currentProject(), 'task-2')).toBe('ready');
+    await expect(runtime.verifyRun(run.id, 'Again')).rejects.toThrow('awaiting review');
+  });
+
+  it('continues from a saved report in a new run without replaying the previous invocation', async () => {
+    const graph = graphWithDependency();
+    const state = repositories(graph);
+    let counter = 0;
+    const workers = workerExecutor(async function* () {
+      yield { type: 'returned', runtimeTurnId: 'first-turn', output: 'First report.' };
+    });
+    const runtime = new ProjectWorkflowRuntime(
+      state.projects,
+      state.runs,
+      workers,
+      undefined,
+      undefined,
+      () => `run-${++counter}`,
+    );
+    const original = await runtime.launch({
+      projectId: graph.id,
+      taskId: 'task-1',
+      agentId: 'agent-1',
+    });
+    workers.execute = async function* (input) {
+      expect(input.previousRun?.output).toBe('First report.');
+      expect(input.run.continuation).toBe('Check the remaining cases.');
+      yield { type: 'returned', runtimeTurnId: 'second-turn', output: 'Second report.' };
+    };
+    const continued = await runtime.continueRun(original.id, 'Check the remaining cases.');
+    expect(continued.previousRunId).toBe(original.id);
+    expect(continued.id).not.toBe(original.id);
+    expect((await state.runs.get(original.id))?.output).toBe('First report.');
+    expect(projectTaskState(state.currentProject(), 'task-2')).toBe('blocked');
+    expect(() =>
+      verifyProjectRun(
+        graph,
+        original,
+        state.currentRuns(),
+        'Reviewed old result',
+        original.updatedAt,
+      ),
+    ).toThrow('newer or active');
+    const changed = {
+      ...graph,
+      tasks: graph.tasks.map((task) => ({ ...task, acceptanceCriteria: 'New criteria' })),
+    };
+    expect(() =>
+      verifyProjectRun(changed, continued, [continued], 'Checked', continued.updatedAt),
+    ).toThrow('criteria changed');
+  });
+  it.each([undefined, 'tool-limit'] as const)(
+    'continues within the selected turn budget and stops with %s',
+    async (stopReason) => {
+      const graph = graphWithDependency();
+      graph.tasks[0]!.turnLimit = 3;
+      const state = repositories(graph);
+      let continuations = 0;
+      const workers = workerExecutor(async function* () {
+        yield {
+          type: 'returned',
+          runtimeTurnId: 'turn-1',
+          output: 'First checkpoint.',
+          stopReason: 'tool-limit',
+        };
+      });
+      workers.continue = async function* (input) {
+        continuations++;
+        const turn = (input.run.turnsUsed ?? 0) + 1;
+        yield { type: 'started', runtimeTurnId: `turn-${turn}` };
+        yield {
+          type: 'returned',
+          runtimeTurnId: `turn-${turn}`,
+          output: `Checkpoint ${turn}`,
+          stopReason: turn === 3 ? stopReason : 'tool-limit',
+        };
+      };
+      const runtime = new ProjectWorkflowRuntime(state.projects, state.runs, workers);
+      const run = await runtime.launch({
+        projectId: graph.id,
+        taskId: 'task-1',
+        agentId: 'agent-1',
+      });
+      expect(run.turnsUsed).toBe(3);
+      expect(run.status).toBe(stopReason ? 'needs-attention' : 'awaiting-review');
+      expect(continuations).toBe(2);
+      expect(validateProjectTaskRun(run)).toBe(true);
+      expect(projectTaskState(state.currentProject(), 'task-2')).toBe('blocked');
+    },
+  );
+
+  it('pauses at a safe turn boundary and resumes the remaining budget after restart', async () => {
+    const graph = graphWithDependency();
+    graph.tasks[0]!.turnLimit = 3;
+    const state = repositories(graph);
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let continuations = 0;
+    const workers = workerExecutor(async function* () {
+      yield { type: 'started', runtimeTurnId: 'first' };
+      entered();
+      await hold;
+      yield {
+        type: 'returned',
+        runtimeTurnId: 'first',
+        output: 'Safe partial result.',
+        stopReason: 'tool-limit',
+      };
+    });
+    workers.continue = async function* () {
+      continuations++;
+      yield { type: 'returned', runtimeTurnId: 'second', output: 'Finished report.' };
+    };
+    const runtime = new ProjectWorkflowRuntime(
+      state.projects,
+      state.runs,
+      workers,
+      undefined,
+      undefined,
+      () => 'paused-run',
+    );
+    const running = runtime.launch({ projectId: graph.id, taskId: 'task-1', agentId: 'agent-1' });
+    await started;
+    await runtime.requestPause('paused-run');
+    release();
+    const paused = await running;
+    expect(paused.status).toBe('paused');
+    expect(paused.turnsUsed).toBe(1);
+    expect(validateProjectTaskRun(paused)).toBe(true);
+    expect(continuations).toBe(0);
+    const restarted = new ProjectWorkflowRuntime(state.projects, state.runs, workers);
+    const resumed = await restarted.resumeRun(paused.id);
+    expect(resumed.id).toBe(paused.id);
+    expect(resumed.turnsUsed).toBe(2);
+    expect(resumed.status).toBe('awaiting-review');
+    expect(continuations).toBe(1);
+    expect(projectTaskState(state.currentProject(), 'task-2')).toBe('blocked');
+    await expect(restarted.resumeRun(paused.id)).rejects.toThrow('paused turns');
+  });
+
+  it('recovers a safe turn boundary as paused without executing the next turn', async () => {
+    const graph = graphWithDependency();
+    graph.tasks[0]!.turnLimit = 3;
+    const state = repositories(graph);
+    const workers = workerExecutor(async function* () {});
+    let continued = false;
+    workers.continue = async function* () {
+      continued = true;
+      yield { type: 'returned', runtimeTurnId: 'unexpected', output: 'Unexpected continuation.' };
+    };
+    workers.recover = async () => ({
+      status: 'returned',
+      runtimeTurnId: 'first',
+      output: 'Saved progress.',
+      stopReason: 'tool-limit',
+    });
+    const at = '2026-09-07T10:00:00.000Z';
+    await state.runs.save({
+      version: 1,
+      id: 'run',
+      projectId: graph.id,
+      taskId: 'task-1',
+      agentId: 'a',
+      agentName: 'Worker',
+      status: 'running',
+      createdAt: at,
+      updatedAt: at,
+      startedAt: at,
+      runtimeTurnId: 'first',
+      turnLimit: 3,
+      turnsUsed: 1,
+    });
+    const runtime = new ProjectWorkflowRuntime(state.projects, state.runs, workers);
+    const [recovered] = await runtime.reconcile();
+    expect(recovered?.status).toBe('paused');
+    expect(continued).toBe(false);
+    expect(validateProjectTaskRun(recovered)).toBe(true);
+    expect(validateProjectTaskRun({ ...recovered, stopReason: undefined })).toBe(false);
+    expect(validateProjectTaskRun({ ...recovered, returnedAt: 42 })).toBe(false);
+  });
+});
+
+describe('project corrective result checks', () => {
+  const checks = [
+    {
+      id: 'brief-check',
+      target: { kind: 'document' as const, title: 'Brief' },
+      assertion: 'contains' as const,
+      expected: 'Summary',
+    },
+  ];
+  function setup() {
+    const graph = graphWithDependency();
+    graph.tasks[0]!.turnLimit = 3;
+    graph.tasks[0]!.resultChecks = checks;
+    return { graph, state: repositories(graph) };
+  }
+  it('feeds a failed check into a corrective turn, saves both rounds and still requires human review', async () => {
+    const { graph, state } = setup();
+    let content = 'Unfinished';
+    const workers = workerExecutor(async function* () {
+      yield { type: 'returned', runtimeTurnId: 'turn-1', output: 'Everything is done.' };
+    });
+    workers.continue = async function* (input) {
+      expect(input.run.checkReports?.at(-1)?.results[0]?.status).toBe('failed');
+      expect(input.run.stopReason).toBe('check-failed');
+      content = 'Summary: corrected content';
+      yield { type: 'started', runtimeTurnId: 'turn-2' };
+      yield { type: 'returned', runtimeTurnId: 'turn-2', output: 'Corrected the saved document.' };
+    };
+    const runtime = new ProjectWorkflowRuntime(
+      state.projects,
+      state.runs,
+      workers,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        read: async () => ({
+          content,
+          evidence: content === 'Unfinished' ? 'revision-1' : 'revision-2',
+        }),
+      },
+    );
+    const run = await runtime.launch({ projectId: graph.id, taskId: 'task-1', agentId: 'agent-1' });
+    expect(run.status).toBe('awaiting-review');
+    expect(run.turnsUsed).toBe(2);
+    expect(run.checkReports?.map((report) => report.results[0]?.status)).toEqual([
+      'failed',
+      'passed',
+    ]);
+    expect(validateProjectTaskRun(run)).toBe(true);
+    expect(projectTaskState(state.currentProject(), 'task-2')).toBe('blocked');
+    expect(
+      verifyProjectRun(graph, run, [run], 'Reviewed actual revision 2.', run.updatedAt, {
+        expectedRun: run,
+        checkReport: structuredClone(run.checkReports!.at(-1)!),
+      }).run.status,
+    ).toBe('completed');
+    const changed = structuredClone(graph);
+    changed.tasks[0]!.resultChecks![0]!.expected = 'New requirement';
+    expect(() => verifyProjectRun(changed, run, [run], 'Reviewed', run.updatedAt)).toThrow(
+      'checks changed',
+    );
+    expect(validateProjectTaskRun({ ...run, checkReports: undefined })).toBe(false);
+  });
+  it('stops at the shared turn budget and cannot verify failed checks', async () => {
+    const { graph, state } = setup();
+    const workers = workerExecutor(async function* () {
+      yield { type: 'returned', runtimeTurnId: 'turn-1', output: 'Done' };
+    });
+    let continuations = 0;
+    workers.continue = async function* (input) {
+      continuations++;
+      yield {
+        type: 'returned',
+        runtimeTurnId: `turn-${(input.run.turnsUsed ?? 0) + 1}`,
+        output: 'Done again',
+      };
+    };
+    const runtime = new ProjectWorkflowRuntime(
+      state.projects,
+      state.runs,
+      workers,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { read: async () => null },
+    );
+    const run = await runtime.launch({ projectId: graph.id, taskId: 'task-1', agentId: 'agent-1' });
+    expect(run).toMatchObject({
+      status: 'needs-attention',
+      stopReason: 'check-failed',
+      turnsUsed: 3,
+    });
+    expect(continuations).toBe(2);
+    expect(run.checkReports).toHaveLength(3);
+    expect(validateProjectTaskRun(run)).toBe(true);
+    expect(() => verifyProjectRun(graph, run, [run], 'Unverified', run.updatedAt)).toThrow(
+      'awaiting review',
+    );
+    expect(
+      validateProjectTaskRun({ ...run, status: 'awaiting-review', stopReason: undefined }),
+    ).toBe(false);
+  });
+  it('does not spend correction turns when the checker cannot read the target', async () => {
+    const { graph, state } = setup();
+    const workers = workerExecutor(async function* () {
+      yield { type: 'returned', runtimeTurnId: 'turn-1', output: 'Done' };
+    });
+    workers.continue = () => {
+      throw new Error('Must not continue');
+    };
+    const runtime = new ProjectWorkflowRuntime(
+      state.projects,
+      state.runs,
+      workers,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        read: async () => {
+          throw new Error('The workspace changed.');
+        },
+      },
+    );
+    const run = await runtime.launch({ projectId: graph.id, taskId: 'task-1', agentId: 'agent-1' });
+    expect(run).toMatchObject({
+      status: 'needs-attention',
+      stopReason: 'check-error',
+      turnsUsed: 1,
+    });
+    expect(validateProjectTaskRun(run)).toBe(true);
+  });
+  it('preserves failed checks across a paused checkpoint and resumes only the remaining turns', async () => {
+    const { graph, state } = setup();
+    const workers = workerExecutor(async function* () {
+      yield { type: 'returned', runtimeTurnId: 'turn-1', output: 'Done' };
+    });
+    workers.continue = async function* () {
+      yield { type: 'returned', runtimeTurnId: 'turn-2', output: 'Corrected' };
+    };
+    const runtime: ProjectWorkflowRuntime = new ProjectWorkflowRuntime(
+      state.projects,
+      state.runs,
+      workers,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        read: async () => {
+          await runtime.requestPause(state.currentRuns()[0]!.id);
+          return null;
+        },
+      },
+    );
+    const paused = await runtime.launch({
+      projectId: graph.id,
+      taskId: 'task-1',
+      agentId: 'agent-1',
+    });
+    expect(paused).toMatchObject({ status: 'paused', stopReason: 'check-failed', turnsUsed: 1 });
+    expect(validateProjectTaskRun(paused)).toBe(true);
+    const restarted = new ProjectWorkflowRuntime(
+      state.projects,
+      state.runs,
+      workers,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { read: async () => ({ content: 'Summary', evidence: 'new revision' }) },
+    );
+    const resumed = await restarted.resumeRun(paused.id);
+    expect(resumed).toMatchObject({ status: 'awaiting-review', turnsUsed: 2 });
+    expect(resumed.checkReports).toHaveLength(2);
+  });
+});
+
+describe('project wall-clock limits', () => {
+  it('aborts an active worker at the real persisted deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const graph = graphWithDependency();
+      graph.tasks[0]!.timeLimitMinutes = 1;
+      const state = repositories(graph);
+      const workers = workerExecutor(async function* () {
+        yield { type: 'returned', runtimeTurnId: 'unused', output: 'Unused.' };
+      });
+      workers.execute = async function* (_input, signal): AsyncGenerator<ProjectWorkerEvent> {
+        await new Promise<void>((resolve) =>
+          signal?.addEventListener('abort', () => resolve(), { once: true }),
+        );
+        yield { type: 'returned', runtimeTurnId: 'late', output: 'Late.' };
+      };
+      const runtime = new ProjectWorkflowRuntime(state.projects, state.runs, workers);
+      const running = runtime.launch({ projectId: graph.id, taskId: 'task-1', agentId: 'agent-1' });
+      await vi.advanceTimersByTimeAsync(60_000);
+      const run = await running;
+      expect(run.status).toBe('failed');
+      expect(run.failure).toContain('wall-clock limit expired');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('snapshots an explicit deadline and refuses a run that is already past it', async () => {
+    const graph = graphWithDependency();
+    graph.tasks[0]!.timeLimitMinutes = 1;
+    const state = repositories(graph);
+    const now = new Date('2026-09-09T10:00:00.000Z');
+    const workers = workerExecutor(async function* () {
+      now.setTime(now.getTime() + 61_000);
+      yield { type: 'returned', runtimeTurnId: 'late', output: 'Late report.' };
+    });
+    const runtime = new ProjectWorkflowRuntime(
+      state.projects,
+      state.runs,
+      workers,
+      undefined,
+      () => now,
+      () => 'limited-run',
+    );
+    const run = await runtime.launch({ projectId: graph.id, taskId: 'task-1', agentId: 'agent-1' });
+    expect(run).toMatchObject({
+      status: 'failed',
+      timeLimitMinutes: 1,
+      deadlineAt: '2026-09-09T10:01:00.000Z',
+    });
+    expect(run.failure).toContain('wall-clock limit expired');
+    expect(projectTaskState(state.currentProject(), 'task-2')).toBe('blocked');
+  });
+
+  it('does not resume a paused run after its persisted deadline', () => {
+    const graph = graphWithDependency();
+    graph.tasks[0]!.timeLimitMinutes = 1;
+    const paused: ProjectTaskRun = {
+      version: 1,
+      id: 'paused-limit',
+      projectId: graph.id,
+      taskId: 'task-1',
+      agentId: 'agent-1',
+      agentName: 'Worker',
+      status: 'paused',
+      createdAt: '2026-09-09T10:00:00.000Z',
+      updatedAt: '2026-09-09T10:00:20.000Z',
+      startedAt: '2026-09-09T10:00:00.000Z',
+      runtimeTurnId: 'turn',
+      returnedAt: '2026-09-09T10:00:20.000Z',
+      output: 'Saved checkpoint.',
+      stopReason: 'tool-limit',
+      turnLimit: 2,
+      turnsUsed: 1,
+      timeLimitMinutes: 1,
+      deadlineAt: '2026-09-09T10:01:00.000Z',
+      pausedAt: '2026-09-09T10:00:20.000Z',
+    };
+    expect(() => resumeProjectRun(graph, paused, [paused], '2026-09-09T10:01:00.000Z')).toThrow(
+      'time limit has expired',
+    );
   });
 });

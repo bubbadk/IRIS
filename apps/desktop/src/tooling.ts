@@ -1,13 +1,19 @@
+import { webToolFetch } from './webFetch';
+import { resolveProviderConnection } from './credentials';
+import { createKnowledgeTools } from './knowledgeTools';
+import { createDocumentTools } from './documentTools';
 import type { AgentToolRuntime } from '@iris/agents';
+import { delegatedExecutionResult } from './subagentTool';
+import { loadProviderConfigs, type ProviderConfig } from '@iris/providers';
 import {
   AuditedPermissionEngine,
   GatedToolExecutor,
   StaticPermissionEngine,
   ToolPermissionError,
-  ToolRegistry,
   createWebSearchTool,
   createWebExtractTool,
   createImageGenerationTool,
+  type ImageProviderBinding,
   type PermissionRule,
   type ToolExecutionResult,
 } from '@iris/tools';
@@ -41,7 +47,87 @@ import {
 
 export const janitorHealthToolId = 'janitor.health';
 
-export const toolRegistry = new ToolRegistry();
+function providerEndpointHost(endpoint: string): string {
+  try {
+    return new URL(endpoint).host.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+/** The first-party host each image provider's own catalog identity unambiguously authorizes. */
+const imageProviderHomeHost: Readonly<Record<'openai' | 'openrouter', string>> = {
+  openai: 'api.openai.com',
+  openrouter: 'openrouter.ai',
+};
+
+/**
+ * Whether one stored provider configuration speaks for an image provider IRIS can address.
+ *
+ * Classification uses the stored catalog identity and, for legacy documents that carry none, the
+ * endpoint host the configuration itself names. Nothing here picks the destination: the endpoint of
+ * the *selected* configuration does that, so classification can never move a credential to an
+ * origin other than the one its own configuration authorizes.
+ */
+function imageProviderForConfig(config: ProviderConfig): 'openai' | 'openrouter' | undefined {
+  if (!config.enabled) return undefined;
+  const catalogId = config.catalogId?.trim().toLowerCase();
+  const host = providerEndpointHost(config.endpoint);
+  if (catalogId === 'openai' || host === imageProviderHomeHost.openai) return 'openai';
+  if (catalogId === 'openrouter' || host === imageProviderHomeHost.openrouter) return 'openrouter';
+  return undefined;
+}
+
+/**
+ * Orders, deterministically, the provider configurations an image request may use.
+ *
+ *   1. configurations whose endpoint is the provider's own first-party host, sorted by id — the
+ *      case where catalog identity and destination agree;
+ *   2. every remaining candidate, sorted by id, so identical stored state always produces the same
+ *      order instead of whichever entry happens to sit first in the stored array.
+ *
+ * The order decides *which configuration is tried*; it never decides the destination. Each
+ * configuration still supplies both its own endpoint and its own credential.
+ */
+function imageProviderCandidates(providerName: 'openai' | 'openrouter'): ProviderConfig[] {
+  const candidates = loadProviderConfigs()
+    .filter((config) => imageProviderForConfig(config) === providerName)
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const firstParty = candidates.filter(
+    (config) => providerEndpointHost(config.endpoint) === imageProviderHomeHost[providerName],
+  );
+  return [...firstParty, ...candidates.filter((config) => !firstParty.includes(config))];
+}
+
+/**
+ * The one trusted image-provider binding used by the production `image.generate` tool.
+ *
+ * The credential and the endpoint are read from the same selected configuration, and the credential
+ * is resolved through the single precedence contract (`resolveProviderConnection`), so a stale
+ * plaintext copy can never beat the keyring secret. The model chooses only the provider name and
+ * the prompt; it can never contribute an endpoint or a key.
+ */
+async function imageProviderBindingResolver(
+  providerName: 'openai' | 'openrouter',
+): Promise<ImageProviderBinding | undefined> {
+  for (const config of imageProviderCandidates(providerName)) {
+    const resolved = await resolveProviderConnection(config);
+    const apiKey = resolved.connectionValues?.apiKey?.trim();
+    if (!apiKey) continue;
+    return {
+      configurationId: resolved.id,
+      provider: providerName,
+      endpoint: resolved.endpoint,
+      apiKey,
+    };
+  }
+  return undefined;
+}
+
+import { toolRegistry } from './toolRegistry';
+export { toolRegistry } from './toolRegistry';
+for (const tool of [...createDocumentTools(), ...createKnowledgeTools()])
+  toolRegistry.register(tool);
 toolRegistry.register(createHostInspectionTool());
 toolRegistry.register(createJanitorCommandTool());
 toolRegistry.register(createJanitorProjectCockpitTool());
@@ -57,9 +143,9 @@ toolRegistry.register(createWorkspaceMoveTool());
 toolRegistry.register(createWorkspaceDeleteTool());
 toolRegistry.register(createWorkspacePatchTool());
 toolRegistry.register(createShellExecTool());
-toolRegistry.register(createWebSearchTool());
-toolRegistry.register(createWebExtractTool());
-toolRegistry.register(createImageGenerationTool());
+toolRegistry.register(createWebSearchTool(webToolFetch));
+toolRegistry.register(createWebExtractTool(webToolFetch));
+toolRegistry.register(createImageGenerationTool(undefined, imageProviderBindingResolver));
 for (const tool of createAllBrowserSessionTools()) {
   toolRegistry.register(tool);
 }
@@ -96,7 +182,7 @@ export const agentToolRuntime: AgentToolRuntime = {
         inputSchema: tool.inputSchema ?? { type: 'object', additionalProperties: true },
       }));
   },
-  async execute(agent, toolName, input, invocation, signal) {
+  async execute(agent, toolName, input, invocation, signal, delegation) {
     const tool = toolRegistry
       .list()
       .find(
@@ -119,7 +205,14 @@ export const agentToolRuntime: AgentToolRuntime = {
     const rules = await permissionRuleRepository.list();
     let result: ToolExecutionResult;
     try {
-      result = await createToolExecutor(rules).execute(agent, tool.id, input, signal, invocation);
+      result = await createToolExecutor(rules).execute(
+        agent,
+        tool.id,
+        input,
+        signal,
+        invocation,
+        delegation,
+      );
     } catch (error) {
       if (error instanceof ToolPermissionError) {
         return { status: 'denied', reason: error.evaluation.reason };
@@ -127,7 +220,7 @@ export const agentToolRuntime: AgentToolRuntime = {
       throwIfAborted(error, signal);
       return { status: 'failed', reason: toolFailureReason(error) };
     }
-    if (result.status === 'completed') return result;
+    if (result.status === 'completed') return delegatedExecutionResult(result.output);
     return {
       status: 'approval-required',
       approval: {
@@ -154,7 +247,7 @@ export const agentToolRuntime: AgentToolRuntime = {
       return { status: 'failed', reason: toolFailureReason(error) };
     }
     return result.status === 'completed'
-      ? { status: 'completed', output: result.output }
+      ? delegatedExecutionResult(result.output)
       : { status: 'approval-denied' };
   },
 };

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import {
   createProviderConfig,
+  dedupeModelIds,
   loadProviderCatalog,
   loadProviderConfigs,
   missingProviderConnectionFields,
+  NO_COMPATIBLE_CHAT_MODEL,
   providerCatalogIdForConfig,
   providerConnectionFields,
   refreshProviderCatalog,
@@ -18,10 +20,11 @@ import {
 import {
   deleteProviderSecrets,
   isTauriRuntime,
-  loadProviderSecrets,
+  resolveProviderConnection as resolveConnection,
   saveProviderSecrets,
 } from './credentials';
 import { formatMemoryDate } from './ChatContent';
+import { displayProviderModelName, selectableAgentModels } from './agentModelSelection';
 
 export function ModelsState() {
   const [providers, setProviders] = useState<ProviderConfig[]>(() => loadProviderConfigs());
@@ -40,6 +43,14 @@ export function ModelsState() {
     catalog.find((entry) => entry.id === catalogChoice) ?? catalog.find((entry) => entry.supported);
   const supportedCatalog = catalog.filter((entry) => entry.supported);
   const pendingCatalog = catalog.filter((entry) => !entry.supported);
+  // One authoritative classification decides what the editor calls chat-compatible. Nothing is
+  // dropped from the list; non-chat entries are grouped separately rather than hidden.
+  const draftChatModels = draft ? selectableAgentModels(draft) : [];
+  const draftNonChatModels = draft
+    ? dedupeModelIds([...(draft.availableModels ?? []), draft.model]).filter(
+        (model) => !draftChatModels.includes(model),
+      )
+    : [];
 
   useEffect(() => saveProviderConfigs(providers), [providers]);
 
@@ -94,19 +105,8 @@ export function ModelsState() {
   }
 
   async function resolveProviderConnection(provider: ProviderConfig): Promise<ProviderConfig> {
-    const hasSecretFields = providerConnectionFields(provider).some((field) => field.secret);
-    const storedSecrets =
-      hasSecretFields || provider.storedSecretFields?.length
-        ? await loadProviderSecrets(provider.id)
-        : null;
-    return {
-      ...provider,
-      connectionValues: {
-        ...(storedSecrets ?? {}),
-        ...(provider.connectionValues ?? {}),
-        ...(provider.apiKey ? { apiKey: provider.apiKey } : {}),
-      },
-    };
+    // Uses the one canonical precedence contract: trusted keyring over legacy plaintext (M-29).
+    return resolveConnection(provider);
   }
 
   async function saveDraft() {
@@ -375,7 +375,15 @@ export function ModelsState() {
               <div className="provider-details">
                 <strong>{provider.name}</strong>
                 <span>
-                  {provider.model || 'No model selected'} · {provider.endpoint}
+                  {provider.model
+                    ? displayProviderModelName(
+                        provider.model,
+                        provider.modelMetadata?.[provider.model],
+                      )
+                    : provider.availableModels?.length && selectableAgentModels(provider).length === 0
+                      ? NO_COMPATIBLE_CHAT_MODEL
+                      : 'No model selected'}{' '}
+                  · {provider.endpoint}
                 </span>
                 {activityMessages[provider.id] && (
                   <small className={activity === 'error' ? 'provider-error' : ''}>
@@ -487,11 +495,24 @@ export function ModelsState() {
                 value={draft.model}
                 onChange={(event) => setDraft({ ...draft, model: event.target.value })}
               >
-                {draft.availableModels.map((model) => (
-                  <option key={model} value={model}>
-                    {model}
-                  </option>
-                ))}
+                {/* Chat-compatible models first. Non-chat catalog entries stay visible in their own
+                    group instead of being silently hidden or preselected (M-27/M-28/§25). */}
+                <optgroup label="Chat models">
+                  {draftChatModels.map((model) => (
+                    <option key={model} value={model}>
+                      {displayProviderModelName(model, draft.modelMetadata?.[model])}
+                    </option>
+                  ))}
+                </optgroup>
+                {draftNonChatModels.length > 0 && (
+                  <optgroup label="Not chat-compatible">
+                    {draftNonChatModels.map((model) => (
+                      <option key={model} value={model}>
+                        {displayProviderModelName(model, draft.modelMetadata?.[model])}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             ) : (
               <input
@@ -505,6 +526,14 @@ export function ModelsState() {
               />
             )}
           </label>
+          {draft.availableModels?.length &&
+            draft.kind !== 'azure-openai' &&
+            draftChatModels.length === 0 && (
+              <p className="provider-field-help">
+                No compatible chat model was found in this provider's catalog. Pick a non-chat entry
+                only if you know it serves chat, or type a model identifier.
+              </p>
+            )}
           {providerConnectionFields(draft).map((field) => (
             <label key={field.id}>
               {field.label}

@@ -515,7 +515,7 @@ describe('importing a catalog skill', () => {
   });
 
   it('shortens an over-long summary but refuses over-long instructions', () => {
-    const long = skillDraftFromCatalog({ ...entry, description: 'x'.repeat(400) }, 'Do it.');
+    const long = skillDraftFromCatalog({ ...entry, description: 'x'.repeat(700) }, 'Do it.');
     expect(long.summary).toHaveLength(skillSummaryLimit);
     expect(long.summary.endsWith('…')).toBe(true);
 

@@ -25,11 +25,14 @@ function setup() {
       // Only the pending data is consumed by the presentation controller.
       pending = {
         pending: {
+          kind: 'tool-approval',
+          turnId: id,
           approval: approval(id),
           call: { id, name: 'test', input: {} },
+          remainingCalls: [],
           assistantText: '',
         },
-      } as SuspendedAgentTurn;
+      } as unknown as SuspendedAgentTurn;
     },
   };
 }

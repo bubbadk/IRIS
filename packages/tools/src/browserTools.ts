@@ -1,5 +1,30 @@
 import type { RegisteredTool } from './index';
 
+/**
+ * Structural URL check shared by the browser tools: an explicit http/https address without
+ * embedded credentials. Address-level policy (private, local, reserved destinations) is enforced
+ * natively by the transport these tools are given — see `webToolFetch` — never here.
+ */
+export function requireHttpUrl(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error('A valid http:// or https:// URL is required.');
+  }
+  const trimmed = value.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error('A valid http:// or https:// URL is required.');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('A valid http:// or https:// URL is required.');
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('A URL with embedded credentials cannot be opened.');
+  }
+  return trimmed;
+}
+
 export interface BrowserNavigateInput {
   url: string;
   timeoutMs?: number;
@@ -69,7 +94,10 @@ export interface BrowserVisionOutput {
 export function createBrowserNavigateTool(
   customFetch?: (url: string, init?: RequestInit) => Promise<Response>,
 ): RegisteredTool {
-  const fetchImpl = customFetch || (typeof fetch !== 'undefined' ? fetch : undefined);
+  // H-01: only an explicitly supplied transport is used. A browser tool must never reach the
+  // network through a global `fetch` of its own, because that path cannot consult the IRIS
+  // destination policy; without a transport the tool fails closed instead of fetching unguarded.
+  const fetchImpl = customFetch;
 
   return {
     id: 'browser.navigate',
@@ -97,16 +125,14 @@ export function createBrowserNavigateTool(
         throw new Error('Browser navigation requires an input object with a "url" field.');
       }
       const { url } = input as BrowserNavigateInput;
-      if (!url || typeof url !== 'string' || !url.startsWith('http')) {
-        throw new Error('Valid HTTP/HTTPS URL is required.');
-      }
+      const target = requireHttpUrl(url);
 
       if (!fetchImpl) {
         throw new Error('Fetch implementation is not available in the current environment.');
       }
 
       try {
-        const response = await fetchImpl(url, {
+        const response = await fetchImpl(target, {
           headers: {
             'User-Agent':
               'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 IRIS/0.2.0',
@@ -115,7 +141,7 @@ export function createBrowserNavigateTool(
         });
 
         if (!response.ok) {
-          throw new Error(`Browser navigation to ${url} failed with status: ${response.status}`);
+          throw new Error(`Browser navigation to ${target} failed with status: ${response.status}`);
         }
 
         const html = await response.text();
@@ -173,7 +199,7 @@ export function createBrowserNavigateTool(
           .slice(0, 1500);
 
         return {
-          url,
+          url: target,
           title,
           statusCode: response.status,
           headings,
@@ -260,7 +286,8 @@ export function createBrowserTypeTool(): RegisteredTool {
 export function createBrowserVisionTool(
   customFetch?: (url: string, init?: RequestInit) => Promise<Response>,
 ): RegisteredTool {
-  const fetchImpl = customFetch || (typeof fetch !== 'undefined' ? fetch : undefined);
+  // See `createBrowserNavigateTool`: an explicitly supplied transport, or nothing at all.
+  const fetchImpl = customFetch;
 
   return {
     id: 'browser.vision',
@@ -288,16 +315,14 @@ export function createBrowserVisionTool(
         throw new Error('Browser vision requires an input object with a "url" field.');
       }
       const { url } = input as BrowserVisionInput;
-      if (!url || typeof url !== 'string' || !url.startsWith('http')) {
-        throw new Error('Valid HTTP/HTTPS URL is required.');
-      }
+      const target = requireHttpUrl(url);
 
       if (!fetchImpl) {
         throw new Error('Fetch implementation is not available in the current environment.');
       }
 
       try {
-        const response = await fetchImpl(url);
+        const response = await fetchImpl(target);
         const html = await response.text();
 
         const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i);
@@ -324,7 +349,7 @@ export function createBrowserVisionTool(
           .slice(0, 2000);
 
         return {
-          url,
+          url: target,
           title,
           pageStructure: {
             headings,

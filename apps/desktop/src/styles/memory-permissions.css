@@ -781,6 +781,62 @@
   background: #f1e7e2;
   color: #966e64;
 }
+.approval-summary {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+  min-width: 0;
+}
+.approval-summary-headline {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 620;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.approval-summary-details {
+  margin: 0;
+  padding-left: 14px;
+  display: grid;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.approval-summary-raw {
+  font-size: 9.5px;
+  color: var(--muted);
+}
+.approval-summary-raw summary {
+  cursor: pointer;
+}
+.approval-summary-raw pre {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  max-height: 160px;
+  overflow: auto;
+  border-radius: 8px;
+  background: #00000008;
+  font-size: 9.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.approval-summary-compact pre {
+  margin: 0;
+  font-size: 9.5px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.approval-summary-missing {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 9.5px;
+  color: var(--muted);
+}
+.dark-mode .approval-summary-raw pre {
+  background: #ffffff0d;
+}
 .approval-copy {
   min-width: 0;
   display: grid;

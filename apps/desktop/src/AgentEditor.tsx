@@ -6,6 +6,7 @@ import type {
 } from '@iris/core';
 import type { PermissionDecision } from '@iris/tools';
 import { capabilityGroups, CapabilityPicker, skillGroups } from './AgentCapabilities';
+import { displayProviderModelName } from './agentModelSelection';
 
 import type { useAgentsWorkspace } from './useAgentsWorkspace';
 export function AgentEditor({
@@ -203,7 +204,7 @@ export function AgentEditor({
                 )}
                 {selectableModels.map((availableModel) => (
                   <option key={availableModel} value={availableModel}>
-                    {availableModel}
+                    {displayProviderModelName(availableModel)}
                   </option>
                 ))}
               </select>
@@ -244,7 +245,7 @@ export function AgentEditor({
                 )}
                 {selectableTakeoverModels.map((availableModel) => (
                   <option key={availableModel} value={availableModel}>
-                    {availableModel}
+                    {displayProviderModelName(availableModel)}
                   </option>
                 ))}
               </select>

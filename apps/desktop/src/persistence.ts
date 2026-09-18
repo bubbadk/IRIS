@@ -1,5 +1,11 @@
 import { createDesktopRepository } from './repositoryStorage';
 import { withStorageWrite } from './storageWrites';
+import { toolRegistry } from './toolRegistry';
+import {
+  canonicalConfiguredToolIds,
+  canonicalConfiguredPermissionRules,
+  type ToolRegistry,
+} from '@iris/tools';
 import type {
   AgentRepository,
   ConversationMessage,
@@ -7,7 +13,13 @@ import type {
   SuspendedAgentTurn,
   SuspendedAgentTurnRepository,
 } from '@iris/agents';
-import { cloneAgentDefinition, validateAgentDefinition, type AgentDefinition } from '@iris/core';
+import {
+  cloneAgentDefinition,
+  validateAgentDefinition,
+  validateDelegationChain,
+  type AgentDefinition,
+} from '@iris/core';
+import type { PendingAgentToolTurn } from '@iris/agents';
 import type {
   ContextPack,
   ContextPackRepository,
@@ -57,23 +69,49 @@ import {
   type WorkspaceRepository,
 } from '@iris/workspaces';
 import {
+  validQualityReviews,
+  validQualityRejections,
+  recordProjectQualityReview,
+  projectResultVersion,
+  retainProjectQueueEntries,
+  protectedProjectQualityHistory,
+  retainProjectQualityHistory,
+  retainProjectTaskRuns,
+  isTerminalProjectTaskRun,
+  ProjectRunStateConflictError,
+  type QualityReviewReceipt,
   cloneProjectGraph,
+  cloneProjectQueueEntry,
   cloneProjectTaskRun,
   cloneSchedule,
   cloneScheduledRun,
   validateProjectGraph,
+  validateProjectQueueEntry,
+  verifyProjectRun,
+  validateProjectRunReservation,
+  resumeProjectRun,
   validateProjectTaskRun,
   validateSchedule,
   validateScheduledRun,
   type ProjectGraph,
   type ProjectGraphRepository,
+  type ProjectQueueEntry,
+  type ProjectQueueRepository,
+  type ProjectQueueTransitionExpectation,
   type ProjectTaskRun,
+  type ProjectRunReviewEvidence,
   type ProjectTaskRunRepository,
   type ScheduleDefinition,
   type ScheduleRepository,
   type ScheduledRun,
   type ScheduledRunRepository,
 } from '@iris/workflows';
+import {
+  isPlainRecord,
+  readPersistedArray,
+  readPersistedKeyedObject,
+  readPersistedValue,
+} from './persistenceIntegrity';
 
 const agentStorageKey = 'iris.agents.config.v2';
 const legacyAgentStorageKey = 'iris.agents.config.v1';
@@ -95,6 +133,7 @@ const memoryStorageKey = 'iris.memory.records.v1';
 const memoryEmbeddingIndexStorageKey = 'iris.memory.embedding-indexes.v1';
 const projectGraphStorageKey = 'iris.projects.graphs.v1';
 const projectTaskRunStorageKey = 'iris.projects.task-runs.v1';
+const projectQueueStorageKey = 'iris.projects.queue.v1';
 const scheduleStorageKey = 'iris.schedules.v1';
 const scheduledRunStorageKey = 'iris.schedules.runs.v1';
 const workspaceStorageKey = 'iris.workspace.mount.v1';
@@ -131,66 +170,311 @@ const cortexTurnHistoryLimit = 40;
 // Generous enough for the tool-call safety limit (16 per turn) across the retained turn history.
 const cortexTurnStepHistoryLimit = 600;
 const projectGraphLimit = 50;
-const projectTaskRunLimit = 250;
+const projectQueueLimit = 250;
+/**
+ * Bounded per project task (see `retainProjectTaskRuns`). Runs carry the full worker report and
+ * check evidence, so unbounded history made every worker-progress write rewrite an ever-growing
+ * document. Active work, work awaiting review, paused work, live continuation chains and runs
+ * carrying human review provenance are never pruned; only finally closed history is.
+ */
+const projectTaskRunHistoryLimit = 50;
 const scheduleLimit = 100;
 const scheduledRunLimit = 500;
 const workspaceChangeLimit = 250;
 
-function parseArray<T>(raw: string | null): T[] {
-  if (!raw) return [];
-  try {
-    const value = JSON.parse(raw) as T[];
-    return Array.isArray(value) ? value : [];
-  } catch {
-    return [];
+const maxStoredMessagesPerAgent = 200;
+
+function isConversationMessage(value: unknown): boolean {
+  if (!isPlainRecord(value)) return false;
+  const message = value as Record<string, unknown>;
+  if (!['user', 'assistant', 'handoff'].includes(message.role as string)) return false;
+  if (typeof message.content !== 'string') return false;
+  if (message.turnId !== undefined && typeof message.turnId !== 'string') return false;
+  if (message.stopReason !== undefined && message.stopReason !== 'tool-limit') return false;
+  if (message.images !== undefined && !Array.isArray(message.images)) return false;
+  if (message.handoff !== undefined && !isPlainRecord(message.handoff)) return false;
+  return true;
+}
+
+function isMemoryRecord(value: unknown): value is MemoryRecord {
+  if (!isPlainRecord(value)) return false;
+  return (
+    typeof value.id === 'string' &&
+    Boolean(value.id.trim()) &&
+    typeof value.content === 'string' &&
+    typeof value.createdAt === 'string' &&
+    typeof value.updatedAt === 'string' &&
+    isPlainRecord(value.provenance) &&
+    ['user', 'agent'].includes(value.provenance.source as string) &&
+    typeof value.provenance.actorId === 'string' &&
+    typeof value.provenance.actorName === 'string' &&
+    typeof value.provenance.capturedAt === 'string'
+  );
+}
+
+function isPermissionRule(value: unknown): value is PermissionRule {
+  if (!isPlainRecord(value)) return false;
+  return (
+    typeof value.id === 'string' &&
+    Boolean(value.id.trim()) &&
+    typeof value.agentId === 'string' &&
+    typeof value.toolId === 'string' &&
+    ['allow', 'ask', 'deny'].includes(value.decision as string) &&
+    (value.reason === undefined || typeof value.reason === 'string')
+  );
+}
+
+function isPermissionAuditEvent(value: unknown): value is PermissionAuditEvent {
+  if (!isPlainRecord(value)) return false;
+  return (
+    typeof value.id === 'string' &&
+    typeof value.timestamp === 'string' &&
+    ['inspection', 'execution'].includes(value.source as string) &&
+    typeof value.agentId === 'string' &&
+    typeof value.agentName === 'string' &&
+    typeof value.toolId === 'string' &&
+    typeof value.toolName === 'string' &&
+    ['allow', 'ask', 'deny'].includes(value.decision as string) &&
+    typeof value.reason === 'string'
+  );
+}
+
+function isToolApprovalRequest(value: unknown): value is ToolApprovalRequest {
+  if (!isPlainRecord(value)) return false;
+  return (
+    typeof value.id === 'string' &&
+    typeof value.createdAt === 'string' &&
+    typeof value.updatedAt === 'string' &&
+    ['pending', 'approved', 'executing', 'denied', 'completed', 'failed'].includes(
+      value.status as string,
+    ) &&
+    typeof value.agentId === 'string' &&
+    typeof value.agentName === 'string' &&
+    typeof value.toolId === 'string' &&
+    typeof value.toolName === 'string' &&
+    'input' in value &&
+    isPlainRecord(value.evaluation) &&
+    ['allow', 'ask', 'deny'].includes(value.evaluation.decision as string) &&
+    typeof value.evaluation.reason === 'string'
+  );
+}
+
+/**
+ * A persisted suspended turn is version 4 (which models both kinds of suspension), or an older
+ * version 2/3 record that predates delegated chains and therefore always models an approval this
+ * turn owns. Older records share every required field, so upgrading them only adds the discriminant.
+ */
+type LegacyPendingToolTurn = Omit<PendingAgentToolTurn, 'kind'>;
+type SuspendedAgentTurnRecord =
+  | (Omit<SuspendedAgentTurn, 'version' | 'pending'> & {
+      version: 4;
+      pending: SuspendedAgentTurn['pending'];
+    })
+  | (Omit<SuspendedAgentTurn, 'version' | 'pending'> & {
+      version: 2 | 3;
+      pending: LegacyPendingToolTurn;
+    });
+
+function isModelToolCall(value: unknown): boolean {
+  return (
+    isPlainRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.name === 'string' &&
+    'input' in value
+  );
+}
+
+function isAgentToolApproval(value: unknown): boolean {
+  return (
+    isPlainRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.toolId === 'string' &&
+    typeof value.toolName === 'string' &&
+    typeof value.reason === 'string'
+  );
+}
+
+function isDelegatedChildRef(value: unknown): boolean {
+  if (!isPlainRecord(value)) return false;
+  if (typeof value.childAgentId !== 'string' || !value.childAgentId) return false;
+  for (const key of ['approvalId', 'ownerAgentId', 'toolId', 'toolName', 'partialOutput'] as const) {
+    if (value[key] !== undefined && typeof value[key] !== 'string') return false;
   }
+  if (value.depth !== undefined && typeof value.depth !== 'number') return false;
+  // A child that carries an approval must also identify its owner; otherwise a chain resume could
+  // not tell which turn owns the decision.
+  if (value.approvalId !== undefined && !value.ownerAgentId) return false;
+  return true;
+}
+
+function isPendingToolTurn(value: unknown, requireKind: boolean): boolean {
+  if (!isPlainRecord(value)) return false;
+  if (requireKind && value.kind !== 'tool-approval') return false;
+  if (value.kind !== undefined && value.kind !== 'tool-approval') return false;
+  if (typeof value.turnId !== 'string') return false;
+  if (!isModelToolCall(value.call)) return false;
+  if (!isAgentToolApproval(value.approval)) return false;
+  if (!Array.isArray(value.remainingCalls) || !value.remainingCalls.every(isModelToolCall))
+    return false;
+  if (typeof value.assistantText !== 'string') return false;
+  if (value.toolCallsUsed !== undefined && typeof value.toolCallsUsed !== 'number') return false;
+  if (value.context !== undefined && !Array.isArray(value.context)) return false;
+  if (value.queuedApprovals !== undefined) {
+    if (
+      !Array.isArray(value.queuedApprovals) ||
+      !value.queuedApprovals.every(
+        (entry) =>
+          isPlainRecord(entry) && isModelToolCall(entry.call) && isAgentToolApproval(entry.approval),
+      )
+    )
+      return false;
+  }
+  if (value.queuedSuspensions !== undefined) {
+    if (
+      !Array.isArray(value.queuedSuspensions) ||
+      !value.queuedSuspensions.every(
+        (entry) =>
+          isPlainRecord(entry) &&
+          isModelToolCall(entry.call) &&
+          Array.isArray(entry.children) &&
+          entry.children.every(isDelegatedChildRef),
+      )
+    )
+      return false;
+  }
+  return true;
+}
+
+function isPendingDelegationTurn(value: unknown): boolean {
+  if (!isPlainRecord(value) || value.kind !== 'delegation') return false;
+  if (typeof value.turnId !== 'string') return false;
+  if (!Array.isArray(value.waiting) || value.waiting.length === 0) return false;
+  if (
+    !value.waiting.every(
+      (entry) =>
+        isPlainRecord(entry) &&
+        isModelToolCall(entry.call) &&
+        Array.isArray(entry.children) &&
+        entry.children.length > 0 &&
+        entry.children.every(isDelegatedChildRef),
+    )
+  )
+    return false;
+  // A delegation wait with nothing blocked would have resumed the turn instead of persisting it.
+  if (
+    !value.waiting.some((entry) =>
+      (entry as { children: { approvalId?: string }[] }).children.some(
+        (child) => child.approvalId !== undefined,
+      ),
+    )
+  )
+    return false;
+  if (!Array.isArray(value.remainingCalls) || !value.remainingCalls.every(isModelToolCall))
+    return false;
+  if (typeof value.assistantText !== 'string') return false;
+  if (value.toolCallsUsed !== undefined && typeof value.toolCallsUsed !== 'number') return false;
+  if (value.context !== undefined && !Array.isArray(value.context)) return false;
+  return true;
+}
+
+function isSuspendedAgentTurn(value: unknown): value is SuspendedAgentTurnRecord {
+  if (!isPlainRecord(value)) return false;
+  const version = value.version;
+  if (version !== 2 && version !== 3 && version !== 4) return false;
+  const wellFormed =
+    typeof value.agentId === 'string' &&
+    typeof value.providerId === 'string' &&
+    typeof value.model === 'string' &&
+    Array.isArray(value.conversation) &&
+    value.conversation.every(isConversationMessage) &&
+    Array.isArray(value.modelHistory) &&
+    isPlainRecord(value.pending);
+  if (!wellFormed) return false;
+  if (version === 4) {
+    if (!isPendingToolTurn(value.pending, true) && !isPendingDelegationTurn(value.pending))
+      return false;
+  } else if (!isPendingToolTurn(value.pending, false)) {
+    return false;
+  }
+  if (version === 2) return true;
+  if (value.delegatedAgent === undefined) return value.delegationChain === undefined;
+  return (
+    validateAgentDefinition(value.delegatedAgent) &&
+    (value.delegatedAgent as AgentDefinition).id === value.agentId &&
+    validateDelegationChain(value.delegationChain)
+  );
+}
+
+/**
+ * Fail-closed reader: version 2 and version 3 records are structurally approval suspensions this turn
+ * owns, so they are upgraded by adding the discriminant — never by guessing a delegation wait. A
+ * record that claims to belong to a delegated agent must carry both a valid runtime-built definition
+ * and a valid chain, otherwise the whole record is rejected rather than resumed under the wrong
+ * authority. Nothing is silently repaired or dropped.
+ */
+function decodeSuspendedAgentTurn(value: unknown): SuspendedAgentTurn | null {
+  if (!isSuspendedAgentTurn(value)) return null;
+  if (value.version === 4) return value as SuspendedAgentTurn;
+  return {
+    version: 4,
+    agentId: value.agentId,
+    providerId: value.providerId,
+    model: value.model,
+    conversation: value.conversation,
+    modelHistory: value.modelHistory,
+    pending: { kind: 'tool-approval', ...value.pending },
+    ...(value.delegatedAgent ? { delegatedAgent: value.delegatedAgent } : {}),
+    ...(value.delegationChain ? { delegationChain: value.delegationChain } : {}),
+  };
 }
 
 export class LocalAgentRepository implements AgentRepository {
-  constructor(private readonly storage?: Storage) {}
+  constructor(
+    private readonly storage?: Storage,
+    private readonly registry: ToolRegistry = toolRegistry,
+  ) {}
+
+  private canonical(agent: AgentDefinition): AgentDefinition {
+    return { ...cloneAgentDefinition(agent), toolIds: canonicalConfiguredToolIds(agent.toolIds, this.registry) };
+  }
 
   private get store(): Storage {
     return this.storage ?? globalThis.localStorage;
   }
 
-  private read(raw: string | null): AgentDefinition[] {
-    return parseArray<unknown>(raw).flatMap((value) =>
-      validateAgentDefinition(value) ? [cloneAgentDefinition(value)] : [],
-    );
+  private read(raw: string | null, storageKey: string): AgentDefinition[] {
+    return readPersistedArray({
+      repository: 'agent configurations',
+      storageKey,
+      raw,
+      decode: (value) => (validateAgentDefinition(value) ? this.canonical(value) : null),
+    });
   }
 
   listSync(): AgentDefinition[] {
     const current = this.store.getItem(agentStorageKey);
     if (current !== null) {
-      const agents = this.read(current);
-      if (agents.length > 0 || current === '[]') {
-        return agents.map(cloneAgentDefinition);
-      }
+      return this.read(current, agentStorageKey).map(cloneAgentDefinition);
     }
-    const legacy = this.read(this.store.getItem(legacyAgentStorageKey));
-    if (legacy.length) {
-      return legacy.map(cloneAgentDefinition);
-    }
-    return [];
+    return this.read(this.store.getItem(legacyAgentStorageKey), legacyAgentStorageKey).map(
+      cloneAgentDefinition,
+    );
   }
 
   async list(): Promise<AgentDefinition[]> {
     const current = this.store.getItem(agentStorageKey);
     if (current !== null) {
-      const agents = this.read(current);
-      if (agents.length > 0 || current === '[]') {
-        const parsed = parseArray<unknown>(current);
-        if (agents.length !== parsed.length)
-          this.store.setItem(agentStorageKey, JSON.stringify(agents));
-        return agents.map(cloneAgentDefinition);
-      }
+      const agents = this.read(current, agentStorageKey);
+      const canonical = JSON.stringify(agents);
+      // Only a fully validated document is migrated; canonical reloads perform no writes.
+      if (JSON.stringify(JSON.parse(current)) !== canonical) this.store.setItem(agentStorageKey, canonical);
+      return agents.map(cloneAgentDefinition);
     }
-    const legacy = this.read(this.store.getItem(legacyAgentStorageKey));
-    if (legacy.length) {
-      this.store.setItem(agentStorageKey, JSON.stringify(legacy));
-      return legacy.map(cloneAgentDefinition);
-    }
-    return [];
+    const legacy = this.read(this.store.getItem(legacyAgentStorageKey), legacyAgentStorageKey);
+    // Explicit v1 -> v2 migration. The legacy document is only read and rewritten when the v2 key
+    // has never been written, so no existing value is ever replaced here.
+    if (legacy.length) this.store.setItem(agentStorageKey, JSON.stringify(legacy));
+    return legacy.map(cloneAgentDefinition);
   }
 
   async get(id: string): Promise<AgentDefinition | null> {
@@ -201,11 +485,12 @@ export class LocalAgentRepository implements AgentRepository {
   async save(agent: AgentDefinition): Promise<void> {
     return withStorageWrite(this.store, async () => {
       if (!validateAgentDefinition(agent)) throw new Error('Cannot persist an invalid agent.');
+      const canonical = this.canonical(agent);
       const agents = await this.list();
       this.store.setItem(
         agentStorageKey,
         JSON.stringify([
-          cloneAgentDefinition(agent),
+          canonical,
           ...agents.filter((item) => item.id !== agent.id),
         ]),
       );
@@ -231,9 +516,12 @@ export class LocalProjectGraphRepository implements ProjectGraphRepository {
   }
 
   private read(): ProjectGraph[] {
-    return parseArray<unknown>(this.store.getItem(projectGraphStorageKey)).flatMap((value) =>
-      validateProjectGraph(value) ? [cloneProjectGraph(value)] : [],
-    );
+    return readPersistedArray({
+      repository: 'project graphs',
+      storageKey: projectGraphStorageKey,
+      raw: this.store.getItem(projectGraphStorageKey),
+      decode: (value) => (validateProjectGraph(value) ? cloneProjectGraph(value) : null),
+    });
   }
 
   async list(): Promise<ProjectGraph[]> {
@@ -274,9 +562,25 @@ export class LocalProjectTaskRunRepository implements ProjectTaskRunRepository {
   }
 
   private read(): ProjectTaskRun[] {
-    return parseArray<unknown>(this.store.getItem(projectTaskRunStorageKey)).flatMap((value) =>
-      validateProjectTaskRun(value) ? [cloneProjectTaskRun(value)] : [],
-    );
+    return readPersistedArray({
+      repository: 'project task runs',
+      storageKey: projectTaskRunStorageKey,
+      raw: this.store.getItem(projectTaskRunStorageKey),
+      decode: (value) => {
+        if (!isPlainRecord(value)) return null;
+        const run = value as unknown as ProjectTaskRun;
+        if (
+          (run.qualityReviews !== undefined && !validQualityReviews(run.qualityReviews, run)) ||
+          (run.qualityRejections !== undefined && !validQualityRejections(run.qualityRejections)) ||
+          ((run.qualityReviews !== undefined || run.qualityRejections !== undefined) &&
+            !validateProjectTaskRun(run))
+        )
+          throw new Error(
+            'Saved project quality history is invalid. Restore the stored record before proceeding.',
+          );
+        return validateProjectTaskRun(value) ? cloneProjectTaskRun(value) : null;
+      },
+    });
   }
 
   async list(projectId?: string): Promise<ProjectTaskRun[]> {
@@ -292,13 +596,209 @@ export class LocalProjectTaskRunRepository implements ProjectTaskRunRepository {
 
   async save(run: ProjectTaskRun): Promise<void> {
     return withStorageWrite(this.store, async () => {
-      if (!validateProjectTaskRun(run))
+      // §19 — the append-only quality history is bounded before validation, so a run cannot grow
+      // forever. The rule only ever drops terminal, already-resolved history.
+      const retained = retainProjectQualityHistory(run);
+      const bounded: ProjectTaskRun = {
+        ...run,
+        ...(retained.qualityReviews.length ? { qualityReviews: retained.qualityReviews } : {}),
+        ...(retained.qualityRejections.length
+          ? { qualityRejections: retained.qualityRejections }
+          : {}),
+      };
+      if (!validateProjectTaskRun(bounded))
         throw new Error('Cannot persist an invalid project task run.');
-      const runs = this.read().filter((candidate) => candidate.id !== run.id);
+      // One validated read per operation: the whole file is decoded once, never once per lookup.
+      const stored = this.read();
+      const existing = stored.find((candidate) => candidate.id === bounded.id);
+      // Phase 2I.2 / H4 — durable terminal truth is authoritative across processes. A stale
+      // execution continuation that still holds an old in-memory snapshot must not replace a
+      // cancelled, completed or failed record with a different (or older) state. The check runs
+      // inside the repository write, so it observes the latest committed record after a concurrent
+      // process write and the CAS retry.
+      if (existing && isTerminalProjectTaskRun(existing)) {
+        if (
+          bounded.status !== existing.status ||
+          Date.parse(bounded.updatedAt) < Date.parse(existing.updatedAt)
+        )
+          throw new ProjectRunStateConflictError(cloneProjectTaskRun(existing));
+      }
+      // Appending history is allowed and pruning the oldest fully-closed history is allowed. What is
+      // never allowed is dropping or rewriting a record that still decides something — so the guard
+      // checks the *protected subset*, not a prefix of the array. A prefix comparison broke the
+      // legitimate sliding window at the cap, where appending must drop the oldest entry.
+      const requiredQuality = existing ? protectedProjectQualityHistory(existing) : undefined;
+      for (const field of ['qualityReviews', 'qualityRejections'] as const) {
+        const required = requiredQuality?.[field];
+        if (!required?.length) continue;
+        const incoming = bounded[field] ?? [];
+        for (const record of required) {
+          const kept = incoming.some(
+            (candidate) =>
+              candidate.id === record.id && JSON.stringify(candidate) === JSON.stringify(record),
+          );
+          if (!kept)
+            throw new Error(
+              'Saved quality history cannot be removed or overwritten. Refresh the run.',
+            );
+        }
+      }
+      // A concurrent pause request must survive a worker's next progress write.
+      const saved =
+        existing?.pauseRequested && !(existing.status === 'paused' && bounded.status === 'running')
+          ? { ...bounded, pauseRequested: true }
+          : bounded;
+      const runs = stored.filter((candidate) => candidate.id !== bounded.id);
       this.store.setItem(
         projectTaskRunStorageKey,
-        JSON.stringify([cloneProjectTaskRun(run), ...runs].slice(0, projectTaskRunLimit)),
+        JSON.stringify(
+          retainProjectTaskRuns(
+            [cloneProjectTaskRun(saved), ...runs],
+            projectTaskRunHistoryLimit,
+          ),
+        ),
       );
+    });
+  }
+}
+
+/**
+ * Durable queue storage. A corrupt document fails the read instead of being treated as empty, and
+ * the retention cap only ever removes terminal history (see `retainProjectQueueEntries`).
+ */
+export class LocalProjectQueueRepository implements ProjectQueueRepository {
+  constructor(private readonly storage?: Storage) {}
+
+  private get store(): Storage {
+    return this.storage ?? globalThis.localStorage;
+  }
+
+  private read(): ProjectQueueEntry[] {
+    return readPersistedArray({
+      repository: 'project queue',
+      storageKey: projectQueueStorageKey,
+      raw: this.store.getItem(projectQueueStorageKey),
+      decode: (value) => (validateProjectQueueEntry(value) ? cloneProjectQueueEntry(value) : null),
+      identity: (entry) => entry.id,
+    });
+  }
+
+  async list(projectId?: string): Promise<ProjectQueueEntry[]> {
+    return this.read()
+      .filter((entry) => !projectId || entry.projectId === projectId)
+      .map(cloneProjectQueueEntry);
+  }
+
+  async get(id: string): Promise<ProjectQueueEntry | null> {
+    const entry = this.read().find((candidate) => candidate.id === id);
+    return entry ? cloneProjectQueueEntry(entry) : null;
+  }
+
+  async enqueue(entry: ProjectQueueEntry): Promise<void> {
+    return withStorageWrite(this.store, async () => {
+      if (!validateProjectQueueEntry(entry))
+        throw new Error('Cannot persist an invalid project queue entry.');
+      const entries = this.read();
+      if (
+        entries.some(
+          (candidate) =>
+            candidate.projectId === entry.projectId &&
+            candidate.taskId === entry.taskId &&
+            ['queued', 'claimed'].includes(candidate.status),
+        )
+      )
+        throw new Error('This task is already waiting in the project queue.');
+      this.store.setItem(
+        projectQueueStorageKey,
+        JSON.stringify(
+          retainProjectQueueEntries(
+            [cloneProjectQueueEntry(entry), ...entries],
+            projectQueueLimit,
+          ),
+        ),
+      );
+    });
+  }
+
+  async claim(id: string, claimedAt: string): Promise<ProjectQueueEntry | null> {
+    return withStorageWrite(this.store, async () => {
+      const entries = this.read();
+      const entry = entries.find((candidate) => candidate.id === id);
+      if (!entry || entry.status !== 'queued') return null;
+      if (
+        entries.some(
+          (candidate) =>
+            candidate.id !== id &&
+            candidate.agentId === entry.agentId &&
+            candidate.status === 'claimed',
+        )
+      )
+        return null;
+      const claimed: ProjectQueueEntry = {
+        ...entry,
+        status: 'claimed',
+        claimedAt,
+        updatedAt: claimedAt,
+        message: undefined,
+      };
+      this.store.setItem(
+        projectQueueStorageKey,
+        JSON.stringify([claimed, ...entries.filter((candidate) => candidate.id !== id)]),
+      );
+      return cloneProjectQueueEntry(claimed);
+    });
+  }
+
+  async save(entry: ProjectQueueEntry): Promise<void> {
+    return withStorageWrite(this.store, async () => {
+      if (!validateProjectQueueEntry(entry))
+        throw new Error('Cannot persist an invalid project queue entry.');
+      const entries = this.read().filter((candidate) => candidate.id !== entry.id);
+      this.store.setItem(
+        projectQueueStorageKey,
+        JSON.stringify(
+          retainProjectQueueEntries(
+            [cloneProjectQueueEntry(entry), ...entries],
+            projectQueueLimit,
+          ),
+        ),
+      );
+    });
+  }
+
+  /**
+   * IRIS Phase 2G §14, §25 — compare-and-swap for queue state.
+   *
+   * A dispatch continuation computes its next state from a snapshot it read before an await. If the
+   * user cancelled the entry in the meantime, that continuation must lose: the write is applied only
+   * while the stored entry still satisfies the expectation it was derived from.
+   */
+  async saveIfUnchanged(
+    entry: ProjectQueueEntry,
+    expected: ProjectQueueTransitionExpectation,
+  ): Promise<boolean> {
+    return withStorageWrite(this.store, async () => {
+      if (!validateProjectQueueEntry(entry))
+        throw new Error('Cannot persist an invalid project queue entry.');
+      const entries = this.read();
+      const current = entries.find((candidate) => candidate.id === entry.id);
+      if (
+        !current ||
+        current.status !== expected.status ||
+        current.updatedAt !== expected.updatedAt ||
+        (expected.runId !== undefined && current.runId !== expected.runId)
+      )
+        return false;
+      this.store.setItem(
+        projectQueueStorageKey,
+        JSON.stringify(
+          retainProjectQueueEntries(
+            [cloneProjectQueueEntry(entry), ...entries.filter((candidate) => candidate.id !== entry.id)],
+            projectQueueLimit,
+          ),
+        ),
+      );
+      return true;
     });
   }
 }
@@ -310,9 +810,12 @@ export class LocalScheduleRepository implements ScheduleRepository {
     return this.storage ?? globalThis.localStorage;
   }
   private read(): ScheduleDefinition[] {
-    return parseArray<unknown>(this.store.getItem(scheduleStorageKey)).flatMap((value) =>
-      validateSchedule(value) ? [cloneSchedule(value)] : [],
-    );
+    return readPersistedArray({
+      repository: 'schedules',
+      storageKey: scheduleStorageKey,
+      raw: this.store.getItem(scheduleStorageKey),
+      decode: (value) => (validateSchedule(value) ? cloneSchedule(value) : null),
+    });
   }
   async list(): Promise<ScheduleDefinition[]> {
     return this.read().map(cloneSchedule);
@@ -348,9 +851,13 @@ export class LocalScheduledRunRepository implements ScheduledRunRepository {
     return this.storage ?? globalThis.localStorage;
   }
   private read(): ScheduledRun[] {
-    return parseArray<unknown>(this.store.getItem(scheduledRunStorageKey)).flatMap((value) =>
-      validateScheduledRun(value) ? [cloneScheduledRun(value)] : [],
-    );
+    return readPersistedArray({
+      repository: 'scheduled runs',
+      storageKey: scheduledRunStorageKey,
+      raw: this.store.getItem(scheduledRunStorageKey),
+      decode: (value) => (validateScheduledRun(value) ? cloneScheduledRun(value) : null),
+      identity: (run) => run.id,
+    });
   }
   async list(scheduleId?: string): Promise<ScheduledRun[]> {
     return this.read()
@@ -367,7 +874,14 @@ export class LocalScheduledRunRepository implements ScheduledRunRepository {
       const runs = this.read().filter((candidate) => candidate.id !== run.id);
       this.store.setItem(
         scheduledRunStorageKey,
-        JSON.stringify([cloneScheduledRun(run), ...runs].slice(0, scheduledRunLimit)),
+        JSON.stringify(
+          [cloneScheduledRun(run), ...runs].filter(
+            (item, index) =>
+              index < scheduledRunLimit ||
+              ['queued', 'running', 'suspended'].includes(item.status) ||
+              Boolean(item.retryAt),
+          ),
+        ),
       );
     });
   }
@@ -380,21 +894,25 @@ export class LocalWorkspaceRepository implements WorkspaceRepository {
     return this.storage ?? globalThis.localStorage;
   }
 
+  private read(): WorkspaceMount | null {
+    return readPersistedValue({
+      repository: 'workspace mount',
+      storageKey: workspaceStorageKey,
+      raw: this.store.getItem(workspaceStorageKey),
+      decode: (value) => (validateWorkspaceMount(value) ? cloneWorkspaceMount(value) : null),
+    });
+  }
+
   async get(): Promise<WorkspaceMount | null> {
-    try {
-      const raw = this.store.getItem(workspaceStorageKey);
-      if (!raw) return null;
-      const value: unknown = JSON.parse(raw);
-      return validateWorkspaceMount(value) ? cloneWorkspaceMount(value) : null;
-    } catch {
-      return null;
-    }
+    return this.read();
   }
 
   async save(mount: WorkspaceMount): Promise<void> {
     return withStorageWrite(this.store, async () => {
       if (!validateWorkspaceMount(mount))
         throw new Error('Cannot persist an invalid workspace mount.');
+      // This save replaces the whole document, so it must not overwrite a value that cannot be read.
+      this.read();
       this.store.setItem(workspaceStorageKey, JSON.stringify(cloneWorkspaceMount(mount)));
     });
   }
@@ -414,9 +932,12 @@ export class LocalWorkspaceChangeRepository implements WorkspaceChangeRepository
   }
 
   private read(): WorkspaceChange[] {
-    return parseArray<unknown>(this.store.getItem(workspaceChangeStorageKey)).flatMap((value) =>
-      validateWorkspaceChange(value) ? [cloneWorkspaceChange(value)] : [],
-    );
+    return readPersistedArray({
+      repository: 'workspace changes',
+      storageKey: workspaceChangeStorageKey,
+      raw: this.store.getItem(workspaceChangeStorageKey),
+      decode: (value) => (validateWorkspaceChange(value) ? cloneWorkspaceChange(value) : null),
+    });
   }
 
   async list(workspaceId?: string): Promise<WorkspaceChange[]> {
@@ -458,9 +979,12 @@ export class LocalSkillRepository implements SkillRepository {
   }
 
   private read(): SkillDefinition[] {
-    return parseArray<unknown>(this.store.getItem(skillStorageKey)).flatMap((value) =>
-      validateSkill(value) ? [cloneSkill(value)] : [],
-    );
+    return readPersistedArray({
+      repository: 'skills',
+      storageKey: skillStorageKey,
+      raw: this.store.getItem(skillStorageKey),
+      decode: (value) => (validateSkill(value) ? cloneSkill(value) : null),
+    });
   }
 
   async list(): Promise<SkillDefinition[]> {
@@ -501,9 +1025,12 @@ export class LocalMcpServerRepository implements McpServerRepository {
   }
 
   private read(): McpServerConnection[] {
-    return parseArray<unknown>(this.store.getItem(mcpServerStorageKey)).flatMap((value) =>
-      validateMcpServer(value) ? [cloneMcpServer(value)] : [],
-    );
+    return readPersistedArray({
+      repository: 'MCP servers',
+      storageKey: mcpServerStorageKey,
+      raw: this.store.getItem(mcpServerStorageKey),
+      decode: (value) => (validateMcpServer(value) ? cloneMcpServer(value) : null),
+    });
   }
 
   async list(): Promise<McpServerConnection[]> {
@@ -544,9 +1071,12 @@ export class LocalMcpServerRequestPolicyRepository implements McpServerRequestPo
   }
 
   private read(): McpServerRequestPolicy[] {
-    return parseArray<unknown>(this.store.getItem(mcpServerRequestPolicyStorageKey)).flatMap(
-      (value) => {
-        if (!value || typeof value !== 'object') return [];
+    return readPersistedArray({
+      repository: 'MCP server-request policies',
+      storageKey: mcpServerRequestPolicyStorageKey,
+      raw: this.store.getItem(mcpServerRequestPolicyStorageKey),
+      decode: (value) => {
+        if (!isPlainRecord(value)) return null;
         const policy = value as Partial<McpServerRequestPolicy>;
         return policy.version === 1 &&
           typeof policy.id === 'string' &&
@@ -556,19 +1086,17 @@ export class LocalMcpServerRequestPolicyRepository implements McpServerRequestPo
             policy.method === 'sampling/createMessage') &&
           (policy.decision === 'allow' || policy.decision === 'deny') &&
           typeof policy.updatedAt === 'string'
-          ? [
-              {
-                version: 1 as const,
-                id: policy.id,
-                serverId: policy.serverId,
-                method: policy.method,
-                decision: policy.decision,
-                updatedAt: policy.updatedAt,
-              },
-            ]
-          : [];
+          ? {
+              version: 1 as const,
+              id: policy.id,
+              serverId: policy.serverId,
+              method: policy.method,
+              decision: policy.decision,
+              updatedAt: policy.updatedAt,
+            }
+          : null;
       },
-    );
+    });
   }
 
   async list(): Promise<McpServerRequestPolicy[]> {
@@ -610,7 +1138,6 @@ export class LocalMcpServerRequestPolicyRepository implements McpServerRequestPo
 }
 
 type StoredConversations = Record<string, ConversationMessage[]>;
-const maxStoredMessagesPerAgent = 200;
 
 export class LocalConversationRepository implements ConversationRepository {
   constructor(
@@ -623,14 +1150,15 @@ export class LocalConversationRepository implements ConversationRepository {
   }
 
   private read(): StoredConversations {
-    try {
-      const raw = this.store.getItem(this.storageKey);
-      if (!raw) return {};
-      const parsed = JSON.parse(raw) as StoredConversations;
-      return parsed && typeof parsed === 'object' ? parsed : {};
-    } catch {
-      return {};
-    }
+    return readPersistedKeyedObject({
+      repository: 'conversations',
+      storageKey: this.storageKey,
+      raw: this.store.getItem(this.storageKey),
+      decode: (_agentId, value) =>
+        Array.isArray(value) && value.every(isConversationMessage)
+          ? value.map((message) => ({ ...(message as ConversationMessage) }))
+          : null,
+    });
   }
 
   async list(agentId: string): Promise<ConversationMessage[]> {
@@ -673,15 +1201,33 @@ export class LocalSuspendedAgentTurnRepository implements SuspendedAgentTurnRepo
   }
 
   private read(): SuspendedAgentTurn[] {
-    return parseArray<SuspendedAgentTurn>(this.store.getItem(this.storageKey));
+    return readPersistedArray({
+      repository: 'suspended agent turns',
+      storageKey: this.storageKey,
+      raw: this.store.getItem(this.storageKey),
+      decode: (value) => decodeSuspendedAgentTurn(value),
+    });
   }
 
   async getByAgentId(agentId: string): Promise<SuspendedAgentTurn | null> {
     return this.read().find((turn) => turn.agentId === agentId) ?? null;
   }
 
+  async list(): Promise<SuspendedAgentTurn[]> {
+    return this.read();
+  }
+
+  /**
+   * Only the turn that *owns* the approval. A turn that merely waits on a descendant's approval is
+   * deliberately not returned: resolving an approval must resume the owner first, never the waiter.
+   */
   async getByApprovalId(approvalId: string): Promise<SuspendedAgentTurn | null> {
-    return this.read().find((turn) => turn.pending.approval.id === approvalId) ?? null;
+    return (
+      this.read().find(
+        (turn) =>
+          turn.pending.kind === 'tool-approval' && turn.pending.approval.id === approvalId,
+      ) ?? null
+    );
   }
 
   async save(turn: SuspendedAgentTurn): Promise<void> {
@@ -694,18 +1240,18 @@ export class LocalSuspendedAgentTurnRepository implements SuspendedAgentTurnRepo
           ...turns.filter(
             (stored) =>
               stored.agentId !== turn.agentId &&
-              stored.pending.approval.id !== turn.pending.approval.id,
+              stored.pending.turnId !== turn.pending.turnId,
           ),
         ]),
       );
     });
   }
 
-  async remove(approvalId: string): Promise<void> {
+  async removeByTurnId(turnId: string): Promise<void> {
     return withStorageWrite(this.store, async () => {
       this.store.setItem(
         this.storageKey,
-        JSON.stringify(this.read().filter((turn) => turn.pending.approval.id !== approvalId)),
+        JSON.stringify(this.read().filter((turn) => turn.pending.turnId !== turnId)),
       );
     });
   }
@@ -738,14 +1284,16 @@ function normalizeContextPack(value: unknown): ContextPack | null {
     Array.isArray(candidate.sources) &&
     candidate.sources.every(
       (source) =>
-        (source?.source === 'memory' || source?.source === 'skill') &&
+        (source?.source === 'memory' ||
+          source?.source === 'skill' ||
+          source?.source === 'knowledge') &&
         ['selected', 'no-match', 'not-authorized', 'error'].includes(source.state) &&
         typeof source.detail === 'string',
     ) &&
     Array.isArray(candidate.selections) &&
     candidate.selections.every(
       (item) =>
-        (item?.source === 'memory' || item?.source === 'skill') &&
+        (item?.source === 'memory' || item?.source === 'skill' || item?.source === 'knowledge') &&
         typeof item.sourceId === 'string' &&
         typeof item.content === 'string' &&
         typeof item.reason === 'string' &&
@@ -774,13 +1322,15 @@ export class LocalContextPackRepository implements ContextPackRepository {
 
   private read(): ContextPack[] {
     const current = this.store.getItem(this.storageKey);
-    const packs = parseArray<unknown>(
-      current ?? (this.legacyStorageKey ? this.store.getItem(this.legacyStorageKey) : null),
-    ).flatMap((value) => {
-      const pack = normalizeContextPack(value);
-      return pack ? [pack] : [];
+    const packs = readPersistedArray({
+      repository: 'Cortex context packs',
+      storageKey: current === null && this.legacyStorageKey ? this.legacyStorageKey : this.storageKey,
+      raw:
+        current ?? (this.legacyStorageKey ? this.store.getItem(this.legacyStorageKey) : null),
+      decode: (value) => normalizeContextPack(value),
     });
-    if (!current && packs.length) {
+    // Explicit legacy migration: only runs when the current key has never been written.
+    if (current === null && packs.length) {
       this.store.setItem(this.storageKey, JSON.stringify(packs));
     }
     return packs;
@@ -892,9 +1442,11 @@ export class LocalCortexTurnRepository implements CortexTurnRepository {
   }
 
   private read(): CortexTurnRecord[] {
-    return parseArray<unknown>(this.store.getItem(this.storageKey)).flatMap((value) => {
-      const record = normalizeCortexTurn(value);
-      return record ? [record] : [];
+    return readPersistedArray({
+      repository: 'Cortex turns',
+      storageKey: this.storageKey,
+      raw: this.store.getItem(this.storageKey),
+      decode: (value) => normalizeCortexTurn(value),
     });
   }
 
@@ -979,9 +1531,11 @@ export class LocalCortexTurnStepRepository implements CortexTurnStepRepository {
   }
 
   private read(): CortexTurnStep[] {
-    return parseArray<unknown>(this.store.getItem(this.storageKey)).flatMap((value) => {
-      const step = normalizeCortexTurnStep(value);
-      return step ? [step] : [];
+    return readPersistedArray({
+      repository: 'Cortex turn steps',
+      storageKey: this.storageKey,
+      raw: this.store.getItem(this.storageKey),
+      decode: (value) => normalizeCortexTurnStep(value),
     });
   }
 
@@ -1026,7 +1580,12 @@ export class LocalMemoryRepository implements MemoryRepository {
   }
 
   async list(): Promise<MemoryRecord[]> {
-    return parseArray<MemoryRecord>(this.store.getItem(memoryStorageKey)).map((record) => ({
+    return readPersistedArray({
+      repository: 'memory records',
+      storageKey: memoryStorageKey,
+      raw: this.store.getItem(memoryStorageKey),
+      decode: (value) => (isMemoryRecord(value) ? { ...value } : null),
+    }).map((record) => ({
       ...record,
       provenance: { ...record.provenance },
     }));
@@ -1127,9 +1686,12 @@ export class LocalMemoryEmbeddingIndexRepository implements MemoryEmbeddingIndex
   }
 
   private read(): MemoryEmbeddingIndex[] {
-    return parseArray<unknown>(this.store.getItem(memoryEmbeddingIndexStorageKey))
-      .filter(isStoredEmbeddingIndex)
-      .map(normalizeEmbeddingIndex);
+    return readPersistedArray({
+      repository: 'memory embedding indexes',
+      storageKey: memoryEmbeddingIndexStorageKey,
+      raw: this.store.getItem(memoryEmbeddingIndexStorageKey),
+      decode: (value) => (isStoredEmbeddingIndex(value) ? normalizeEmbeddingIndex(value) : null),
+    });
   }
 
   async get(scope: MemoryEmbeddingScope): Promise<MemoryEmbeddingIndex | null> {
@@ -1162,25 +1724,37 @@ export class LocalMemoryEmbeddingIndexRepository implements MemoryEmbeddingIndex
 }
 
 export class LocalPermissionRuleRepository implements PermissionRuleRepository {
-  constructor(private readonly storage?: Storage) {}
+  constructor(
+    private readonly storage?: Storage,
+    private readonly registry: ToolRegistry = toolRegistry,
+  ) {}
 
   private get store(): Storage {
     return this.storage ?? globalThis.localStorage;
   }
 
   async list(): Promise<PermissionRule[]> {
-    return parseArray<PermissionRule>(this.store.getItem(permissionRuleStorageKey)).map((rule) => ({
-      ...rule,
-    }));
+    const rules = readPersistedArray({
+      repository: 'permission rules',
+      storageKey: permissionRuleStorageKey,
+      raw: this.store.getItem(permissionRuleStorageKey),
+      decode: (value) => (isPermissionRule(value) ? { ...value } : null),
+    });
+    const canonical = canonicalConfiguredPermissionRules(rules, this.registry);
+    if (JSON.stringify(canonical) !== JSON.stringify(rules)) {
+      this.store.setItem(permissionRuleStorageKey, JSON.stringify(canonical));
+    }
+    return canonical;
   }
 
   async save(rule: PermissionRule): Promise<void> {
     return withStorageWrite(this.store, async () => {
+      if (!isPermissionRule(rule)) throw new Error('Cannot persist an invalid permission rule.');
       const rules = await this.list();
-      this.store.setItem(
-        permissionRuleStorageKey,
-        JSON.stringify([...rules.filter((item) => item.id !== rule.id), rule]),
+      const canonical = canonicalConfiguredPermissionRules(
+        [...rules.filter((item) => item.id !== rule.id), rule], this.registry,
       );
+      this.store.setItem(permissionRuleStorageKey, JSON.stringify(canonical));
     });
   }
 
@@ -1203,9 +1777,12 @@ export class LocalPermissionAuditRepository implements PermissionAuditRepository
   }
 
   async list(): Promise<PermissionAuditEvent[]> {
-    return parseArray<PermissionAuditEvent>(this.store.getItem(permissionAuditStorageKey)).map(
-      (event) => ({ ...event }),
-    );
+    return readPersistedArray({
+      repository: 'permission audit',
+      storageKey: permissionAuditStorageKey,
+      raw: this.store.getItem(permissionAuditStorageKey),
+      decode: (value) => (isPermissionAuditEvent(value) ? { ...value } : null),
+    }).map((event) => ({ ...event }));
   }
 
   async append(event: PermissionAuditEvent): Promise<void> {
@@ -1233,9 +1810,12 @@ export class LocalToolApprovalRepository implements ToolApprovalRepository {
   }
 
   async list(): Promise<ToolApprovalRequest[]> {
-    return parseArray<ToolApprovalRequest>(this.store.getItem(toolApprovalStorageKey)).map(
-      (request) => ({ ...request }),
-    );
+    return readPersistedArray({
+      repository: 'tool approvals',
+      storageKey: toolApprovalStorageKey,
+      raw: this.store.getItem(toolApprovalStorageKey),
+      decode: (value) => (isToolApprovalRequest(value) ? { ...value } : null),
+    }).map((request) => ({ ...request }));
   }
 
   async get(id: string): Promise<ToolApprovalRequest | null> {
@@ -1305,6 +1885,127 @@ export const projectTaskRunRepository = createDesktopRepository(
   (storage) => new LocalProjectTaskRunRepository(storage),
   [projectTaskRunStorageKey],
 );
+
+// The review note, run status and dependency progress commit in one native SQLite transaction.
+export class LocalProjectRunCommitter {
+  async reviewQuality(runId: string, receipt: QualityReviewReceipt): Promise<ProjectTaskRun> {
+    const runs = new LocalProjectTaskRunRepository(this.storage);
+    const run = await runs.get(runId);
+    if (!run) throw new Error('The worker result is unavailable.');
+    const project = await new LocalProjectGraphRepository(this.storage).get(run.projectId);
+    if (!project) throw new Error('The project is unavailable.');
+    const saved = recordProjectQualityReview(project, run, await runs.list(run.projectId), receipt);
+    await runs.save(saved);
+    return saved;
+  }
+
+  // Return rejection as data so the surrounding transaction commits its audit record before
+  // the runtime reports the error. Persistence errors still throw and never report success.
+  async attemptVerify(
+    runId: string,
+    note: string,
+    at: string,
+    evidence: ProjectRunReviewEvidence,
+    rejectionId: string,
+  ): Promise<{ run: ProjectTaskRun; error?: string }> {
+    const runs = new LocalProjectTaskRunRepository(this.storage);
+    const run = await runs.get(runId);
+    if (!run) throw new Error('The worker result is unavailable.');
+    const projects = new LocalProjectGraphRepository(this.storage);
+    const project = await projects.get(run.projectId);
+    if (!project) throw new Error('The project is unavailable.');
+    let reviewed: ReturnType<typeof verifyProjectRun>;
+    try {
+      reviewed = verifyProjectRun(project, run, await runs.list(project.id), note, at, evidence);
+    } catch (failure) {
+      const error = (failure instanceof Error ? failure.message : 'Acceptance was rejected.').slice(
+        0,
+        4000,
+      );
+      const rejected = {
+        ...run,
+        qualityRejections: [
+          ...(run.qualityRejections ?? []),
+          {
+            id: rejectionId,
+            at,
+            reason: error,
+            resultVersion: projectResultVersion(evidence.expectedRun),
+          },
+        ],
+      };
+      await runs.save(rejected);
+      return { run: rejected, error };
+    }
+    await runs.save(reviewed.run);
+    await projects.save(reviewed.project);
+    return { run: reviewed.run };
+  }
+
+  constructor(private readonly storage?: Storage) {}
+  async reserve(run: ProjectTaskRun): Promise<void> {
+    const projects = new LocalProjectGraphRepository(this.storage);
+    const runs = new LocalProjectTaskRunRepository(this.storage);
+    const project = await projects.get(run.projectId);
+    if (!project) throw new Error('The project is unavailable.');
+    validateProjectRunReservation(project, run, await runs.list());
+    await runs.save(run);
+  }
+  async pause(runId: string, at: string): Promise<ProjectTaskRun> {
+    const runs = new LocalProjectTaskRunRepository(this.storage);
+    const run = await runs.get(runId);
+    if (!run || !['queued', 'running', 'suspended'].includes(run.status))
+      throw new Error('Only a running worker can be paused.');
+    const paused = { ...run, pauseRequested: true, updatedAt: at };
+    await runs.save(paused);
+    return paused;
+  }
+  async resume(runId: string, at: string): Promise<ProjectTaskRun> {
+    const projects = new LocalProjectGraphRepository(this.storage);
+    const runs = new LocalProjectTaskRunRepository(this.storage);
+    const run = await runs.get(runId);
+    if (!run) throw new Error('The paused run is unavailable.');
+    const project = await projects.get(run.projectId);
+    if (!project) throw new Error('The project is unavailable.');
+    const resumed = resumeProjectRun(project, run, await runs.list(), at);
+    await runs.save(resumed);
+    return resumed;
+  }
+  async verify(
+    runId: string,
+    note: string,
+    reviewedAt: string,
+    evidence?: ProjectRunReviewEvidence,
+  ): Promise<ProjectTaskRun> {
+    const projects = new LocalProjectGraphRepository(this.storage);
+    const runs = new LocalProjectTaskRunRepository(this.storage);
+    const run = await runs.get(runId);
+    if (!run) throw new Error('The worker result is unavailable.');
+    const project = await projects.get(run.projectId);
+    if (!project) throw new Error('The project is unavailable.');
+    const reviewed = verifyProjectRun(
+      project,
+      run,
+      await runs.list(project.id),
+      note,
+      reviewedAt,
+      evidence,
+    );
+    await runs.save(reviewed.run);
+    await projects.save(reviewed.project);
+    return reviewed.run;
+  }
+}
+
+export const projectRunCommitter = createDesktopRepository(
+  (storage) => new LocalProjectRunCommitter(storage),
+  [projectGraphStorageKey, projectTaskRunStorageKey],
+);
+export const projectQueueRepository = createDesktopRepository(
+  (storage) => new LocalProjectQueueRepository(storage),
+  [projectQueueStorageKey],
+);
+
 export const scheduleRepository = createDesktopRepository(
   (storage) => new LocalScheduleRepository(storage),
   [scheduleStorageKey],

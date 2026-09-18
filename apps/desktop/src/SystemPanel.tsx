@@ -1,6 +1,21 @@
+import { ApprovalSummaryById } from './ApprovalSummaryView';
 import { useEffect, useMemo, useState } from 'react';
-import { subscribeAgentActivity, subscribeAgentRuntime, type AgentActivityLogEntry } from './agentRuntime';
-import { cortexTurnRepository, projectGraphRepository, projectTaskRunRepository } from './persistence';
+import {
+  installBackgroundService,
+  readBackgroundServiceStatus,
+  removeBackgroundService,
+  type BackgroundServiceStatus,
+} from './backgroundService';
+import {
+  subscribeAgentActivity,
+  subscribeAgentRuntime,
+  type AgentActivityLogEntry,
+} from './agentRuntime';
+import {
+  cortexTurnRepository,
+  projectGraphRepository,
+  projectTaskRunRepository,
+} from './persistence';
 import {
   projectProgress,
   projectTaskState,
@@ -50,7 +65,12 @@ function humanizeActivity(summary: string): { agent: string; action: string; ico
 
   let icon = '⚡';
   if (cleaned.includes('Specialist Sub-Agent')) icon = '🤖';
-  else if (cleaned.includes('Workspace') || cleaned.includes('File') || cleaned.includes('Directory')) icon = '📁';
+  else if (
+    cleaned.includes('Workspace') ||
+    cleaned.includes('File') ||
+    cleaned.includes('Directory')
+  )
+    icon = '📁';
   else if (cleaned.includes('Memory')) icon = '💾';
   else if (cleaned.includes('Janitor') || cleaned.includes('Diagnostics')) icon = '🛡️';
   else if (cleaned.includes('received a new message')) icon = '💬';
@@ -155,7 +175,10 @@ function ActivityConsole({ log }: { log: AgentActivityLogEntry[] }) {
             const { agent, action, icon } = humanizeActivity(entry.summary);
             const isRunning = entry.kind === 'tool';
             return (
-              <li key={entry.id} className={`activity-row activity-row-${entry.kind} ${isRunning ? 'is-active-task' : ''}`}>
+              <li
+                key={entry.id}
+                className={`activity-row activity-row-${entry.kind} ${isRunning ? 'is-active-task' : ''}`}
+              >
                 <span className={`activity-dot activity-dot-${entry.kind}`} aria-hidden="true" />
                 <span className="activity-body">
                   <span className="activity-header-line">
@@ -163,7 +186,9 @@ function ActivityConsole({ log }: { log: AgentActivityLogEntry[] }) {
                     <span className="activity-time">{formatRelativeTime(entry.at, now)}</span>
                   </span>
                   <span className="activity-summary">
-                    <span className="activity-icon" aria-hidden="true">{icon}</span>
+                    <span className="activity-icon" aria-hidden="true">
+                      {icon}
+                    </span>
                     <span className="activity-text">{action}</span>
                   </span>
                 </span>
@@ -176,11 +201,7 @@ function ActivityConsole({ log }: { log: AgentActivityLogEntry[] }) {
   );
 }
 
-function ProjectStreamConsole({
-  onOpenProject,
-}: {
-  onOpenProject?: (projectId: string) => void;
-}) {
+function ProjectStreamConsole({ onOpenProject }: { onOpenProject?: (projectId: string) => void }) {
   const [projects, setProjects] = useState<ProjectGraph[]>([]);
   const [runs, setRuns] = useState<ProjectTaskRun[]>([]);
   const [busyRunId, setBusyRunId] = useState<string | null>(null);
@@ -208,7 +229,11 @@ function ProjectStreamConsole({
     };
   }, []);
 
-  async function handleInlineApproval(e: React.MouseEvent, run: ProjectTaskRun, decision: 'approve' | 'deny') {
+  async function handleInlineApproval(
+    e: React.MouseEvent,
+    run: ProjectTaskRun,
+    decision: 'approve' | 'deny',
+  ) {
     e.stopPropagation();
     if (!run.approval || busyRunId) return;
     setBusyRunId(run.id);
@@ -238,9 +263,10 @@ function ProjectStreamConsole({
           const latestRun = sortProjectTaskRuns(projectRuns)[0] ?? null;
           const isWorking = latestRun?.status === 'running' || latestRun?.status === 'queued';
           const isSuspended = latestRun?.status === 'suspended' && latestRun?.approval;
-          const activeTask = isWorking || isSuspended
-            ? project.tasks.find((t) => t.id === latestRun.taskId)
-            : project.tasks.find((t) => projectTaskState(project, t.id) === 'ready');
+          const activeTask =
+            isWorking || isSuspended
+              ? project.tasks.find((t) => t.id === latestRun.taskId)
+              : project.tasks.find((t) => projectTaskState(project, t.id) === 'ready');
 
           return (
             <div
@@ -257,7 +283,9 @@ function ProjectStreamConsole({
 
               {activeTask && (
                 <div className="project-stream-task-line">
-                  <span className={`project-stream-dot ${isWorking ? 'working' : isSuspended ? 'waiting' : 'ready'}`} />
+                  <span
+                    className={`project-stream-dot ${isWorking ? 'working' : isSuspended ? 'waiting' : 'ready'}`}
+                  />
                   <span className="project-stream-task-name">{activeTask.title}</span>
                 </div>
               )}
@@ -268,6 +296,7 @@ function ProjectStreamConsole({
                   <span className="project-stream-approval-label">
                     🛡️ Needs Approval: {latestRun.approval.toolName}
                   </span>
+                  <ApprovalSummaryById approvalId={latestRun.approval.id} />
                   <div className="project-stream-approval-actions">
                     <button
                       type="button"
@@ -296,17 +325,46 @@ function ProjectStreamConsole({
   );
 }
 
-export function SystemPanel({
-  onOpenProject,
-}: {
-  onOpenProject?: (projectId: string) => void;
-}) {
+export function SystemPanel({ onOpenProject }: { onOpenProject?: (projectId: string) => void }) {
   const [metrics, setMetrics] = useState<HostMetrics | null>(null);
   const [nativeAvailable, setNativeAvailable] = useState(true);
   const [usage, setUsage] = useState<UsageSummary>(emptyUsage);
   const [activity, setActivity] = useState<AgentActivityLogEntry[]>([]);
+  const [backgroundService, setBackgroundService] = useState<BackgroundServiceStatus | null>(null);
+  const [backgroundBusy, setBackgroundBusy] = useState(false);
 
   useEffect(() => subscribeAgentActivity(setActivity), []);
+
+  useEffect(() => {
+    void readBackgroundServiceStatus()
+      .then(setBackgroundService)
+      .catch(() => {
+        setBackgroundService({
+          installed: false,
+          enabled: false,
+          active: false,
+          message: 'Background runtime status is unavailable.',
+        });
+      });
+  }, []);
+
+  async function setBackgroundRuntime(enabled: boolean) {
+    setBackgroundBusy(true);
+    try {
+      if (enabled) setBackgroundService(await installBackgroundService());
+      else {
+        await removeBackgroundService();
+        setBackgroundService(await readBackgroundServiceStatus());
+      }
+    } catch (error) {
+      setBackgroundService((current) => ({
+        ...(current ?? { installed: false, enabled: false, active: false }),
+        message: error instanceof Error ? error.message : String(error),
+      }));
+    } finally {
+      setBackgroundBusy(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -404,6 +462,25 @@ export function SystemPanel({
           </p>
         )}
       </section>
+
+      {backgroundService && (
+        <section className="panel-block">
+          <p className="panel-eyebrow">Background runtime</p>
+          <p className="panel-subtle">{backgroundService.message}</p>
+          <button
+            type="button"
+            className="row-button"
+            disabled={backgroundBusy}
+            onClick={() => void setBackgroundRuntime(!backgroundService.enabled)}
+          >
+            {backgroundBusy
+              ? 'Saving…'
+              : backgroundService.enabled
+                ? 'Disable background runtime'
+                : 'Keep queues running after Quit'}
+          </button>
+        </section>
+      )}
 
       {(memory || load) && (
         <section className="panel-block">

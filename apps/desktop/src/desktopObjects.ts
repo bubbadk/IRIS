@@ -1,6 +1,8 @@
 import type { IrisObjectType } from '@iris/core';
 import {
   AgentsIcon,
+  DocumentsIcon,
+  BrowserIcon,
   ChannelsIcon,
   ConnectionsIcon,
   GitHubIcon,
@@ -43,6 +45,8 @@ export const objects: Array<{
     description: 'Mount and inspect one real local folder.',
     Icon: WorkspaceIcon,
   },
+  { type: 'browser', label: 'Browser', description: 'Watch browser work and take control.', Icon: BrowserIcon },
+  { type: 'documents', label: 'Documents', description: 'Create, revise and export saved deliverables.', Icon: DocumentsIcon },
   {
     type: 'github',
     label: 'GitHub',

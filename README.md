@@ -5,7 +5,7 @@
   <h3>The Spatial Operating Environment for Autonomous AI Agents</h3>
   <p>An object-oriented, local-first desktop OS for creating, operating, and orchestrating autonomous AI agent systems.</p>
 
-  [![Version](https://img.shields.io/badge/Version-0.2.11-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
+  [![Version](https://img.shields.io/badge/Version-0.3.0-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
   [![FP-AMB Memory Benchmark](https://img.shields.io/badge/FP--AMB%20(verified)-70.1%25%20(155%2F221%20gradeable)-success.svg?style=flat-square)](#-memory-benchmark-verified-results)
   [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg?style=flat-square)](LICENSE)
   [![Platform](https://img.shields.io/badge/Platform-Linux%20(CachyOS%2FArch%20%7C%20Ubuntu)%20%7C%20macOS%20%7C%20Windows-amber.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
@@ -89,48 +89,44 @@ IRIS is evaluated against the [FP-AMB question suite](https://github.com/munch2u
 
 ---
 
-## ✨ Key Features in v0.2.11
+## ✨ Key Features in v0.3.0
 
-### 1. Durable native storage
+### 1. Cross-process execution authority
 
-Native repositories now use SQLite with revision-checked atomic writes. Concurrent changes retry against current data, and failed writes preserve existing history and attachments. Startup imports repository data from the active localStorage origin once and retains the original data as a backup; corrupt JSON stops the whole migration. Browser preview, credentials, UI preferences and subtitle checkpoints keep their separate stores.
+Project and schedule execution ownership is bound to real operating-system process identity over the shared SQLite store, and a live, dead or unknown owner is resolved distinctly — unknown liveness fails **closed** instead of guessing. Execution claims are persisted before any side effect, so a stopped run whose external outcome is unknown is never replayed automatically. Mandatory approvals cannot be bypassed through YOLO autonomy, an explicit allow rule, delegation, scheduled runs, channels, resumed runs, process recovery or legacy tool aliases.
 
-### 2. Reliable chat and tool approvals
+### 2. Durable projects, scheduling and quality control
 
-The Agent, Desklet and GitHub views share a chat session controller. Streaming responses and pending approvals survive view changes. Consecutive approvals stay visible, and results are matched to individual tool invocations. Approved execution is claimed atomically before side effects; interrupted invocations cannot be automatically replayed when their outcome is unknown. GitHub chat now presents Apply/Deny controls.
+A durable project task queue with atomic `queued → claimed` transitions, and a durable schedule queue with exclusive OS file-lock ownership and persistent pause/resume. Runs are bounded to 1–10 turns with optional 1–1,440-minute deadlines, saved tool-result checkpoints and manual resume. Acceptance criteria require saved human Met assessments, and completion re-reads every configured target before committing the acceptance receipt and dependency completion atomically.
 
-### 3. Truthful desktop status and secure connections
+### 3. Documents, knowledge and the visible browser
 
-Desklet activity follows real running agents and project workers, including across native webviews. Missing telemetry is shown as unavailable. Telegram/Discord credentials use the OS credential store, with verified migration before legacy secrets are removed. These connections currently support outgoing test messages only; incoming messages, remote approvals and automatic notifications are not connected. Live delivery still awaits a configured test recipient.
+Durable Markdown, text, HTML, SVG, JSON and CSV revisions with revision-checked writes and agent `create`/`read`/`list`/`revise` tools, exporting to the original format and to real DOCX, plain-text PDF, basic XLSX and plain-text PPTX. Human-approved global and project knowledge carries provenance, optional expiry, immutable revisions and atomic conflict replacement. A separate **visible** Chrome/Chromium session offers a real captured screenshot, take-control handover and stale-target refusal.
 
-### 4. Resumable subtitles and saved desktop layouts
+### 4. Workspace and credential safety
 
-Subtitle translation runs outside React window lifetimes, checkpoints partial progress and can be manually resumed after restart. Untranslated cues remain unfinished. Desktop windows support saved named layouts, viewport clamping and keyboard movement/resizing through their title bars.
+`shell.exec` defaults to offline Bubblewrap isolation on Linux with no silent host fallback, and content-checked workspace restore points cover native text write/patch. Native credentials use the OS keyring, browser credentials are session-only, and privileged secrets are staged through private temporary files. The main window runs under a strict CSP and loads no remote content.
 
-### 5. Verified updater behavior and Linux packaging
+### 5. Chat, desktop shell and updater
 
-The updater shows readable release notes for the target version and refuses missing summaries, changed targets and unsigned metadata. A real AppImage has passed local signed download, installation, tamper rejection, failed-extraction rollback and restart tests using disposable keys. Production signing credentials are still required for an installable published update.
+One shared chat session controller keeps streaming responses and pending approvals alive across views, with results matched to individual tool invocations. Desktop windows support saved named layouts, viewport clamping and keyboard move/resize. The updater shows readable target-version release notes and refuses missing summaries, changed targets and unsigned metadata. The manual draft-release workflow requires a production signing key, builds Linux, macOS-universal and Windows artifacts, and produces a **draft** release only.
 
-`pnpm build:appimage` handles Arch/CachyOS `.relr.dyn` library sections by retaining dependency symbols instead of invoking linuxdeploy's obsolete strip tool. The manual draft-release workflow requires a signing key and generates updater artifacts; it is not triggered by pushing this source version. A successful local AppImage test does not establish portability to every Linux distribution.
+### 6. Verified locally
 
-### 6. Smaller modules, bounded output and reproducible verification
+**133 TypeScript test files / 1408 tests** and **128 native tests** pass, alongside `pnpm typecheck`, `pnpm lint` (`--max-warnings=0`), `pnpm build` and `pnpm build:binary`, plus isolated native boots with no panic. See the [0.3.0 release notes](dist-release/RELEASE_NOTES_v0.3.0.md) for the full implemented / limited / not-verified breakdown.
 
-Agent editing, tool traces, shared chat content, GitHub state and dialogs are separate modules. Workspace and Janitor output pipes are drained while retaining at most 64 KiB plus a truncation marker. Benchmark data loads on demand, and the exported report distinguishes retrieved-answer coverage from final-answer accuracy.
-
-**Verified locally:** 530 TypeScript tests in 62 suites; 46 ordinary native tests plus OS keyring and signed-updater integration tests; typecheck and lint with zero warnings; native boot/restart with retained data. See the [verification record](docs/verification/hardening-status.md) and [signed AppImage results](docs/verification/signed-updater-result.json).
-
-**Retained capabilities:** attributed workspace-change history and model-handoff markers from v0.2.10, real WebDriver browser tools, permission-gated workspace commands, agent teams, attachments, command palette, Project Flow Reactor, memory inspection, and optional web/image integrations. Workspace commands start in the mounted folder; they are not an OS-level sandbox.
+**Retained capabilities:** FP-AMB memory benchmark view and Memory Constellation, dual-tier model takeover, GitHub operations, WebDriver browser tools, permission-gated workspace commands, agent teams, attachments, command palette, Project Flow Reactor, memory inspection, Subtitle Studio, and optional web/image integrations. Live remote channel delivery, macOS/Windows packaging and the production-signed updater lifecycle remain unverified.
 
 ---
 
 ## 🚀 Quickstart
 
 ### Download Standalone Release
-The source/build version is **v0.2.11**. Source tags and downloadable releases are separate. Use binaries only when they are attached to the corresponding [GitHub Release](https://github.com/bubbadk/IRIS/releases):
-- **Linux**: look for `iris-linux-x86_64-v0.2.11.tar.gz` or `IRIS_0.2.11_amd64.AppImage` when published.
+The source/build version is **v0.3.0**. Source tags and downloadable releases are separate. Use binaries only when they are attached to the corresponding [GitHub Release](https://github.com/bubbadk/IRIS/releases):
+- **Linux**: look for `iris-linux-x86_64-v0.3.0.tar.gz` or `IRIS_0.3.0_amd64.AppImage` when published.
 - **macOS / Windows**: use an installer only when it is attached to that release. These are build targets; this checkout does not verify their published asset availability.
 
-The updater polls `latest.json` from the newest published release. An in-app installation requires a supported package signed with the matching production key. Pushing the v0.2.11 source tag alone does not publish that package; the existing v0.2.10 manifest in `dist-release/latest.json` remains unsigned.
+The updater polls `latest.json` from the newest published release. An in-app installation requires a supported package signed with the matching production key. Pushing the v0.3.0 source tag alone does not publish that package; the existing v0.2.10 manifest in `dist-release/latest.json` remains unsigned.
 
 ### Build from Source
 

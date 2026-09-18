@@ -7,7 +7,27 @@ const { invoke, tauriIsTauri } = vi.hoisted(() => ({
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke, isTauri: tauriIsTauri }));
 
-import { loadProviderSecrets, saveProviderSecrets } from './credentials';
+import {
+  loadProviderSecrets,
+  mergeTrustedConnectionValues,
+  providerConfigHasSecretFields,
+  resolveProviderConnection,
+  saveProviderSecrets,
+} from './credentials';
+import type { ProviderConfig } from '@iris/providers';
+
+function providerConfig(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
+  return {
+    id: 'provider-1',
+    name: 'Provider',
+    kind: 'openai-compatible',
+    endpoint: 'https://api.example.test/v1',
+    model: 'gpt-4o',
+    enabled: true,
+    connectionFields: [{ id: 'apiKey', label: 'API key', required: true, secret: true }],
+    ...overrides,
+  };
+}
 
 describe('provider credential storage', () => {
   beforeEach(() => {
@@ -75,5 +95,81 @@ describe('provider credential storage', () => {
     await expect(saveProviderSecrets('provider-2', { apiKey: 'not-retained' })).rejects.toThrow(
       'did not retain',
     );
+  });
+
+  it('lets the trusted keyring secret win over a stale plaintext credential', () => {
+    const merged = mergeTrustedConnectionValues(
+      {
+        connectionValues: { apiKey: 'stale-plaintext-key', baseUrl: 'https://api.example' },
+        apiKey: 'even-older-key',
+      },
+      { apiKey: 'current-keyring-key' },
+    );
+
+    expect(merged).toEqual({
+      apiKey: 'current-keyring-key',
+      baseUrl: 'https://api.example',
+    });
+  });
+
+  it('keeps configured non-secret fields when the keyring stores nothing', () => {
+    const merged = mergeTrustedConnectionValues(
+      { connectionValues: { apiKey: 'legacy-key', tenantId: 'tenant' } },
+      null,
+    );
+
+    expect(merged).toEqual({ apiKey: 'legacy-key', tenantId: 'tenant' });
+  });
+});
+
+/**
+ * M-29: every production caller resolves effective credentials through `resolveProviderConnection`,
+ * which owns the precedence contract. These are the unit-level rows of the matrix; the integration
+ * rows run through the agent runtime, memory embeddings and subtitle translation in
+ * `credentialPrecedence.test.ts`.
+ */
+describe('resolveProviderConnection precedence contract', () => {
+  beforeEach(() => {
+    vi.stubGlobal('window', { __TAURI_INTERNALS__: {} });
+    invoke.mockReset();
+    tauriIsTauri.mockReturnValue(false);
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('lets the keyring outrank plaintext metadata and the legacy apiKey field', async () => {
+    invoke.mockResolvedValueOnce(
+      JSON.stringify({ version: 1, values: { apiKey: 'current-keyring-key' } }),
+    );
+    const resolved = await resolveProviderConnection(
+      providerConfig({
+        connectionValues: { apiKey: 'stale-plaintext-key', tenantId: 'tenant' },
+        apiKey: 'even-older-key',
+      }),
+    );
+    expect(resolved.connectionValues).toEqual({
+      apiKey: 'current-keyring-key',
+      tenantId: 'tenant',
+    });
+  });
+
+  it('does not read the keyring for a provider with no secret fields', async () => {
+    expect(providerConfigHasSecretFields(providerConfig({ connectionFields: [] }))).toBe(false);
+    const resolved = await resolveProviderConnection(
+      providerConfig({
+        connectionFields: [],
+        connectionValues: { baseUrl: 'https://api.example.test/v1' },
+      }),
+    );
+    expect(invoke).not.toHaveBeenCalled();
+    expect(resolved.connectionValues).toEqual({ baseUrl: 'https://api.example.test/v1' });
+  });
+
+  it('keeps legacy plaintext working only while the trusted store is empty', async () => {
+    invoke.mockResolvedValueOnce(null);
+    const resolved = await resolveProviderConnection(
+      providerConfig({ connectionValues: { apiKey: 'legacy-key' } }),
+    );
+    expect(resolved.connectionValues?.apiKey).toBe('legacy-key');
   });
 });

@@ -1,5 +1,5 @@
+import { ApprovalSummaryById } from './ApprovalSummaryView';
 import type { GitHubReleaseAsset } from '@iris/github';
-import { ToolRequestView } from './ChatContent';
 import { GitHubProjectWizard } from './GitHubProjectWizard';
 import { GitHubReleaseDialog } from './GitHubReleaseDialog';
 import { GitHubIcon } from './icons';
@@ -36,7 +36,6 @@ export function GitHubState() {
     agentWorking,
     assistantDraft,
     approval,
-    approvalInput,
     agentActivity,
     agentError,
     showWizard,
@@ -423,7 +422,7 @@ export function GitHubState() {
                     {approval && (
                       <section className="approval-panel">
                         <strong>{approval.toolName} needs your approval</strong>
-                        <ToolRequestView input={approvalInput} />
+                        <ApprovalSummaryById approvalId={approval.id} />
                         <button
                           className="row-button"
                           disabled={agentWorking}

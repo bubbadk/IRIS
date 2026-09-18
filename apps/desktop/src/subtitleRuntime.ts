@@ -1,6 +1,6 @@
 import { SubtitleRuntime, emptySubtitleSession, type SubtitleSession, type TranslationSettings } from '@iris/subtitles';
 import { createModelProvider, loadProviderConfigs, missingProviderConnectionFields } from '@iris/providers';
-import { loadProviderSecrets } from './credentials';
+import { resolveProviderConnection } from './credentials';
 
 const storageKey = 'iris.subtitles.session.v1';
 
@@ -31,8 +31,8 @@ export async function startSubtitleTranslation(settings: TranslationSettings): P
     if (!provider) {
       const config = loadProviderConfigs().find((item) => item.enabled && item.id === settings.providerId);
       if (!config) throw new Error('The selected subtitle provider is unavailable.');
-      const secrets = await loadProviderSecrets(config.id);
-      const connected = { ...config, connectionValues: { ...secrets, ...config.connectionValues, ...(config.apiKey ? { apiKey: config.apiKey } : {}) } };
+      // The trusted keyring credential always outranks legacy plaintext state (M-29).
+      const connected = await resolveProviderConnection(config);
       const missing = missingProviderConnectionFields({ ...connected, storedSecretFields: [] });
       if (missing.length) throw new Error(`Provider connection requires ${missing.map((field) => field.label).join(' and ')}.`);
       provider = createModelProvider(connected);

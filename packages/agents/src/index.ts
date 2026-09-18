@@ -1,4 +1,29 @@
-import type { AgentDefinition } from '@iris/core';
+import { validateAgentCheckpoint, type AgentCheckpoint } from './checkpoint';
+export { validateAgentCheckpoint, type AgentCheckpoint } from './checkpoint';
+export {
+  agentLeaseStorageKey,
+  createLeaseAuthority,
+  decodeExecutionLeases,
+  normalizeProcessLiveness,
+  type ProcessLiveness,
+  type CrossProcessHolderStatus,
+  type CrossProcessLeaseIdentity,
+  type CrossProcessLeasePort,
+  type CrossProcessLeaseRecord,
+} from './leaseAuthority';
+import type { CrossProcessHolderStatus } from './leaseAuthority';
+export type { DelegatedChildRef } from '@iris/core';
+import {
+  cloneAgentDefinition,
+  copyDelegationChain,
+  createDelegationContext,
+  validateAgentDefinition,
+  validateDelegationChain,
+  type AgentDefinition,
+  type DelegatedChildRef,
+  type DelegationChain,
+  type DelegationPolicyContext,
+} from '@iris/core';
 
 /**
  * Runs items through an async mapper with at most `limit` concurrent in-flight promises.
@@ -66,8 +91,11 @@ export interface ConversationRepository {
 export interface SuspendedAgentTurnRepository {
   getByAgentId(agentId: string): Promise<SuspendedAgentTurn | null>;
   getByApprovalId(approvalId: string): Promise<SuspendedAgentTurn | null>;
+  /** Every suspended turn, used to find the turn that delegated to a finished child. */
+  list(): Promise<SuspendedAgentTurn[]>;
   save(turn: SuspendedAgentTurn): Promise<void>;
-  remove(approvalId: string): Promise<void>;
+  /** Removes one turn by its runtime turn id — the one identity both suspension kinds share. */
+  removeByTurnId(turnId: string): Promise<void>;
 }
 
 export interface ConversationModelIdentity {
@@ -85,6 +113,8 @@ export interface ConversationMessage {
   role: 'user' | 'assistant' | 'handoff';
   content: string;
   turnId?: string;
+  /** A runtime stop is not evidence that the user's task succeeded. */
+  stopReason?: 'tool-limit';
   /** Images the user attached to this message. Providers that cannot accept images ignore them. */
   images?: ModelImage[];
   /** Durable transcript-only boundary when a later turn switches its resolved model. */
@@ -110,20 +140,44 @@ export interface AgentToolApproval {
   reason: string;
 }
 
+/** A tool call that handed its work to a delegated child which is now waiting for approval. */
+export interface AgentToolSuspension {
+  /** Every delegated child of the call, in request order. Blocked ones carry their approval. */
+  children: DelegatedChildRef[];
+}
+
 export type AgentToolExecutionResult =
   | { status: 'completed'; output: unknown }
   | { status: 'denied'; reason: string }
   | { status: 'failed'; reason: string }
-  | { status: 'approval-required'; approval: AgentToolApproval };
+  | { status: 'approval-required'; approval: AgentToolApproval }
+  /**
+   * Not terminal and not denied: the call delegated to a child that cannot finish yet. The turn must
+   * stop here and resume when the descendant approval is resolved — reporting a result now would
+   * claim work that has not happened.
+   */
+  | { status: 'suspended'; suspension: AgentToolSuspension };
 
 export type AgentToolApprovalResult =
   | { status: 'completed'; output: unknown }
   | { status: 'approval-denied' }
-  | { status: 'failed'; reason: string };
+  | { status: 'failed'; reason: string }
+  /**
+   * The approved call itself delegated to a child that now waits for approval. Approving a delegation
+   * is not the same as finishing it, so the turn stops on that descendant instead of reporting a
+   * result the child has not produced.
+   */
+  | { status: 'suspended'; suspension: AgentToolSuspension };
 
 export interface AgentToolInvocation {
   turnId: string;
   toolCallId: string;
+  /**
+   * Present only when the runtime re-invokes a call that previously reported a nested suspension.
+   * The delegated children travel back verbatim so the tool recovers their recorded outcomes instead
+   * of creating the work (and its side effects) a second time.
+   */
+  resume?: { children: DelegatedChildRef[] };
 }
 
 export interface AgentToolRuntime {
@@ -134,6 +188,12 @@ export interface AgentToolRuntime {
     input: unknown,
     invocation: AgentToolInvocation,
     signal?: AbortSignal,
+    /**
+     * The invoking agent's trusted delegation chain, when it is a delegated turn. The runtime that
+     * delegated to this agent produced it, and it is the only thing that carries delegation depth
+     * and ancestry into permission evaluation and further delegation.
+     */
+    delegation?: DelegationPolicyContext,
   ): Promise<AgentToolExecutionResult>;
   resolve(
     approvalId: string,
@@ -147,7 +207,26 @@ export interface AgentProviderResolution {
   model: string;
 }
 
-export interface AgentProviderResolver {
+/**
+ * Phase 2H.2 §15 — the truthful classification of one persisted suspended turn during orphan
+ * reconciliation. `recoverable` means the turn's durable state still supports resuming it; a
+ * `terminal-known` outcome is durably proven and finishes the lifecycle; `unknown` never
+ * fabricates success and keeps the suspended state untouched for attention.
+ */
+export type OrphanOutcome = 'recoverable' | 'terminal-known' | 'unknown';
+
+export interface OrphanReconciliationResult {
+  turnId: string;
+  agentId: string;
+  outcome: OrphanOutcome;
+  /** Human-readable, truthful reason for the classification; never a fabricated success. */
+  outcomeDetail: string;
+}
+
+/** Minimal durable approval status reader used during orphan reconciliation. */
+export interface OrphanApprovalReader {
+  get(approvalId: string): Promise<{ status: string } | null>;
+}export interface AgentProviderResolver {
   resolve(
     agent: AgentDefinition,
     suspended?: Pick<SuspendedAgentTurn, 'providerId' | 'model'>,
@@ -167,6 +246,7 @@ export type AgentEvent =
   | { type: 'tool-call'; call: ModelToolCall }
   | { type: 'tool-complete'; call: ModelToolCall; output: unknown }
   | { type: 'tool-approval-required'; call: ModelToolCall; approval: AgentToolApproval }
+  | { type: 'tool-suspended'; call: ModelToolCall; suspension: AgentToolSuspension }
   | { type: 'tool-denied'; call: ModelToolCall; reason: string }
   | { type: 'tool-failed'; call: ModelToolCall; reason: string };
 
@@ -180,6 +260,7 @@ export interface AgentActivity {
 }
 
 export interface PendingAgentToolTurn {
+  kind: 'tool-approval';
   turnId: string;
   call: ModelToolCall;
   approval: AgentToolApproval;
@@ -192,20 +273,115 @@ export interface PendingAgentToolTurn {
    */
   queuedApprovals?: { call: ModelToolCall; approval: AgentToolApproval }[];
   assistantText: string;
+  /** Preserve the safety limit through approvals and restarts. */
+  toolCallsUsed?: number;
+  context?: ModelMessage[];
+  /**
+   * Calls from the same batch that turned out to wait on a delegated descendant rather than an
+   * approval of this turn. They are re-evaluated once every approval in the batch is resolved, so a
+   * batched delegation can never be silently dropped.
+   */
+  queuedSuspensions?: { call: ModelToolCall; children: DelegatedChildRef[] }[];
+}
+
+/**
+ * A turn that stopped because a tool call handed its work to a delegated child that is waiting for
+ * approval. This turn owns no approval of its own: it is blocked on a *descendant's* approval, and
+ * it stays non-terminal until that descendant chain is settled.
+ */
+export interface PendingAgentDelegationTurn {
+  kind: 'delegation';
+  turnId: string;
+  /** Every suspended call with the delegated children it is waiting for, in request order. */
+  waiting: { call: ModelToolCall; children: DelegatedChildRef[] }[];
+  remainingCalls: ModelToolCall[];
+  assistantText: string;
+  /** Preserve the safety limit through suspensions and restarts. */
+  toolCallsUsed?: number;
   context?: ModelMessage[];
 }
 
+export type PendingAgentTurn = PendingAgentToolTurn | PendingAgentDelegationTurn;
+
+/** One approval a suspended turn is currently blocked on. */
+export interface PendingApprovalRef {
+  approvalId: string;
+  /** The agent that owns the approval: the deepest waiting agent in the delegation chain. */
+  ownerAgentId: string;
+  toolId?: string;
+  toolName?: string;
+  depth?: number;
+}
+
+/**
+ * Every approval a suspended turn is blocked on, deepest owner first. A `tool-approval` turn owns its
+ * own approval; a `delegation` turn is blocked on the approvals of the descendants it handed work to.
+ */
+export function suspendedApprovals(turn: SuspendedAgentTurn): PendingApprovalRef[] {
+  if (turn.pending.kind === 'tool-approval') {
+    const approval = turn.pending.approval;
+    return [
+      {
+        approvalId: approval.id,
+        ownerAgentId: turn.agentId,
+        toolId: approval.toolId,
+        toolName: approval.toolName,
+        ...(turn.delegatedAgent?.delegationDepth !== undefined
+          ? { depth: turn.delegatedAgent.delegationDepth }
+          : {}),
+      },
+    ];
+  }
+  const approvals: PendingApprovalRef[] = [];
+  for (const entry of turn.pending.waiting) {
+    for (const child of entry.children) {
+      if (!child.approvalId) continue;
+      approvals.push({
+        approvalId: child.approvalId,
+        ownerAgentId: child.ownerAgentId ?? child.childAgentId,
+        ...(child.toolId ? { toolId: child.toolId } : {}),
+        ...(child.toolName ? { toolName: child.toolName } : {}),
+        ...(child.depth !== undefined ? { depth: child.depth } : {}),
+      });
+    }
+  }
+  return approvals;
+}
+
+/**
+ * A turn that stopped because a tool needs approval. This is a *suspended* state, never a terminal
+ * one: the tool has not run, the model has not been asked to continue, and only resolving the
+ * approval can move the turn forward.
+ */
 export interface SuspendedAgentTurn {
-  version: 2;
+  version: 4;
   agentId: string;
   providerId: string;
   model: string;
   conversation: ConversationMessage[];
   modelHistory: ModelMessage[];
-  pending: PendingAgentToolTurn;
+  pending: PendingAgentTurn;
+  /**
+   * The runtime-built definition of an ephemeral delegated (sub-)agent. A sub-agent is never
+   * persisted as a roster agent, so this is what lets a suspended delegated turn be resumed with its
+   * own identity, tool assignment and approval mode instead of an unresolved agent id.
+   */
+  delegatedAgent?: AgentDefinition;
+  /**
+   * Plain copy of the delegated turn's trusted chain, re-minted into a trusted context at resume.
+   * Stored state is never trusted directly: a tampered chain can only restrict, because ancestors
+   * are folded with least privilege.
+   */
+  delegationChain?: DelegationChain;
 }
 
 const maxToolRounds = 16;
+
+/**
+ * Safety bound for resuming a delegation chain. Delegation itself is already limited by the nesting
+ * limit; this only bounds a walk that would otherwise be able to loop on corrupted state.
+ */
+const maxDelegationResumeChain = 32;
 
 // Rough character budget for the rolling model history. ~4 chars per token keeps the default
 // near 100k tokens of conversation, well inside every supported model's context window while
@@ -334,6 +510,7 @@ export class AgentSession {
   private readonly history: ConversationMessage[] = [];
   private readonly modelHistory: ModelMessage[] = [];
   private pendingToolTurn: PendingAgentToolTurn | null = null;
+  private pendingDelegationTurn: PendingAgentDelegationTurn | null = null;
 
   constructor(
     readonly agent: AgentDefinition,
@@ -343,6 +520,13 @@ export class AgentSession {
     private readonly tools?: AgentToolRuntime,
     suspendedTurn?: SuspendedAgentTurn,
     initialContext: ModelMessage[] = [],
+    checkpointHistory?: ModelMessage[],
+    /**
+     * Trusted delegation chain for this session, supplied only by the runtime that delegated to this
+     * agent (or re-minted from a suspended turn's stored chain). Nothing on the agent definition is
+     * read as delegation authority.
+     */
+    private readonly delegation?: DelegationPolicyContext,
   ) {
     if (suspendedTurn) {
       if (suspendedTurn.agentId !== agent.id) {
@@ -351,13 +535,29 @@ export class AgentSession {
       if (suspendedTurn.providerId !== provider.definition.id || suspendedTurn.model !== model) {
         throw new Error('Suspended turn must resume with its original provider and model.');
       }
+      // A delegated turn's authority comes from its chain. Resuming without one would evaluate the
+      // child as a standalone agent — which, for a YOLO child, could ignore an ancestor's deny rule.
+      // Fail closed instead of guessing.
+      if (suspendedTurn.delegatedAgent && !delegation) {
+        throw new Error(
+          'Refusing to resume a delegated turn without its trusted delegation context.',
+        );
+      }
       this.history.push(...copyConversation(suspendedTurn.conversation));
       this.modelHistory.push(...copyModelHistory(suspendedTurn.modelHistory));
-      this.pendingToolTurn = copyPendingTurn(suspendedTurn.pending);
+      if (suspendedTurn.pending.kind === 'delegation') {
+        this.pendingDelegationTurn = copyPendingDelegationTurn(suspendedTurn.pending);
+      } else {
+        this.pendingToolTurn = copyPendingTurn(suspendedTurn.pending);
+      }
       return;
     }
     this.history.push(...copyConversation(initialHistory));
     this.modelHistory.push(...copyModelHistory(initialContext));
+    if (checkpointHistory) {
+      this.modelHistory.push(...copyModelHistory(checkpointHistory));
+      return;
+    }
     this.modelHistory.push(
       ...initialHistory.filter(isModelConversationMessage).map(toModelConversationMessage),
     );
@@ -368,8 +568,60 @@ export class AgentSession {
     provider: ModelProvider,
     suspendedTurn: SuspendedAgentTurn,
     tools: AgentToolRuntime,
+    delegation?: DelegationPolicyContext,
   ): AgentSession {
-    return new AgentSession(agent, provider, suspendedTurn.model, [], tools, suspendedTurn);
+    return new AgentSession(
+      agent,
+      provider,
+      suspendedTurn.model,
+      [],
+      tools,
+      suspendedTurn,
+      [],
+      undefined,
+      delegation,
+    );
+  }
+
+  checkpoint(): AgentCheckpoint {
+    if (this.pendingToolTurn || this.pendingDelegationTurn)
+      throw new Error('Resolve the pending approval before checkpointing this turn.');
+    const checkpoint: AgentCheckpoint = {
+      version: 1,
+      agentId: this.agent.id,
+      providerId: this.provider.definition.id,
+      model: this.model,
+      turnId: this.history.at(-1)?.turnId ?? '',
+      conversation: copyConversation(this.history),
+      modelHistory: copyModelHistory(withoutThinkingBlocks(this.modelHistory)),
+    };
+    if (!validateAgentCheckpoint(checkpoint))
+      throw new Error('This turn has no safe checkpoint. Tool outcomes may still be unknown.');
+    return checkpoint;
+  }
+
+  static fromCheckpoint(
+    agent: AgentDefinition,
+    provider: ModelProvider,
+    checkpoint: AgentCheckpoint,
+    tools: AgentToolRuntime,
+  ): AgentSession {
+    if (
+      !validateAgentCheckpoint(checkpoint) ||
+      checkpoint.agentId !== agent.id ||
+      checkpoint.providerId !== provider.definition.id
+    )
+      throw new Error('The checkpoint does not match this agent and provider.');
+    return new AgentSession(
+      agent,
+      provider,
+      checkpoint.model,
+      checkpoint.conversation,
+      tools,
+      undefined,
+      [],
+      checkpoint.modelHistory,
+    );
   }
 
   messages(): ConversationMessage[] {
@@ -380,16 +632,32 @@ export class AgentSession {
     return { providerId: this.provider.definition.id, model: this.model };
   }
 
+  /**
+   * The resumable snapshot of a turn that stopped on `tool-approval-required` or on a delegated
+   * child's approval, or `null` when the turn is not suspended. Callers must treat a non-null result
+   * as "not finished": the approval is still pending and the work has not happened.
+   */
   suspendedTurn(): SuspendedAgentTurn | null {
-    if (!this.pendingToolTurn) return null;
+    if (!this.pendingToolTurn && !this.pendingDelegationTurn) return null;
+    const chain = copyDelegationChain(this.delegation);
     return {
-      version: 2,
+      version: 4,
       agentId: this.agent.id,
       providerId: this.provider.definition.id,
       model: this.model,
       conversation: copyConversation(this.history),
       modelHistory: copyModelHistory(this.modelHistory),
-      pending: copyPendingTurn(this.pendingToolTurn),
+      pending: this.pendingToolTurn
+        ? copyPendingTurn(this.pendingToolTurn)
+        : copyPendingDelegationTurn(this.pendingDelegationTurn!),
+      // Only a runtime-minted chain marks this turn as delegated; the agent's own metadata fields
+      // are copied for observability and never become authority.
+      ...(chain
+        ? {
+            delegatedAgent: cloneAgentDefinition(this.agent),
+            delegationChain: chain,
+          }
+        : {}),
     };
   }
 
@@ -403,7 +671,7 @@ export class AgentSession {
     const content = text.trim();
     // An image-only message (a screenshot with no caption) is a legitimate turn.
     if (!content && !images.length) return;
-    if (this.pendingToolTurn) {
+    if (this.pendingToolTurn || this.pendingDelegationTurn) {
       throw new Error('Resolve the pending tool approval before sending another message.');
     }
     const normalizedTurnId = turnId.trim();
@@ -450,6 +718,28 @@ export class AgentSession {
 
     const result = await this.tools.resolve(approvalId, decision, signal);
     this.pendingToolTurn = null;
+    if (result.status === 'suspended') {
+      // The approval covered the delegation itself, and the delegated child now waits on its own
+      // approval. Hand the turn to the delegation wait instead of reporting a result.
+      this.pendingDelegationTurn = {
+        kind: 'delegation',
+        turnId: pending.turnId,
+        waiting: [{ call: pending.call, children: result.suspension.children }],
+        remainingCalls: pending.remainingCalls,
+        assistantText: pending.assistantText,
+        toolCallsUsed: pending.toolCallsUsed,
+        context: pending.context,
+        ...(pending.queuedSuspensions?.length
+          ? { waiting: [...pending.queuedSuspensions, { call: pending.call, children: result.suspension.children }] }
+          : {}),
+      };
+      yield {
+        type: 'tool-suspended',
+        call: pending.call,
+        suspension: { children: result.suspension.children },
+      };
+      return;
+    }
     if (result.status === 'approval-denied') {
       const reason = 'The user denied this tool invocation.';
       this.modelHistory.push({
@@ -482,15 +772,39 @@ export class AgentSession {
     const [next, ...rest] = pending.queuedApprovals ?? [];
     if (next) {
       this.pendingToolTurn = {
+        kind: 'tool-approval',
         turnId: pending.turnId,
         call: next.call,
         approval: next.approval,
         remainingCalls: pending.remainingCalls,
         queuedApprovals: rest,
+        queuedSuspensions: pending.queuedSuspensions,
         assistantText: pending.assistantText,
+        toolCallsUsed: pending.toolCallsUsed,
         context: pending.context,
       };
       yield { type: 'tool-approval-required', call: next.call, approval: next.approval };
+      return;
+    }
+
+    // A call in the same batch may have delegated to a child that is still waiting for approval. That
+    // wait outlives this turn's own approval, so promote it instead of resuming the model too early.
+    const queuedSuspensions = pending.queuedSuspensions ?? [];
+    if (queuedSuspensions.length) {
+      this.pendingDelegationTurn = {
+        kind: 'delegation',
+        turnId: pending.turnId,
+        waiting: queuedSuspensions,
+        remainingCalls: pending.remainingCalls,
+        assistantText: pending.assistantText,
+        toolCallsUsed: pending.toolCallsUsed,
+        context: pending.context,
+      };
+      yield {
+        type: 'tool-suspended',
+        call: queuedSuspensions[0].call,
+        suspension: { children: queuedSuspensions.flatMap((entry) => entry.children) },
+      };
       return;
     }
 
@@ -500,6 +814,116 @@ export class AgentSession {
       pending.turnId,
       pending.context ?? [],
       signal,
+      pending.toolCallsUsed ?? 0,
+    );
+  }
+
+  /**
+   * Continues a turn that stopped because a delegated child was waiting for approval. The suspended
+   * calls are re-invoked with the children they handed work to; a tool whose descendant chain is now
+   * settled returns its real outcome, and a tool whose descendant is still waiting reports the
+   * suspension again. Re-invocation — never fresh delegation — is what keeps the chain to exactly one
+   * execution per child, across restarts and across whichever surface resolved the approval.
+   */
+  async *resumeDelegation(signal?: AbortSignal): AsyncGenerator<AgentEvent> {
+    const pending = this.pendingDelegationTurn;
+    if (!pending) throw new Error('This agent turn is not waiting for a delegated sub-agent.');
+    if (this.pendingToolTurn) throw new Error('Resolve the pending tool approval first.');
+    if (!this.tools) throw new Error('This agent session has no tool runtime.');
+
+    const stillWaiting: { call: ModelToolCall; children: DelegatedChildRef[] }[] = [];
+    const paused: { call: ModelToolCall; approval: AgentToolApproval }[] = [];
+    for (const entry of pending.waiting) {
+      const result = await this.tools.execute(
+        this.agent,
+        entry.call.name,
+        entry.call.input,
+        {
+          turnId: pending.turnId,
+          toolCallId: entry.call.id,
+          resume: { children: entry.children },
+        },
+        signal,
+        this.delegation,
+      );
+      if (result.status === 'suspended') {
+        stillWaiting.push({ call: entry.call, children: result.suspension.children });
+        continue;
+      }
+      if (result.status === 'approval-required') {
+        // Re-evaluation reached a fresh approval (the delegation was re-authorised). Surface it
+        // through the normal single-file approval path rather than inventing a second one.
+        paused.push({ call: entry.call, approval: result.approval });
+        continue;
+      }
+      if (result.status === 'denied') {
+        this.modelHistory.push({
+          role: 'tool',
+          content: `Tool access was denied: ${result.reason}`,
+          toolCallId: entry.call.id,
+          toolName: entry.call.name,
+        });
+        yield { type: 'tool-denied', call: entry.call, reason: result.reason };
+        continue;
+      }
+      if (result.status === 'failed') {
+        this.modelHistory.push({
+          role: 'tool',
+          content: `Tool execution failed: ${result.reason}`,
+          toolCallId: entry.call.id,
+          toolName: entry.call.name,
+        });
+        yield { type: 'tool-failed', call: entry.call, reason: result.reason };
+        continue;
+      }
+      this.modelHistory.push({
+        role: 'tool',
+        content: toolOutputContent(result.output),
+        toolCallId: entry.call.id,
+        toolName: entry.call.name,
+      });
+      yield { type: 'tool-complete', call: entry.call, output: result.output };
+    }
+
+    if (paused.length) {
+      const [first, ...rest] = paused;
+      this.pendingDelegationTurn = null;
+      this.pendingToolTurn = {
+        kind: 'tool-approval',
+        turnId: pending.turnId,
+        call: first.call,
+        approval: first.approval,
+        remainingCalls: pending.remainingCalls,
+        assistantText: pending.assistantText,
+        toolCallsUsed: pending.toolCallsUsed,
+        context: pending.context,
+        ...(stillWaiting.length ? { queuedSuspensions: stillWaiting } : {}),
+        ...(rest.length
+          ? { queuedApprovals: rest.map((entry) => ({ call: entry.call, approval: entry.approval })) }
+          : {}),
+      };
+      yield { type: 'tool-approval-required', call: first.call, approval: first.approval };
+      return;
+    }
+
+    if (stillWaiting.length) {
+      this.pendingDelegationTurn = { ...pending, waiting: stillWaiting };
+      yield {
+        type: 'tool-suspended',
+        call: stillWaiting[0].call,
+        suspension: { children: stillWaiting.flatMap((entry) => entry.children) },
+      };
+      return;
+    }
+
+    this.pendingDelegationTurn = null;
+    yield* this.continueTurn(
+      pending.assistantText,
+      pending.remainingCalls,
+      pending.turnId,
+      pending.context ?? [],
+      signal,
+      pending.toolCallsUsed ?? 0,
     );
   }
 
@@ -509,16 +933,18 @@ export class AgentSession {
     turnId: string,
     context: ModelMessage[],
     signal?: AbortSignal,
+    toolCallsUsed = 0,
   ): AsyncGenerator<AgentEvent> {
     let assistantText = initialAssistantText;
     let calls = queuedCalls;
-    let toolRounds = 0;
+    let toolRounds = toolCallsUsed;
     let turnUsage: TokenUsage | undefined;
 
     while (true) {
       if (calls.length === 0) {
         const streamedCalls: ModelToolCall[] = [];
         let roundAssistantText = '';
+        let roundReasoningContent = '';
         const forceFinalResponse = toolRounds >= maxToolRounds;
         if (forceFinalResponse) {
           this.modelHistory.push({
@@ -559,7 +985,10 @@ export class AgentSession {
           // is scratch space, not a chat message: it never joins assistantText or the visible
           // conversation. `thinkingBlocks`/`reasoningDetails` are a separate thing — wire-format
           // state round-tripped to the provider so reasoning continuity keeps working, not display.
-          if (chunk.reasoningText) yield { type: 'reasoning-chunk', text: chunk.reasoningText };
+          if (chunk.reasoningText) {
+            roundReasoningContent += chunk.reasoningText;
+            yield { type: 'reasoning-chunk', text: chunk.reasoningText };
+          }
           assistantText += chunk.text;
           roundAssistantText += chunk.text;
           if (chunk.text) yield { type: 'assistant-chunk', text: chunk.text };
@@ -574,6 +1003,7 @@ export class AgentSession {
             role: 'assistant' as const,
             content: assistantText,
             turnId,
+            ...(forceFinalResponse ? { stopReason: 'tool-limit' as const } : {}),
           };
           this.history.push(assistantMessage);
           this.modelHistory.push(toModelConversationMessage(assistantMessage));
@@ -589,15 +1019,23 @@ export class AgentSession {
           role: 'assistant',
           content: roundAssistantText,
           toolCalls: calls,
+          ...(roundReasoningContent ? { reasoningContent: roundReasoningContent } : {}),
           ...(roundThinkingBlocks?.length ? { thinkingBlocks: roundThinkingBlocks } : {}),
           ...(roundReasoningDetails?.length ? { reasoningDetails: roundReasoningDetails } : {}),
         });
       }
 
       if (toolRounds >= maxToolRounds) {
-        const notice = `\n\nIRIS stopped this turn after ${maxToolRounds} tool calls. The tool results received so far are preserved; please narrow the request or run the check in smaller parts.`;
+        // Discard the provider's unexecuted final tool request; it must never be replayed.
+        if (this.modelHistory.at(-1)?.toolCalls?.length) this.modelHistory.pop();
+        const notice = `\n\nIRIS stopped this turn after ${toolRounds} tool calls. The tool results received so far are preserved; please narrow the request or run the check in smaller parts.`;
         assistantText += notice;
-        this.history.push({ role: 'assistant', content: assistantText, turnId });
+        this.history.push({
+          role: 'assistant',
+          content: assistantText,
+          turnId,
+          stopReason: 'tool-limit',
+        });
         this.modelHistory.push({
           role: 'assistant',
           content: assistantText,
@@ -605,7 +1043,7 @@ export class AgentSession {
         yield { type: 'assistant-chunk', text: notice };
         yield {
           type: 'assistant-complete',
-          message: { role: 'assistant', content: assistantText, turnId },
+          message: { role: 'assistant', content: assistantText, turnId, stopReason: 'tool-limit' },
           ...(turnUsage ? { usage: turnUsage } : {}),
         };
         return;
@@ -632,15 +1070,24 @@ export class AgentSession {
           call.input,
           { turnId, toolCallId: call.id },
           signal,
+          this.delegation,
         ),
       }));
 
       let paused: { call: ModelToolCall; approval: AgentToolApproval } | undefined;
       const queuedApprovals: { call: ModelToolCall; approval: AgentToolApproval }[] = [];
+      const suspendedCalls: { call: ModelToolCall; children: DelegatedChildRef[] }[] = [];
       for (const { call, result } of settled) {
         if (result.status === 'approval-required') {
           if (paused) queuedApprovals.push({ call, approval: result.approval });
           else paused = { call, approval: result.approval };
+          continue;
+        }
+        if (result.status === 'suspended') {
+          // The call handed its work to a delegated child that is waiting for approval. There is no
+          // result yet, so the turn stops here instead of letting the model treat a pending chain as
+          // finished work.
+          suspendedCalls.push({ call, children: result.suspension.children });
           continue;
         }
         if (result.status === 'denied') {
@@ -677,15 +1124,35 @@ export class AgentSession {
       // (see `resolveApproval`) — approvals are single-file even though execution was not.
       if (paused) {
         this.pendingToolTurn = {
+          kind: 'tool-approval',
           turnId,
           call: paused.call,
           approval: paused.approval,
           remainingCalls: [],
           queuedApprovals,
           assistantText,
+          toolCallsUsed: toolRounds,
           context: copyModelHistory(context),
+          ...(suspendedCalls.length ? { queuedSuspensions: suspendedCalls } : {}),
         };
         yield { type: 'tool-approval-required', call: paused.call, approval: paused.approval };
+        return;
+      }
+      if (suspendedCalls.length) {
+        this.pendingDelegationTurn = {
+          kind: 'delegation',
+          turnId,
+          waiting: suspendedCalls,
+          remainingCalls: [],
+          assistantText,
+          toolCallsUsed: toolRounds,
+          context: copyModelHistory(context),
+        };
+        yield {
+          type: 'tool-suspended',
+          call: suspendedCalls[0].call,
+          suspension: { children: suspendedCalls.flatMap((entry) => entry.children) },
+        };
         return;
       }
       calls = [];
@@ -756,6 +1223,24 @@ function copyPendingTurn(pending: PendingAgentToolTurn): PendingAgentToolTurn {
       call: copyToolCall(entry.call),
       approval: { ...entry.approval },
     })),
+    queuedSuspensions: pending.queuedSuspensions?.map((entry) => ({
+      call: copyToolCall(entry.call),
+      children: entry.children.map((child) => ({ ...child })),
+    })),
+    context: copyModelHistory(pending.context ?? []),
+  };
+}
+
+function copyPendingDelegationTurn(
+  pending: PendingAgentDelegationTurn,
+): PendingAgentDelegationTurn {
+  return {
+    ...pending,
+    waiting: pending.waiting.map((entry) => ({
+      call: copyToolCall(entry.call),
+      children: entry.children.map((child) => ({ ...child })),
+    })),
+    remainingCalls: pending.remainingCalls.map(copyToolCall),
     context: copyModelHistory(pending.context ?? []),
   };
 }
@@ -764,10 +1249,172 @@ function createTurnId(): string {
   return `turn-${crypto.randomUUID()}`;
 }
 
+/** Which subsystem is exclusively executing an agent. Purely descriptive; ownership is `ownerId`. */
+export type AgentExecutionOwnerKind = 'interactive' | 'scheduled' | 'project';
+
+/**
+ * The single authoritative record that one owner is exclusively executing one agent.
+ *
+ * `ownerId` is the durable identity of the work that holds the agent: a project queue entry, a
+ * project worker run, or a chat/scheduled turn. Two different owners can never hold the same agent.
+ */
+export interface AgentExecutionReservation {
+  agentId: string;
+  ownerKind: AgentExecutionOwnerKind;
+  ownerId: string;
+  acquiredAt: string;
+  /** The worker run that inherited this reservation, when there is one. */
+  runId?: string;
+}
+
+export interface AgentExecutionReservationRequest {
+  agentId: string;
+  ownerId: string;
+  ownerKind?: AgentExecutionOwnerKind;
+  acquiredAt: string;
+  runId?: string;
+}
+
+/**
+ * IRIS Phase 2G §6–§8, §10 — the shared, cross-runtime exclusive-execution reservation.
+ *
+ * Scheduled runtime, project runtime and interactive chat each used to keep their own private
+ * `Set<string>` of busy agents, so a scheduled turn and a project worker could genuinely execute the
+ * same agent against the same workspace at the same time. This registry is the one authority they
+ * all consult.
+ *
+ * `reserve` is a synchronous check-and-set over one map, which is atomic within the application's
+ * single-threaded concurrency model. That is exactly what closes the check-then-reserve TOCTOU: a
+ * caller reserves *before* it awaits provider or keyring preparation, so the loser never prepares.
+ *
+ * The registry holds no I/O and no timers; every reservation is released by the owner that took it,
+ * or reconciled away once the owner is provably no longer active.
+ */
+export class AgentExecutionLeaseRegistry {
+  private readonly reservations = new Map<string, AgentExecutionReservation>();
+
+  /** Atomically reserves an agent for `ownerId`. Re-reserving by the same owner is idempotent. */
+  reserve(request: AgentExecutionReservationRequest): boolean {
+    const existing = this.reservations.get(request.agentId);
+    if (existing) {
+      if (existing.ownerId !== request.ownerId) return false;
+      const refreshed: AgentExecutionReservation = {
+        ...existing,
+        acquiredAt: request.acquiredAt,
+        ...(request.runId ? { runId: request.runId } : {}),
+      };
+      this.reservations.set(request.agentId, refreshed);
+      return true;
+    }
+    this.reservations.set(request.agentId, {
+      agentId: request.agentId,
+      ownerKind: request.ownerKind ?? 'interactive',
+      ownerId: request.ownerId,
+      acquiredAt: request.acquiredAt,
+      ...(request.runId ? { runId: request.runId } : {}),
+    });
+    return true;
+  }
+
+  /** Releases only when `ownerId` still owns the agent; a stale writer can never free live work. */
+  release(agentId: string, ownerId: string): boolean {
+    const existing = this.reservations.get(agentId);
+    if (!existing || existing.ownerId !== ownerId) return false;
+    this.reservations.delete(agentId);
+    return true;
+  }
+
+  /**
+   * Hands ownership from one owner to another atomically. Used when a queue entry that reserved an
+   * agent transfers ownership to the worker run it actually created.
+   */
+  transfer(
+    agentId: string,
+    fromOwnerId: string,
+    toOwnerId: string,
+    at: string,
+    runId?: string,
+  ): boolean {
+    const existing = this.reservations.get(agentId);
+    if (!existing || existing.ownerId !== fromOwnerId) return false;
+    if (fromOwnerId === toOwnerId) {
+      this.reservations.set(agentId, { ...existing, acquiredAt: at, ...(runId ? { runId } : {}) });
+      return true;
+    }
+    this.reservations.set(agentId, {
+      ...existing,
+      ownerId: toOwnerId,
+      acquiredAt: at,
+      ...(runId ? { runId } : {}),
+    });
+    return true;
+  }
+
+  /** The current owner of the agent, or `undefined` when it is free. */
+  holder(agentId: string): AgentExecutionReservation | undefined {
+    const existing = this.reservations.get(agentId);
+    return existing ? { ...existing } : undefined;
+  }
+
+  list(): AgentExecutionReservation[] {
+    return [...this.reservations.values()].map((reservation) => ({ ...reservation }));
+  }
+
+  /**
+   * Drops reservations whose owner is provably no longer active, and only those. A caller that
+   * cannot prove an owner is gone must report it as active: fabricating free state while real work
+   * is still running is the failure mode this registry exists to prevent.
+   */
+  reconcile(isOwnerActive: (reservation: AgentExecutionReservation) => boolean): AgentExecutionReservation[] {
+    const dropped: AgentExecutionReservation[] = [];
+    for (const reservation of [...this.reservations.values()]) {
+      if (isOwnerActive(reservation)) continue;
+      this.reservations.delete(reservation.agentId);
+      dropped.push({ ...reservation });
+    }
+    return dropped;
+  }
+}
+
+/**
+ * How one `AgentRuntimeCoordinator` participates in the shared exclusive-execution reservation.
+ *
+ * `reserveTurns: false` marks a coordinator whose turns run *inside* work that already owns the
+ * agent (a project queue entry or worker run). That work holds the reservation; re-acquiring it here
+ * would conflict with its own owner.
+ */
+export interface AgentExecutionCoordination {
+  leases: AgentExecutionLeaseRegistry;
+  ownerKind: AgentExecutionOwnerKind;
+  ownerId: (agentId: string) => string;
+  reserveTurns?: boolean;
+  /**
+   * IRIS Phase 2H.1 — the cross-process authority behind the process-local registry.
+   * When present, `begin` consults it before every reservation: a same-agent turn in
+   * another live IRIS process is refused with a truthful busy error. The in-process Map
+   * stays the fast path; this port is what makes exclusivity hold across processes.
+   */
+  crossProcess?: {
+    /** Acquires the agent lease across processes; `false` means another process owns it. */
+    acquire(agentId: string, ownerId: string, ownerKind: AgentExecutionOwnerKind, at: string, runId?: string): Promise<boolean>;
+    /** Releases a lease this process owns; no-op when another owner holds it. */
+    release(agentId: string, ownerId: string): Promise<void>;
+    /** Holder metadata for truthful busy reporting, when the authority exposes it. */
+    inspect?(agentId: string): Promise<{ ownerId?: string } | undefined>;
+    /**
+     * Phase 2H.2 — tri-state holder reading (owner, foreign, alive/dead/unknown) for truthful
+     * orphan reconciliation. Optional; authorities without it are treated as unknown holders.
+     */
+    holderStatus?(agentId: string): Promise<CrossProcessHolderStatus | undefined>;
+  };
+}
+
 export class AgentRuntimeCoordinator {
   private readonly sessions = new Map<string, AgentSession>();
   private readonly runningAgents = new Set<string>();
   private readonly reconciledCortexAgents = new Set<string>();
+  /** The reservation owner id this coordinator holds per agent, so only it can release it. */
+  private readonly executionOwners = new Map<string, string>();
 
   constructor(
     private readonly agents: AgentRepository,
@@ -784,7 +1431,30 @@ export class AgentRuntimeCoordinator {
     private readonly normalizeAgent?: (agent: AgentDefinition) => Promise<AgentDefinition>,
     private readonly turnSteps?: CortexTurnStepRepository,
     private readonly onActivity?: (activity: AgentActivity) => void,
+    private readonly execution?: AgentExecutionCoordination,
   ) {}
+
+  checkpointForAgent(agentId: string): AgentCheckpoint {
+    const session = this.sessions.get(agentId);
+    if (!session) throw new Error('The worker session is unavailable for checkpointing.');
+    return session.checkpoint();
+  }
+
+  async restoreCheckpoint(agentId: string, checkpoint: AgentCheckpoint): Promise<void> {
+    if (this.runningAgents.has(agentId) || (await this.suspendedTurns.getByAgentId(agentId)))
+      throw new Error(
+        'Stop the active worker or resolve its approval before restoring a checkpoint.',
+      );
+    if (!validateAgentCheckpoint(checkpoint) || checkpoint.agentId !== agentId)
+      throw new Error('The checkpoint does not match this agent.');
+    const agent = await this.requireAgent(agentId);
+    const resolved = await this.providers.resolve(agent, checkpoint);
+    if (resolved.model !== checkpoint.model)
+      throw new Error('The checkpoint requires its original model.');
+    const session = AgentSession.fromCheckpoint(agent, resolved.provider, checkpoint, this.tools);
+    await this.conversations.save(agentId, checkpoint.conversation);
+    this.sessions.set(agentId, session);
+  }
 
   async suspendedForAgent(agentId: string): Promise<SuspendedAgentTurn | null> {
     return this.suspendedTurns.getByAgentId(agentId);
@@ -794,8 +1464,136 @@ export class AgentRuntimeCoordinator {
     return [...this.runningAgents];
   }
 
+  /**
+   * The shared cross-runtime exclusive-execution reservation for an agent, or `undefined` when the
+   * agent is free. A caller outside this coordinator (another runtime, a queue dispatcher) must use
+   * this rather than {@link runningAgentIds}, which only knows this coordinator's own turns.
+   */
+  executionReservation(agentId: string): AgentExecutionReservation | undefined {
+    return this.execution?.leases.holder(agentId);
+  }
+
+  /**
+   * Re-establishes ownership after a restart. Every persisted suspended turn still owns its agent
+   * until it is resolved, so a project or scheduled launch must not treat that agent as free.
+   * It never steals an agent that another owner already holds.
+   */
+  async reconcileExecutionReservations(): Promise<number> {
+    const execution = this.execution;
+    if (!execution || execution.reserveTurns === false) return 0;
+    let restored = 0;
+    for (const suspended of await this.suspendedTurns.list()) {
+      const ownerId = execution.ownerId(suspended.agentId);
+      const reserved = execution.leases.reserve({
+        agentId: suspended.agentId,
+        ownerId,
+        ownerKind: execution.ownerKind,
+        acquiredAt: this.timestamp(),
+      });
+      if (!reserved) continue;
+      this.executionOwners.set(suspended.agentId, ownerId);
+      // Phase 2H.1 §14/§15 — a suspended turn retains exclusive ownership across restarts, so
+      // the cross-process lease is re-established here too: another live process must not
+      // execute the agent while its approval is still pending. Retaining is the safe policy:
+      // a resumed turn continues the same conversation and workspace work.
+      if (execution.crossProcess)
+        await execution.crossProcess
+          .acquire(suspended.agentId, ownerId, execution.ownerKind, this.timestamp())
+          .catch(() => undefined);
+      restored += 1;
+    }
+    return restored;
+  }
+
   async suspendedForApproval(approvalId: string): Promise<SuspendedAgentTurn | null> {
     return this.suspendedTurns.getByApprovalId(approvalId);
+  }
+
+  /**
+   * Phase 2H.2 §14–§17 — conservative reconciliation of persisted suspended turns whose
+   * durable context has drifted (missing/terminal approvals, foreign or dead lease holders).
+   *
+   * Classifications (never fabricated):
+   * - `recoverable`: enough durable state exists to keep waiting truthfully — the turn stays
+   *   suspended and keeps ownership (this is also the "defer" answer for a live foreign lease).
+   * - `terminal-known`: the approval is durably terminal and no other surface will resume this
+   *   turn; the stranded suspension is removed so the agent cannot stay phantom-busy. The
+   *   cross-process lease is released only when this runtime provably holds it (release is a
+   *   no-op otherwise), and never when the holder is merely unknown.
+   * - `unknown`: the approval record is missing, or a foreign lease's liveness cannot be
+   *   established — fail closed: the turn remains suspended, nothing is deleted, and the
+   *   detail names what needs attention.
+   *
+   * Reconciliation is read-only toward leases it does not own: it never acquires, never
+   * releases, and never mutates a foreign holder's record.
+   */
+  async reconcileOrphanSuspensions(approvals: OrphanApprovalReader): Promise<OrphanReconciliationResult[]> {
+    const results: OrphanReconciliationResult[] = [];
+    for (const suspended of await this.suspendedTurns.list()) {
+      if (suspended.pending.kind !== 'tool-approval') {
+        // Delegation turns are resumed through their children's approvals; classifying them
+        // against a single approval would be a guess. Leave them for the approval-driven path.
+        results.push({
+          turnId: suspended.pending.turnId,
+          agentId: suspended.agentId,
+          outcome: 'recoverable',
+          outcomeDetail: 'The suspended turn is waiting on delegated child work, not a lost approval.',
+        });
+        continue;
+      }
+      const approvalId = suspended.pending.approval.id;
+      let approval: { status: string } | null;
+      try {
+        approval = await approvals.get(approvalId);
+      } catch (error) {
+        results.push({
+          turnId: suspended.pending.turnId,
+          agentId: suspended.agentId,
+          outcome: 'unknown',
+          outcomeDetail: `The durable approval record for ${approvalId} could not be read (${error instanceof Error ? error.message : String(error)}); the suspended turn needs attention.`,
+        });
+        continue;
+      }
+      if (approval === null) {
+        results.push({
+          turnId: suspended.pending.turnId,
+          agentId: suspended.agentId,
+          outcome: 'unknown',
+          outcomeDetail: `The durable approval record for ${approvalId} is missing; the suspended turn needs attention and was kept.`,
+        });
+        continue;
+      }
+      if (approval.status === 'pending' || approval.status === 'requested') {
+        results.push({
+          turnId: suspended.pending.turnId,
+          agentId: suspended.agentId,
+          outcome: 'recoverable',
+          outcomeDetail: `Approval ${approvalId} is durably pending; the suspended turn keeps waiting.`,
+        });
+        continue;
+      }
+      // The approval is durably terminal. Only this runtime's own lease may be released, and
+      // only when the authority can prove the holder state — a live or unknown foreign lease
+      // is never touched (Phase 2H.1/2H.3).
+      const holder = await this.execution?.crossProcess?.holderStatus?.(suspended.agentId);
+      if (holder && holder.foreign && holder.liveness !== 'dead') {
+        results.push({
+          turnId: suspended.pending.turnId,
+          agentId: suspended.agentId,
+          outcome: 'unknown',
+          outcomeDetail: `A ${holder.liveness} foreign process still holds the agent lease; reconciliation deferred — the suspended turn was kept.`,
+        });
+        continue;
+      }
+      await this.cancelSuspended(suspended.agentId);
+      results.push({
+        turnId: suspended.pending.turnId,
+        agentId: suspended.agentId,
+        outcome: 'terminal-known',
+        outcomeDetail: `Approval ${approvalId} is durably ${approval.status}; the stranded suspension was completed without resuming the agent.`,
+      });
+    }
+    return results;
   }
 
   async cortexTurnsForAgent(agentId: string): Promise<CortexTurnRecord[]> {
@@ -809,17 +1607,21 @@ export class AgentRuntimeCoordinator {
       let changed = false;
       for (const record of records) {
         if (record.status !== 'running') continue;
+        const blocking = suspended ? suspendedApprovals(suspended)[0] : undefined;
         const recovered =
-          suspended?.pending.turnId === record.turnId
+          suspended && blocking && suspended.pending.turnId === record.turnId
             ? transitionCortexTurn(
                 record,
                 {
                   status: 'suspended',
                   suspension: {
-                    approvalId: suspended.pending.approval.id,
-                    toolId: suspended.pending.approval.toolId,
-                    toolName: suspended.pending.approval.toolName,
-                    reason: suspended.pending.approval.reason,
+                    approvalId: blocking.approvalId,
+                    toolId: blocking.toolId ?? '',
+                    toolName: blocking.toolName ?? '',
+                    reason:
+                      suspended.pending.kind === 'tool-approval'
+                        ? suspended.pending.approval.reason
+                        : 'A delegated sub-agent is waiting for approval.',
                   },
                 },
                 this.timestamp(),
@@ -848,7 +1650,7 @@ export class AgentRuntimeCoordinator {
   ): AsyncGenerator<AgentEvent> {
     const prompt = text.trim();
     if (!prompt && !images.length) return;
-    this.begin(agentId);
+    await this.begin(agentId);
     const lifecycle: { record: CortexTurnRecord | null } = { record: null };
     try {
       if (await this.suspendedTurns.getByAgentId(agentId)) {
@@ -924,6 +1726,7 @@ export class AgentRuntimeCoordinator {
       throw error;
     } finally {
       this.runningAgents.delete(agentId);
+      await this.releaseExecutionIfIdle(agentId);
       this.onStateChange(agentId);
     }
   }
@@ -961,6 +1764,12 @@ export class AgentRuntimeCoordinator {
     return updated;
   }
 
+  /**
+   * Resolves the approval a suspended turn owns and then walks the delegation chain upward: every
+   * ancestor whose turn stopped waiting for that descendant is re-invoked with the descendant's real
+   * outcome, so approving the deepest approval produces one coherent chain of events instead of
+   * leaving the delegating turns stranded as "suspended" with no path forward.
+   */
   async *resolveApproval(
     approvalId: string,
     decision: 'approve' | 'deny',
@@ -968,7 +1777,59 @@ export class AgentRuntimeCoordinator {
   ): AsyncGenerator<AgentEvent> {
     const suspended = await this.suspendedTurns.getByApprovalId(approvalId);
     if (!suspended) throw new Error(`No suspended agent turn matches ${approvalId}.`);
-    this.begin(suspended.agentId);
+    if (suspended.pending.kind !== 'tool-approval') {
+      throw new Error(`No suspended agent turn owns the approval ${approvalId}.`);
+    }
+    yield* this.resumeSuspendedTurn(suspended, { approvalId, decision }, signal);
+
+    // A turn that reached a terminal state is the outcome the turn that delegated to it was waiting
+    // for. Resume that waiter with the recorded outcome, and keep walking up until nothing waits.
+    let finishedAgentId: string | null = suspended.agentId;
+    for (let level = 0; finishedAgentId && level <= maxDelegationResumeChain; level += 1) {
+      const waiter = await this.waiterFor(finishedAgentId);
+      if (!waiter) return;
+      yield* this.resumeSuspendedTurn(waiter, null, signal);
+      // Still suspended (on a fresh approval or a deeper delegation) means this branch is not
+      // finished; there is nothing above it to resume yet.
+      finishedAgentId = (await this.suspendedTurns.getByAgentId(waiter.agentId))
+        ? null
+        : waiter.agentId;
+    }
+    if (finishedAgentId) {
+      throw new Error(
+        `The delegation chain above ${finishedAgentId} is too deep to resume safely.`,
+      );
+    }
+  }
+
+  /**
+   * The suspended turn that delegated to `childAgentId`, matched by the stable child identity the
+   * delegation recorded — never by "the newest suspended turn for this agent".
+   */
+  private async waiterFor(childAgentId: string): Promise<SuspendedAgentTurn | null> {
+    const turns = await this.suspendedTurns.list();
+    return (
+      turns.find(
+        (turn) =>
+          turn.pending.kind === 'delegation' &&
+          turn.pending.waiting.some((entry) =>
+            entry.children.some((child) => child.childAgentId === childAgentId),
+          ),
+      ) ?? null
+    );
+  }
+
+  /**
+   * Resumes one suspended turn: with an approval decision when it owns the approval, or by
+   * re-evaluating the delegated calls it was waiting on. Persists every event exactly like a normal
+   * turn, so a chain resume is indistinguishable from ordinary work in the transcript.
+   */
+  private async *resumeSuspendedTurn(
+    suspended: SuspendedAgentTurn,
+    resume: { approvalId: string; decision: 'approve' | 'deny' } | null,
+    signal?: AbortSignal,
+  ): AsyncGenerator<AgentEvent> {
+    await this.begin(suspended.agentId);
     const lifecycle: { record: CortexTurnRecord | null } = { record: null };
     try {
       const storedRecord = await this.cortexTurns?.get(suspended.pending.turnId);
@@ -992,21 +1853,30 @@ export class AgentRuntimeCoordinator {
                 startedAt: this.timestamp(),
               })),
       );
-      const agent = await this.requireAgent(suspended.agentId);
+      const agent = await this.resolveSuspendedAgent(suspended);
       const resolved = await this.providers.resolve(agent, suspended);
-      const session = AgentSession.restore(agent, resolved.provider, suspended, this.tools);
+      const session = AgentSession.restore(
+        agent,
+        resolved.provider,
+        suspended,
+        this.tools,
+        this.delegationContextFor(suspended),
+      );
       this.sessions.set(agent.id, session);
       yield* this.persistEvents(
-        session.resolveApproval(approvalId, decision, signal),
+        resume
+          ? session.resolveApproval(resume.approvalId, resume.decision, signal)
+          : session.resumeDelegation(signal),
         session,
         lifecycle,
-        approvalId,
+        suspended.pending.turnId,
       );
     } catch (error) {
       await this.failCortexTurn(lifecycle, error);
       throw error;
     } finally {
       this.runningAgents.delete(suspended.agentId);
+      await this.releaseExecutionIfIdle(suspended.agentId);
       this.onStateChange(suspended.agentId);
     }
   }
@@ -1029,7 +1899,7 @@ export class AgentRuntimeCoordinator {
   async cancelSuspended(agentId: string): Promise<void> {
     const suspended = await this.suspendedTurns.getByAgentId(agentId);
     if (!suspended) return;
-    await this.suspendedTurns.remove(suspended.pending.approval.id);
+    await this.suspendedTurns.removeByTurnId(suspended.pending.turnId);
     const record = await this.cortexTurns?.get(suspended.pending.turnId);
     if (record && record.status !== 'completed' && record.status !== 'failed') {
       await this.saveCortexTurn(
@@ -1045,6 +1915,12 @@ export class AgentRuntimeCoordinator {
       );
     }
     this.sessions.delete(agentId);
+    // A cancelled suspension no longer owns the agent: release it so another runtime may proceed.
+    // The owner id must be captured before `releaseExecution` clears the local mapping.
+    const ownerId = this.executionOwners.get(agentId);
+    this.releaseExecution(agentId);
+    // Phase 2H.1 §14/§15 — the retained cross-process lease is freed with the local one.
+    if (ownerId !== undefined) await this.execution?.crossProcess?.release(agentId, ownerId);
     this.onStateChange(agentId);
   }
 
@@ -1056,10 +1932,110 @@ export class AgentRuntimeCoordinator {
     this.onStateChange(agentId);
   }
 
-  private begin(agentId: string): void {
+  /**
+   * IRIS Phase 2G §7 — acquire the shared exclusive-execution reservation *before* any await.
+   *
+   * The reservation is taken synchronously, so a scheduled turn and a project worker that start at
+   * the same moment can never both observe the agent as free.
+   *
+   * IRIS Phase 2H.1 — the process-local win is then confirmed by the cross-process authority
+   * before the turn proceeds: a same-agent turn in another live IRIS process releases the local
+   * reservation again and refuses this turn with the same truthful busy contract. An authority
+   * that cannot be evaluated fails closed: the turn never starts on unknown lease state.
+   */
+  private async begin(agentId: string): Promise<void> {
     if (this.runningAgents.has(agentId)) throw new Error('This agent is already running.');
+    const execution = this.execution;
+    if (execution && execution.reserveTurns !== false) {
+      const ownerId = execution.ownerId(agentId);
+      const reserved = execution.leases.reserve({
+        agentId,
+        ownerId,
+        ownerKind: execution.ownerKind,
+        acquiredAt: this.timestamp(),
+      });
+      if (!reserved) {
+        const holder = execution.leases.holder(agentId);
+        throw new Error(
+          `This agent is already executing other IRIS work (${holder?.ownerKind ?? 'active'}: ${holder?.ownerId ?? 'unknown'}). Wait for it to finish or stop it first.`,
+        );
+      }
+      this.executionOwners.set(agentId, ownerId);
+      if (execution.crossProcess) {
+        let acquired: boolean;
+        try {
+          acquired = await execution.crossProcess.acquire(
+            agentId,
+            ownerId,
+            execution.ownerKind,
+            this.timestamp(),
+          );
+        } catch (error) {
+          this.releaseExecution(agentId);
+          throw error instanceof Error
+            ? error
+            : new Error('The cross-process agent lease is unavailable, so the turn was not started.');
+        }
+        if (!acquired) {
+          this.releaseExecution(agentId);
+          const holder = await execution.crossProcess.inspect?.(agentId);
+          throw new Error(
+            `This agent is already executing other IRIS work in another IRIS process${holder?.ownerId ? ` (${holder.ownerId})` : ''}. Wait for it to finish or stop it first.`,
+          );
+        }
+      }
+    } else if (execution?.crossProcess) {
+      // Phase 2I.2 / H6 — `reserveTurns:false` means an outer project/queue owner already holds
+      // the agent lease, so this coordinator must not acquire it twice. It must still refuse to
+      // resume under a foreign LIVE or UNKNOWN holder: confirming the authority here protects every
+      // coordinator resume surface (local, remote, scheduler, delegation), not only the workflow
+      // caller. Own, proven-dead or absent holders proceed; `unknown` is never treated as dead.
+      let blockingOwner: string | undefined;
+      let blocking = false;
+      if (execution.crossProcess.holderStatus) {
+        const holder = await execution.crossProcess.holderStatus(agentId);
+        if (holder?.foreign && holder.liveness !== 'dead') {
+          blocking = true;
+          blockingOwner = holder.ownerId;
+        }
+      } else {
+        const holder = await execution.crossProcess.inspect?.(agentId);
+        if (holder) {
+          blocking = true;
+          blockingOwner = holder.ownerId;
+        }
+      }
+      if (blocking) {
+        throw new Error(
+          `This agent is already executing other IRIS work in another IRIS process${blockingOwner ? ` (${blockingOwner})` : ''}. Wait for it to finish or stop it first.`,
+        );
+      }
+    }
     this.runningAgents.add(agentId);
     this.onStateChange(agentId);
+  }
+
+  /**
+   * Drops this coordinator's reservation, but only when nothing still owns the agent. A pending
+   * approval keeps ownership: resuming it continues the very same exclusive work, and a project or
+   * scheduled launch must not be able to interleave with it.
+   */
+  private async releaseExecutionIfIdle(agentId: string): Promise<void> {
+    if (!this.executionOwners.has(agentId)) return;
+    if (await this.suspendedTurns.getByAgentId(agentId)) return;
+    const ownerId = this.executionOwners.get(agentId)!;
+    this.releaseExecution(agentId);
+    // Phase 2H.1 — the cross-process lease must be freed with the local one, or a finished
+    // turn would phantom-block the same agent in every other live IRIS process.
+    await this.execution?.crossProcess?.release(agentId, ownerId);
+  }
+
+  /** Releases only the reservation this coordinator itself took; a stale writer cannot free work. */
+  private releaseExecution(agentId: string): void {
+    const ownerId = this.executionOwners.get(agentId);
+    if (ownerId === undefined) return;
+    this.executionOwners.delete(agentId);
+    this.execution?.leases.release(agentId, ownerId);
   }
 
   private async requireAgent(agentId: string): Promise<AgentDefinition> {
@@ -1068,11 +2044,47 @@ export class AgentRuntimeCoordinator {
     return agent;
   }
 
+  /**
+   * The agent a suspended turn belongs to. A delegated (sub-)agent is ephemeral by design and
+   * deliberately absent from the agent repository, so its runtime-built definition travels with the
+   * suspended turn. A stored definition that fails validation is refused rather than replaced by a
+   * guess — a wrong agent here would resume the turn under the wrong authority.
+   */
+  private async resolveSuspendedAgent(suspended: SuspendedAgentTurn): Promise<AgentDefinition> {
+    if (!suspended.delegatedAgent) return this.requireAgent(suspended.agentId);
+    if (
+      !validateAgentDefinition(suspended.delegatedAgent) ||
+      suspended.delegatedAgent.id !== suspended.agentId
+    ) {
+      throw new Error(
+        `The suspended delegated turn for ${suspended.agentId} carries an invalid agent definition.`,
+      );
+    }
+    return suspended.delegatedAgent;
+  }
+
+  /**
+   * Re-mints the trusted delegation context for a resumed delegated turn. Persisted state is never
+   * trusted as-is: a missing or malformed chain fails closed, and a tampered chain can only restrict
+   * because ancestors are combined with least privilege.
+   */
+  private delegationContextFor(
+    suspended: SuspendedAgentTurn,
+  ): DelegationPolicyContext | undefined {
+    if (!suspended.delegatedAgent) return undefined;
+    if (!validateDelegationChain(suspended.delegationChain)) {
+      throw new Error(
+        `Refusing to resume the delegated turn for ${suspended.agentId} without a valid delegation chain.`,
+      );
+    }
+    return createDelegationContext(suspended.delegationChain);
+  }
+
   private async *persistEvents(
     events: AsyncIterable<AgentEvent>,
     session: AgentSession,
     lifecycle: { record: CortexTurnRecord | null },
-    resumedApprovalId?: string,
+    resumedTurnId?: string,
   ): AsyncGenerator<AgentEvent> {
     for await (const event of events) {
       this.onActivity?.({
@@ -1114,23 +2126,27 @@ export class AgentRuntimeCoordinator {
         event.type === 'tool-denied' ||
         event.type === 'tool-failed'
       ) {
-        if (resumedApprovalId) await this.suspendedTurns.remove(resumedApprovalId);
+        if (resumedTurnId) await this.suspendedTurns.removeByTurnId(resumedTurnId);
         if (lifecycle.record) {
           await this.updateTurnStep(
             lifecycle.record.turnId,
             event.call.id,
             event.type === 'tool-complete'
               ? { status: 'completed', output: event.output }
-              : { status: event.type === 'tool-denied' ? 'denied' : 'failed', reason: event.reason },
+              : {
+                  status: event.type === 'tool-denied' ? 'denied' : 'failed',
+                  reason: event.reason,
+                },
           );
         }
         this.onStateChange(session.agent.id);
       }
-      if (event.type === 'tool-approval-required') {
+      if (event.type === 'tool-approval-required' || event.type === 'tool-suspended') {
         const suspended = session.suspendedTurn();
         if (!suspended) throw new Error('Agent paused without a resumable turn snapshot.');
         await this.suspendedTurns.save(suspended);
-        if (lifecycle.record?.status === 'running') {
+        const blocking = suspendedApprovals(suspended)[0];
+        if (lifecycle.record?.status === 'running' && blocking) {
           await this.saveCortexTurn(
             lifecycle,
             transitionCortexTurn(
@@ -1138,20 +2154,23 @@ export class AgentRuntimeCoordinator {
               {
                 status: 'suspended',
                 suspension: {
-                  approvalId: event.approval.id,
-                  toolId: event.approval.toolId,
-                  toolName: event.approval.toolName,
-                  reason: event.approval.reason,
+                  approvalId: blocking.approvalId,
+                  toolId: blocking.toolId ?? '',
+                  toolName: blocking.toolName ?? '',
+                  reason:
+                    event.type === 'tool-approval-required'
+                      ? event.approval.reason
+                      : 'A delegated sub-agent is waiting for approval.',
                 },
               },
               this.timestamp(),
             ),
           );
         }
-        if (lifecycle.record) {
+        if (lifecycle.record && blocking) {
           await this.updateTurnStep(lifecycle.record.turnId, event.call.id, {
             status: 'awaiting-approval',
-            approvalId: event.approval.id,
+            approvalId: blocking.approvalId,
           });
         }
         this.onStateChange(session.agent.id);

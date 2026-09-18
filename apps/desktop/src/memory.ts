@@ -1,8 +1,10 @@
+import { GlobalKnowledgeContributor } from './knowledgeContext';
 import {
   CompositeContextPackBuilder,
   MemoryContextPackBuilder,
   SkillContextContributor,
   type ContextPackBuilder,
+  type ContextContributor,
 } from '@iris/cortex';
 import { MemoryService } from '@iris/memory';
 import type { SkillRepository } from '@iris/skills';
@@ -19,8 +21,10 @@ export function createAgentContextBuilder(
   service: MemoryService,
   skills: Pick<SkillRepository, 'list'>,
   limit = memoryContextLimit,
+  knowledge?: ContextContributor,
 ): ContextPackBuilder {
   return new CompositeContextPackBuilder([
+    ...(knowledge ? [knowledge] : []),
     new SkillContextContributor(skills),
     new MemoryContextPackBuilder(service, { limit }),
   ]);
@@ -29,4 +33,7 @@ export function createAgentContextBuilder(
 export const agentContextBuilder: ContextPackBuilder = createAgentContextBuilder(
   memoryService,
   skillRepository,
+  memoryContextLimit,
+  new GlobalKnowledgeContributor(),
 );
+export const projectAgentContextBuilder = createAgentContextBuilder(memoryService, skillRepository);

@@ -162,3 +162,7 @@ export function SubtitlesIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function DocumentsIcon(props: IconProps) { return <svg {...base} {...props}><path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6" /></svg>; }
+
+export function BrowserIcon() { return <svg {...base}><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/></svg>; }

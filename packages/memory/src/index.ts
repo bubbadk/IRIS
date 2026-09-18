@@ -930,4 +930,4 @@ export class MemoryService {
 
 
 export * from './constellation';
-
+export * from './knowledge';

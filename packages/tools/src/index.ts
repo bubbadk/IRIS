@@ -1,4 +1,10 @@
-import type { AgentDefinition } from '@iris/core';
+import {
+  isTrustedDelegationContext,
+  type AgentDefinition,
+  type DelegatedChildRef,
+  type DelegationPolicyContext,
+  type PolicyActor,
+} from '@iris/core';
 
 export type ToolRisk = 'read' | 'write' | 'execute' | 'external';
 export type PermissionDecision = 'allow' | 'ask' | 'deny';
@@ -13,19 +19,51 @@ export interface ToolDefinition {
   manualExecution?: boolean;
   /** Cannot be bypassed by an allow rule or YOLO mode; each invocation needs user approval. */
   alwaysRequireApproval?: boolean;
+  /**
+   * Marks a tool that can create further agents. The delegating runtime reads this metadata to strip
+   * every delegation capability once the nesting limit is reached, so a team tool, an alias or a
+   * wrapper is covered by the same policy instead of one hardcoded tool id.
+   */
+  delegationCapable?: boolean;
 }
 
 export interface ToolContext {
   agentId: string;
   agentName: string;
+  /**
+   * Authoritative runtime definition of the invoking agent. Present on every agent-driven
+   * execution; absent only for a host that invokes a tool with no agent behind it.
+   */
+  agent?: AgentDefinition;
+  /**
+   * Trusted delegation chain of the invoking agent, minted by the runtime that delegated to it.
+   * This — not any field on an agent definition — is what carries delegation depth and ancestry.
+   */
+  delegation?: DelegationPolicyContext;
+  /**
+   * Present only when the runtime re-invokes a call that previously reported a nested suspension.
+   * The delegated children travel back verbatim so the tool can recover their recorded outcomes
+   * instead of creating the same work (and its side effects) a second time.
+   */
+  resume?: ToolInvocationResume;
   turnId?: string;
   toolCallId?: string;
   signal?: AbortSignal;
 }
 
+/**
+ * The delegated children a re-invoked tool call is resuming, as the runtime recorded them. The shape
+ * is trusted runtime data, not model output: it is minted by the runtime from its own suspension
+ * state and never from tool arguments.
+ */
+export interface ToolInvocationResume {
+  children: DelegatedChildRef[];
+}
+
 export interface ToolInvocation {
   turnId?: string;
   toolCallId?: string;
+  resume?: ToolInvocationResume;
 }
 
 export interface RegisteredTool extends ToolDefinition {
@@ -50,6 +88,13 @@ export type PermissionEvaluationSource = 'inspection' | 'execution';
 
 export interface PermissionEvaluationContext {
   source: PermissionEvaluationSource;
+  /**
+   * Trusted delegation chain for this evaluation, minted by the delegating runtime. Only a context
+   * passed here activates delegated evaluation; ancestry metadata stored on the agent definition is
+   * never read as authority. Ancestors are combined with least privilege, so a chain can keep or
+   * lower authority but never raise it.
+   */
+  delegation?: DelegationPolicyContext;
 }
 
 export interface PermissionAuditEvent extends PermissionEvaluation {
@@ -109,16 +154,82 @@ export interface PermissionEngine {
   ): Promise<PermissionEvaluation>;
 }
 
+/**
+ * Field names that must never arrive as tool arguments. Tool input is untrusted model output, so a
+ * credential supplied there has no authority and is rejected instead of silently ignored.
+ */
+const credentialArgumentFields = [
+  'apikey',
+  'api_key',
+  'authorization',
+  'token',
+  'accesstoken',
+  'access_token',
+  'secret',
+  'clientsecret',
+  'client_secret',
+  'password',
+] as const;
+
+export function assertNoCredentialArguments(input: unknown): void {
+  if (!input || typeof input !== 'object') return;
+  for (const key of Object.keys(input as Record<string, unknown>)) {
+    if ((credentialArgumentFields as readonly string[]).includes(key.toLowerCase())) {
+      throw new Error(
+        `Tool input must not carry credentials ("${key}"). Credentials are resolved from the trusted credential store, not from tool arguments.`,
+      );
+    }
+  }
+}
+
+/** Only configuration readers/writers may translate these retired identities. Never register aliases. */
+const legacyToolIds: Readonly<Record<string, string>> = {
+  'subagent.delegate': 'cortex.delegate-subagent',
+  // The diagnostics constructor now registers health; do not grant projectcockpit implicitly.
+  'janitor.diagnostics': 'janitor.health',
+  // Fresher onboarding presets named these after their factory functions rather than the IDs the
+  // registry publishes. The capability is exactly the canonical tool, so configuration and
+  // durable data are translated to the canonical identity *before* validity and authority
+  // evaluation. Nothing is granted beyond the canonical permission, and no duplicate alias tool
+  // is registered: `ToolRegistry.register` refuses every legacy ID in this table.
+  'workspace.directory': 'workspace.mkdir',
+  'host.inspect': 'system.inspect-host',
+};
+
+export class InvalidToolConfigurationError extends Error {
+  constructor(readonly toolId: string) {
+    super(`Invalid tool configuration: unknown or unavailable tool ID "${toolId}". Restore the tool or repair the configuration.`);
+    this.name = 'InvalidToolConfigurationError';
+  }
+}
+
 export class ToolRegistry {
   private readonly tools = new Map<string, RegisteredTool>();
 
   register(tool: RegisteredTool): void {
+    if (Object.hasOwn(legacyToolIds, tool.id)) throw new InvalidToolConfigurationError(tool.id);
     if (this.tools.has(tool.id)) throw new Error(`Tool already registered: ${tool.id}`);
     this.tools.set(tool.id, tool);
   }
 
   /** Tools discovered from a connected server replace whatever that server exposed before. */
   replace(tool: RegisteredTool): void {
+    if (Object.hasOwn(legacyToolIds, tool.id)) throw new InvalidToolConfigurationError(tool.id);
+    const existing = this.tools.get(tool.id);
+    // `alwaysRequireApproval` is a security boundary, not metadata: replacing an approval-gated
+    // tool with a definition that drops the requirement would bypass every approval path.
+    if (existing?.alwaysRequireApproval && !tool.alwaysRequireApproval) {
+      throw new Error(
+        `Refusing to replace the approval-gated tool ${tool.id} with a definition that does not require approval.`,
+      );
+    }
+    // `delegationCapable` is what the recursion policy reads to strip delegation at the nesting
+    // limit; dropping it would let a replacement escape that policy.
+    if (existing?.delegationCapable && !tool.delegationCapable) {
+      throw new Error(
+        `Refusing to replace the delegation-capable tool ${tool.id} with a definition that hides its delegation capability.`,
+      );
+    }
     this.tools.set(tool.id, tool);
   }
 
@@ -148,43 +259,138 @@ export class ToolRegistry {
       inputSchema: tool.inputSchema,
       manualExecution: tool.manualExecution,
       alwaysRequireApproval: tool.alwaysRequireApproval,
+      delegationCapable: tool.delegationCapable,
     }));
   }
 }
 
+/** Configuration/migration boundary only. Runtime lookup and permission evaluation stay exact. */
+export function canonicalConfiguredToolId(id: string, registry: ToolRegistry): string {
+  const canonical = Object.hasOwn(legacyToolIds, id) ? legacyToolIds[id] : id;
+  if (!registry.get(canonical)) throw new InvalidToolConfigurationError(id);
+  return canonical;
+}
+
+export function canonicalConfiguredToolIds(ids: readonly string[], registry: ToolRegistry): string[] {
+  return [...new Set(ids.map((id) => canonicalConfiguredToolId(id, registry)))];
+}
+
+/**
+ * Preserve every rule ID and decision, including denies. A legacy/canonical collision is ambiguous:
+ * reject conflicting decisions instead of allowing repository order to turn a deny into an allow.
+ */
+export function canonicalConfiguredPermissionRules(
+  rules: readonly PermissionRule[],
+  registry: ToolRegistry,
+): PermissionRule[] {
+  const canonical = rules.map((rule) => ({
+    ...rule,
+    toolId: rule.toolId === '*' ? '*' : canonicalConfiguredToolId(rule.toolId, registry),
+  }));
+  for (const rule of canonical) {
+    if (canonical.some((other) => other.agentId === rule.agentId &&
+      other.toolId === rule.toolId && other.decision !== rule.decision)) {
+      throw new Error(`Invalid tool configuration: conflicting permission rules for ${rule.toolId}. Resolve the conflict explicitly.`);
+    }
+  }
+  return canonical;
+}
+
+/** The decision an explicit rule produced for one actor, before the chain is combined. */
+interface ActorRule {
+  decision: PermissionDecision;
+  reason: string;
+  ruleId: string;
+}
+
+/** Least privilege order: deny outranks ask outranks allow. */
+function restrictionRank(decision: PermissionDecision): number {
+  if (decision === 'deny') return 2;
+  if (decision === 'ask') return 1;
+  return 0;
+}
+
+/**
+ * The one rule-precedence algorithm IRIS uses, for direct and delegated evaluation alike.
+ *
+ * Precedence inside a single actor:
+ * 1. The tool must be assigned to the agent, otherwise the answer is `deny`.
+ * 2. The most specific matching rule wins: agent-specific (2) + tool-specific (1); a wildcard agent
+ *    or wildcard tool matches with lower specificity. Equal specificity keeps repository order.
+ * 3. `deny` from that rule always wins.
+ * 4. Otherwise `alwaysRequireApproval` forces `ask` — before YOLO gets a say.
+ * 5. Otherwise YOLO turns an `ask` rule into `allow`; an explicit `allow` is already `allow`.
+ * 6. With no matching rule at all: YOLO + `alwaysRequireApproval` is `ask`, YOLO alone is `allow`,
+ *    and every other mode is `deny`.
+ *
+ * Delegation combines actors with the same algorithm, per actor, and then folds the results with
+ * least privilege. An ancestor that configured no rule for the tool adds no restriction; an
+ * ancestor that did can only keep or lower the result. `alwaysRequireApproval` is applied last and
+ * absolutely, so it outranks YOLO at every depth.
+ */
 export class StaticPermissionEngine implements PermissionEngine {
   constructor(private readonly rules: PermissionRule[] = []) {}
 
-  async evaluate(agent: AgentDefinition, tool: ToolDefinition): Promise<PermissionEvaluation> {
+  async evaluate(
+    agent: AgentDefinition,
+    tool: ToolDefinition,
+    context?: PermissionEvaluationContext,
+  ): Promise<PermissionEvaluation> {
     if (!agent.toolIds.includes(tool.id)) {
       return { decision: 'deny', reason: 'Tool is not assigned to this agent.' };
     }
 
+    // Only a runtime-minted context counts. A structurally identical plain object (rebuilt from
+    // persisted state, read off an agent definition, or supplied by a caller) is ignored, so nobody
+    // can switch evaluation onto the delegation path by writing ancestry metadata.
+    const delegation = isTrustedDelegationContext(context?.delegation)
+      ? context.delegation
+      : undefined;
+
+    const own = this.ruleFor(
+      { id: agent.id, ...(agent.approvalMode ? { approvalMode: agent.approvalMode } : {}) },
+      tool,
+    );
+    const ancestorRules = (delegation?.ancestors ?? [])
+      .map((ancestor) => this.ruleFor(ancestor, tool))
+      .filter((rule): rule is ActorRule => rule !== undefined);
+
+    if (!own && ancestorRules.length === 0) {
+      return this.defaultEvaluation(agent, tool, Boolean(delegation));
+    }
+
+    const deciding = [...(own ? [own] : []), ...ancestorRules].reduce((best, next) =>
+      restrictionRank(next.decision) > restrictionRank(best.decision) ? next : best,
+    );
+
+    if (tool.alwaysRequireApproval && deciding.decision !== 'deny') {
+      return {
+        decision: 'ask',
+        reason: `${tool.name} always requires explicit approval, including in YOLO mode.`,
+        ruleId: deciding.ruleId,
+      };
+    }
+    return { decision: deciding.decision, reason: deciding.reason, ruleId: deciding.ruleId };
+  }
+
+  /**
+   * The rules that bind one actor for one tool. The argument is a `PolicyActor`, not a full agent
+   * definition: an ancestor's policy depends on nothing else, which is what lets a delegated turn
+   * evaluate its chain without trusting anything a caller supplied.
+   */
+  private ruleFor(actor: PolicyActor, tool: ToolDefinition): ActorRule | undefined {
     const matching = this.rules
       .filter(
         (rule) =>
-          (rule.agentId === '*' || rule.agentId === agent.id) &&
+          (rule.agentId === '*' || rule.agentId === actor.id) &&
           (rule.toolId === '*' || rule.toolId === tool.id),
       )
       .sort(
         (left, right) =>
-          specificity(right, agent.id, tool.id) - specificity(left, agent.id, tool.id),
+          specificity(right, actor.id, tool.id) - specificity(left, actor.id, tool.id),
       );
     const rule = matching[0];
-    if (!rule) {
-      if (agent.approvalMode === 'yolo' && tool.alwaysRequireApproval) {
-        return {
-          decision: 'ask',
-          reason: `${tool.name} always requires explicit approval, including in YOLO mode.`,
-        };
-      }
-      return agent.approvalMode === 'yolo'
-        ? {
-            decision: 'allow',
-            reason: `YOLO mode allows assigned tool ${tool.name}; explicit deny rules remain enforced.`,
-          }
-        : { decision: 'deny', reason: 'No permission rule allows this tool.' };
-    }
+    if (!rule) return undefined;
     if (rule.decision === 'deny') {
       return {
         decision: 'deny',
@@ -192,14 +398,7 @@ export class StaticPermissionEngine implements PermissionEngine {
         ruleId: rule.id,
       };
     }
-    if (tool.alwaysRequireApproval) {
-      return {
-        decision: 'ask',
-        reason: `${tool.name} always requires explicit approval, including in YOLO mode.`,
-        ruleId: rule.id,
-      };
-    }
-    if (agent.approvalMode === 'yolo') {
+    if (actor.approvalMode === 'yolo') {
       return {
         decision: 'allow',
         reason: `YOLO mode allows assigned tool ${tool.name}; explicit deny rules remain enforced.`,
@@ -210,6 +409,31 @@ export class StaticPermissionEngine implements PermissionEngine {
       decision: rule.decision,
       reason: rule.reason ?? `Permission rule ${rule.id} returned ${rule.decision}.`,
       ruleId: rule.id,
+    };
+  }
+
+  private defaultEvaluation(
+    agent: AgentDefinition,
+    tool: ToolDefinition,
+    delegated: boolean,
+  ): PermissionEvaluation {
+    if (agent.approvalMode === 'yolo' && tool.alwaysRequireApproval) {
+      return {
+        decision: 'ask',
+        reason: `${tool.name} always requires explicit approval, including in YOLO mode.`,
+      };
+    }
+    if (agent.approvalMode === 'yolo') {
+      return {
+        decision: 'allow',
+        reason: `YOLO mode allows ${delegated ? 'delegated' : 'assigned'} tool ${tool.name}; explicit deny rules remain enforced.`,
+      };
+    }
+    return {
+      decision: 'deny',
+      reason: delegated
+        ? 'No permission rule allows this delegated tool.'
+        : 'No permission rule allows this tool.',
     };
   }
 }
@@ -283,6 +507,30 @@ export class ToolApprovalStateError extends Error {
   }
 }
 
+/**
+ * Detaches a tool invocation's arguments from the object the caller still holds.
+ *
+ * An approval record must be bound to the invocation the user actually saw and approved: after the
+ * prompt appears, the caller (or a model that produced the call) must not be able to mutate
+ * `command`, `args`, `path`, `isolation` or `target` and have a different operation run. The
+ * snapshot is taken once, at approval-creation time, and `resume` executes exactly that.
+ */
+export function snapshotApprovalInput(input: unknown): unknown {
+  if (input === null || typeof input !== 'object') return input;
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(input);
+    } catch {
+      // Fall through to the JSON copy for values structuredClone cannot represent.
+    }
+  }
+  try {
+    return JSON.parse(JSON.stringify(input));
+  } catch {
+    throw new Error('This tool input cannot be captured for approval. Pass a JSON-serializable value.');
+  }
+}
+
 export class GatedToolExecutor {
   constructor(
     private readonly registry: ToolRegistry,
@@ -298,13 +546,18 @@ export class GatedToolExecutor {
     input: unknown,
     signal?: AbortSignal,
     invocation?: ToolInvocation,
+    delegation?: DelegationPolicyContext,
   ): Promise<ToolExecutionResult> {
     const tool = this.registry.get(toolId);
     if (!tool) throw new Error(`Unknown tool: ${toolId}`);
-    const evaluation = await this.permissions.evaluate(agent, tool, { source: 'execution' });
+    const evaluation = await this.permissions.evaluate(agent, tool, {
+      source: 'execution',
+      ...(delegation ? { delegation } : {}),
+    });
     if (evaluation.decision === 'deny') throw new ToolPermissionError(evaluation);
     if (evaluation.decision === 'ask') {
       const timestamp = this.now().toISOString();
+      const capture = snapshotApprovalInput(input);
       const approval: ToolApprovalRequest = {
         id: this.createId(),
         createdAt: timestamp,
@@ -314,16 +567,27 @@ export class GatedToolExecutor {
         agentName: agent.name,
         toolId: tool.id,
         toolName: tool.name,
-        input,
+        // The approved invocation is detached from the caller's object. Without this, a model or
+        // caller that mutated its own argument object after the prompt appeared could change what
+        // runs between the user's approval and the execution (`resume` below runs exactly this).
+        input: capture,
         evaluation,
         invocation,
       };
       await this.approvals.save(approval);
-      return { status: 'approval-required', evaluation, approval };
+      // The caller gets its own snapshot too: a repository may keep the record it was handed, and
+      // nothing that reaches a UI or a session may alias the invocation that will actually run.
+      return {
+        status: 'approval-required',
+        evaluation,
+        approval: { ...approval, input: snapshotApprovalInput(capture) },
+      };
     }
     const output = await tool.run(input, {
       agentId: agent.id,
       agentName: agent.name,
+      agent,
+      ...(delegation ? { delegation } : {}),
       ...invocation,
       signal,
     });
@@ -425,3 +689,4 @@ export class GatedToolExecutor {
 export * from './webTools';
 export * from './imageTools';
 export * from './browserTools';
+export * from './approvalSummary';

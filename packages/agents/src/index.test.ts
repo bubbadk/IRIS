@@ -11,6 +11,7 @@ import type { ModelMessage, ModelProvider, ModelRequest } from '@iris/providers'
 import {
   AgentRuntimeCoordinator,
   AgentSession,
+  validateAgentCheckpoint,
   trimModelHistory,
   type AgentActivity,
   type AgentEvent,
@@ -23,11 +24,93 @@ import {
 } from './index';
 
 describe('agent session', () => {
-  it('completes visibly at the tool safety limit instead of throwing', async () => {
-    let rounds = 0;
+  it.each(['summary', 'more-tools', 'approvals'])(
+    'records the tool safety limit across %s without declaring task success',
+    async (mode) => {
+      let rounds = 0;
+      const provider: ModelProvider = {
+        definition: {
+          id: 'provider',
+          name: 'Test',
+          kind: 'test',
+          capabilities: ['chat', 'tools'],
+          local: true,
+        },
+        capabilities: () => ['chat', 'tools'],
+        testConnection: async () => undefined,
+        stream: async function* () {
+          rounds += 1;
+          if (rounds > 16 && mode !== 'more-tools') {
+            yield { text: 'Summary of the real results.', done: true };
+            return;
+          }
+          yield {
+            text: rounds === 1 ? 'Checking. ' : '',
+            toolCalls: [{ id: `call-${rounds}`, name: 'inspect', input: {} }],
+            done: true,
+          };
+        },
+      };
+      const tools: AgentToolRuntime = {
+        definitions: () => [{ name: 'inspect', description: 'Inspect', inputSchema: {} }],
+        execute: async () =>
+          mode === 'approvals'
+            ? {
+                status: 'approval-required',
+                approval: {
+                  id: 'approval',
+                  toolId: 'inspect',
+                  toolName: 'Inspect',
+                  reason: 'Ask every time.',
+                },
+              }
+            : { status: 'completed', output: { status: 'ok' } },
+        resolve: async () => ({ status: 'completed', output: undefined }),
+      };
+      let session = new AgentSession(
+        {
+          id: 'agent',
+          name: 'Iris test',
+          autonomy: 'assist',
+          skillIds: [],
+          toolIds: ['inspect'],
+        },
+        provider,
+        'test-model',
+        [],
+        tools,
+      );
+
+      const events = [];
+      for await (const event of session.send('Check', undefined, [], 'turn-limit')) {
+        events.push(event);
+      }
+
+      while (session.suspendedTurn()) {
+        session = AgentSession.restore(session.agent, provider, session.suspendedTurn()!, tools);
+        for await (const event of session.resolveApproval('approval', 'approve'))
+          events.push(event);
+      }
+      expect(events.at(-1)).toMatchObject({
+        type: 'assistant-complete',
+        message: {
+          content: expect.stringContaining(
+            mode === 'more-tools' ? 'IRIS stopped this turn' : 'Summary of the real results.',
+          ),
+          stopReason: 'tool-limit',
+        },
+      });
+      expect(rounds).toBe(17);
+      expect(session.messages().at(-1)?.stopReason).toBe('tool-limit');
+      expect(validateAgentCheckpoint(session.checkpoint())).toBe(true);
+    },
+  );
+
+  it('restores recorded tool results after restart without executing them again', async () => {
+    let executions = 0;
     const provider: ModelProvider = {
       definition: {
-        id: 'provider',
+        id: 'local',
         name: 'Test',
         kind: 'test',
         capabilities: ['chat', 'tools'],
@@ -35,48 +118,61 @@ describe('agent session', () => {
       },
       capabilities: () => ['chat', 'tools'],
       testConnection: async () => undefined,
-      stream: async function* () {
-        rounds += 1;
-        if (rounds > 16) {
-          yield { text: 'Summary of the real results.', done: true };
-          return;
-        }
-        yield {
-          text: rounds === 1 ? 'Checking. ' : '',
-          toolCalls: [{ id: `call-${rounds}`, name: 'inspect', input: {} }],
-          done: true,
-        };
+      async *stream(request) {
+        if (request.messages.at(-1)?.content === 'Continue') {
+          expect(
+            request.messages.some(
+              (message) => message.role === 'tool' && message.content === 'Actual recorded result',
+            ),
+          ).toBe(true);
+          yield { text: 'Continued using the recorded result.', done: true };
+        } else if (!request.messages.some((message) => message.role === 'tool')) {
+          yield {
+            text: '',
+            toolCalls: [{ id: 'write-once', name: 'write', input: {} }],
+            done: true,
+          };
+        } else yield { text: 'First report.', done: true };
       },
     };
     const tools: AgentToolRuntime = {
-      definitions: () => [{ name: 'inspect', description: 'Inspect', inputSchema: {} }],
-      execute: async () => ({ status: 'completed', output: { status: 'ok' } }),
-      resolve: async () => ({ status: 'completed', output: undefined }),
-    };
-    const session = new AgentSession(
-      {
-        id: 'agent',
-        name: 'Iris test',
-        autonomy: 'assist',
-        skillIds: [],
-        toolIds: ['inspect'],
+      definitions: () => [{ name: 'write', description: 'Test operation', inputSchema: {} }],
+      execute: async () => {
+        executions++;
+        return { status: 'completed', output: 'Actual recorded result' };
       },
-      provider,
-      'test-model',
-      [],
-      tools,
-    );
-
-    const events = [];
-    for await (const event of session.send('Check', undefined, [], 'turn-limit')) {
-      events.push(event);
-    }
-
-    expect(events.at(-1)).toMatchObject({
-      type: 'assistant-complete',
-      message: { content: expect.stringContaining('Summary of the real results.') },
-    });
-    expect(rounds).toBe(17);
+      resolve: async () => ({ status: 'completed', output: '' }),
+    };
+    const agent = {
+      id: 'a',
+      name: 'Worker',
+      autonomy: 'assist' as const,
+      skillIds: [],
+      toolIds: ['write'],
+    };
+    const session = new AgentSession(agent, provider, 'test', [], tools);
+    for await (const event of session.send('Start')) void event;
+    const checkpoint: unknown = JSON.parse(JSON.stringify(session.checkpoint()));
+    if (!validateAgentCheckpoint(checkpoint)) throw new Error('Expected a safe checkpoint.');
+    const restored = AgentSession.fromCheckpoint(agent, provider, checkpoint, tools);
+    for await (const event of restored.send('Continue')) void event;
+    expect(executions).toBe(1);
+    expect(restored.messages().at(-1)?.content).toContain('recorded result');
+    expect(
+      validateAgentCheckpoint({
+        ...checkpoint,
+        modelHistory: [
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'unknown', name: 'write', input: {} }],
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(() =>
+      AgentSession.fromCheckpoint({ ...agent, id: 'another' }, provider, checkpoint, tools),
+    ).toThrow('does not match');
   });
 
   it('keeps injected context out of visible conversation history', async () => {
@@ -1320,12 +1416,15 @@ describe('agent session', () => {
     const suspendedTurns: SuspendedAgentTurnRepository = {
       getByAgentId: async (agentId) => (savedTurn?.agentId === agentId ? savedTurn : null),
       getByApprovalId: async (approvalId) =>
-        savedTurn?.pending.approval.id === approvalId ? savedTurn : null,
+        savedTurn?.pending.kind === 'tool-approval' && savedTurn.pending.approval.id === approvalId
+          ? savedTurn
+          : null,
+      list: async () => (savedTurn ? [savedTurn] : []),
       save: async (turn) => {
         savedTurn = turn;
       },
-      remove: async (approvalId) => {
-        if (savedTurn?.pending.approval.id === approvalId) savedTurn = null;
+      removeByTurnId: async (turnId) => {
+        if (savedTurn?.pending.turnId === turnId) savedTurn = null;
       },
     };
     const requests: ModelRequest[] = [];
@@ -1481,11 +1580,14 @@ describe('agent session', () => {
       turnId: runtimeTurnId,
     });
     expect(savedTurn).toMatchObject({
-      version: 2,
+      // Version 4 records suspension state and discriminates the pending turn. For a root agent it
+      // carries no delegated fields; version 2 and 3 records remain readable by the decoder.
+      version: 4,
       agentId: agent.id,
       providerId: 'provider',
       model: 'test-model',
       pending: {
+        kind: 'tool-approval',
         turnId: runtimeTurnId,
         approval: { id: 'approval-1' },
         assistantText: 'Checking ',
@@ -1641,8 +1743,9 @@ describe('agent session', () => {
     const suspendedTurns: SuspendedAgentTurnRepository = {
       getByAgentId: async () => null,
       getByApprovalId: async () => null,
+      list: async () => [],
       save: async () => undefined,
-      remove: async () => undefined,
+      removeByTurnId: async () => undefined,
     };
     const provider: ModelProvider = {
       definition: {

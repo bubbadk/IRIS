@@ -1,4 +1,4 @@
-import type { RegisteredTool } from './index';
+import { assertNoCredentialArguments, type RegisteredTool } from './index';
 
 export interface WebSearchInput {
   query: string;
@@ -22,7 +22,6 @@ export interface WebSearchOutput {
 export interface WebExtractInput {
   url: string;
   mode?: 'markdown' | 'text' | 'raw';
-  apiKey?: string;
 }
 
 export interface WebExtractOutput {
@@ -70,7 +69,11 @@ export function cleanHtmlToMarkdown(html: string): string {
 export function createWebSearchTool(
   customFetch?: (url: string, init?: RequestInit) => Promise<Response>,
 ): RegisteredTool {
-  const fetchImpl = customFetch || (typeof fetch !== 'undefined' ? fetch : undefined);
+  const fetchImpl =
+    customFetch ||
+    (typeof fetch !== 'undefined'
+      ? (url: string, init?: RequestInit) => globalThis.fetch(url, init)
+      : undefined);
 
   return {
     id: 'web.search',
@@ -110,6 +113,10 @@ export function createWebSearchTool(
         throw new Error('Fetch implementation is not available in the current environment.');
       }
 
+      if (!Number.isInteger(limit) || limit < 1 || limit > 10)
+        throw new Error('Search limit must be an integer from 1 to 10.');
+      if (domain !== undefined && typeof domain !== 'string')
+        throw new Error('Search domain must be text.');
       const searchQuery = domain ? `site:${domain} ${query.trim()}` : query.trim();
       const encodedQuery = encodeURIComponent(searchQuery);
 
@@ -127,17 +134,22 @@ export function createWebSearchTool(
         }
 
         const html = await response.text();
+        if (/anomaly-modal|challenge-form|bots use DuckDuckGo/i.test(html))
+          throw new Error(
+            'DuckDuckGo requires a human verification challenge. No search results were retrieved. Open the search in your browser or try again later.',
+          );
         const results: WebSearchResultItem[] = [];
 
         // Parse DuckDuckGo HTML results
-        const regex = /<a class="result__url" href="([^"]+)".*?<h2 class="result__title">.*?<a.*?>(.*?)<\/a>.*?<a class="result__snippet".*?>(.*?)<\/a>/gis;
+        const regex =
+          /<a class="result__url" href="([^"]+)".*?<h2 class="result__title">.*?<a.*?>(.*?)<\/a>.*?<a class="result__snippet".*?>(.*?)<\/a>/gis;
         let match: RegExpExecArray | null;
 
         while ((match = regex.exec(html)) !== null && results.length < Math.min(10, limit)) {
           let url = match[1]?.trim() || '';
           if (url.includes('uddg=')) {
             const parsed = new URL(url, 'https://duckduckgo.com');
-            url = decodeURIComponent(parsed.searchParams.get('uddg') || url);
+            url = parsed.searchParams.get('uddg') || url;
           }
           const rawTitle = match[2]?.replace(/<[^>]+>/g, '').trim() || 'Untitled';
           const rawSnippet = match[3]?.replace(/<[^>]+>/g, '').trim() || '';
@@ -151,18 +163,32 @@ export function createWebSearchTool(
           }
         }
 
-        // Fallback if regex missed: simpler pattern
+        // Current DuckDuckGo HTML puts the title link before the display URL/snippet.
         if (results.length === 0) {
-          const linkRegex = /<a class="result__snippet[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/gi;
-          let linkMatch: RegExpExecArray | null;
-          while ((linkMatch = linkRegex.exec(html)) !== null && results.length < limit) {
+          const titlePattern =
+            /<a\b([^>]*class=["'][^"']*\bresult__a\b[^"']*["'][^>]*)>([\s\S]*?)<\/a>([\s\S]*?)(?=<h2\b|$)/gi;
+          for (const match of html.matchAll(titlePattern)) {
+            const href = match[1]?.match(/href=["']([^"']+)["']/i)?.[1];
+            if (!href) continue;
+            const link = new URL(href.replaceAll('&amp;', '&'), 'https://duckduckgo.com');
+            const target = link.searchParams.get('uddg') ?? link.href;
+            if (!/^https?:\/\//i.test(target)) continue;
+            const snippet =
+              match[3]?.match(
+                /<a\b[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/a>/i,
+              )?.[1] ?? '';
             results.push({
-              title: `Search Result ${results.length + 1}`,
-              url: linkMatch[1] || '',
-              snippet: linkMatch[2]?.replace(/<[^>]+>/g, '').trim() || '',
+              title: cleanHtmlToMarkdown(match[2] ?? ''),
+              url: target,
+              snippet: cleanHtmlToMarkdown(snippet),
             });
+            if (results.length >= limit) break;
           }
         }
+        if (!results.length && !/no-results|No results found/i.test(html))
+          throw new Error(
+            'The search service returned an unreadable response, not verified empty results. Try again later.',
+          );
 
         return {
           query: query.trim(),
@@ -183,13 +209,17 @@ export function createWebSearchTool(
 export function createWebExtractTool(
   customFetch?: (url: string, init?: RequestInit) => Promise<Response>,
 ): RegisteredTool {
-  const fetchImpl = customFetch || (typeof fetch !== 'undefined' ? fetch : undefined);
+  const fetchImpl =
+    customFetch ||
+    (typeof fetch !== 'undefined'
+      ? (url: string, init?: RequestInit) => globalThis.fetch(url, init)
+      : undefined);
 
   return {
     id: 'web.extract',
     name: 'Extract Webpage Content',
     description:
-      'Extracts full webpage content and converts it into clean, sanitized GitHub Flavored Markdown via Firecrawl / resilient extraction gateway without ads or popups.',
+      'Reads a public webpage and converts its static HTML into basic Markdown. Dynamic or access-protected content may be unavailable.',
     risk: 'read',
     inputSchema: {
       type: 'object',
@@ -203,10 +233,6 @@ export function createWebExtractTool(
           enum: ['markdown', 'text', 'raw'],
           description: 'Extraction output mode (default: markdown).',
         },
-        apiKey: {
-          type: 'string',
-          description: 'Optional Firecrawl API Key if using custom hosted Firecrawl instance.',
-        },
       },
       required: ['url'],
       additionalProperties: false,
@@ -215,7 +241,8 @@ export function createWebExtractTool(
       if (!input || typeof input !== 'object') {
         throw new Error('Web extraction requires an input object with a "url" field.');
       }
-      const { url, apiKey } = input as WebExtractInput;
+      assertNoCredentialArguments(input);
+      const { url } = input as WebExtractInput;
       if (!url || typeof url !== 'string' || !url.startsWith('http')) {
         throw new Error('A valid http/https URL is required.');
       }
@@ -225,41 +252,6 @@ export function createWebExtractTool(
       }
 
       try {
-        if (apiKey) {
-          const firecrawlRes = await fetchImpl('https://api.firecrawl.dev/v1/scrape', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-              url,
-              formats: ['markdown'],
-            }),
-          });
-
-          if (firecrawlRes.ok) {
-            const data = (await firecrawlRes.json()) as {
-              data?: {
-                markdown?: string;
-                metadata?: { title?: string; statusCode?: number; description?: string; language?: string };
-              };
-            };
-            if (data?.data?.markdown) {
-              return {
-                url,
-                title: data.data.metadata?.title || 'Extracted Document',
-                markdown: data.data.markdown,
-                metadata: {
-                  statusCode: data.data.metadata?.statusCode || 200,
-                  description: data.data.metadata?.description,
-                  language: data.data.metadata?.language,
-                },
-              };
-            }
-          }
-        }
-
         const directRes = await fetchImpl(url, {
           headers: {
             'User-Agent':
@@ -286,7 +278,9 @@ export function createWebExtractTool(
           },
         };
       } catch (err) {
-        throw new Error(`Web extraction failed: ${err instanceof Error ? err.message : String(err)}`);
+        throw new Error(
+          `Web extraction failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     },
   };

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { createDelegationContext } from '@iris/core';
 import {
   memoryRepository,
   permissionAuditRepository,
@@ -241,5 +242,80 @@ describe('desktop agent tool runtime', () => {
     expect(defs.some((d) => d.name === 'web_search')).toBe(true);
     expect(defs.some((d) => d.name === 'image_generate')).toBe(true);
     expect(defs.some((d) => d.name === 'browser_navigate')).toBe(true);
+  });
+
+  it("binds a delegated agent to its parent's rule through the production runtime", async () => {
+    const parent = {
+      id: 'parent-agent',
+      name: 'Parent',
+      autonomy: 'act' as const,
+      skillIds: [],
+      toolIds: ['workspace.write'],
+    };
+    await permissionRuleRepository.save({
+      id: 'ask-workspace-write',
+      agentId: parent.id,
+      toolId: 'workspace.write',
+      decision: 'ask',
+      reason: 'Approve each workspace file write.',
+    });
+    // The shape the delegation path builds: the child keeps the parent's mode and carries the chain
+    // metadata. That metadata is descriptive only, so the trusted context below is what binds it.
+    const delegated = {
+      ...parent,
+      id: 'subagent-ephemeral-1',
+      name: 'Delegated child',
+      approvalMode: 'ask' as const,
+      inheritedPolicyAgentIds: [parent.id],
+      delegationDepth: 1,
+    };
+
+    // H-09: the same call without the runtime-minted chain is evaluated as a standalone agent, so the
+    // ancestry field on the definition grants nothing.
+    await expect(
+      agentToolRuntime.execute(
+        delegated,
+        'workspace_write_file',
+        { path: 'ignored.txt', content: 'ignored', overwrite: false },
+        { turnId: 'turn-ignored', toolCallId: 'call-ignored' },
+      ),
+    ).resolves.toMatchObject({ status: 'denied' });
+
+    await expect(
+      agentToolRuntime.execute(
+        delegated,
+        'workspace_write_file',
+        { path: 'notes/hej.txt', content: 'Hej', overwrite: false },
+        { turnId: 'turn-sub', toolCallId: 'call-sub' },
+        undefined,
+        createDelegationContext({
+          depth: 1,
+          ancestors: [{ id: parent.id, approvalMode: 'ask' }],
+        }),
+      ),
+    ).resolves.toMatchObject({
+      status: 'approval-required',
+      approval: { toolId: 'workspace.write', reason: 'Approve each workspace file write.' },
+    });
+    await expect(toolApprovalRepository.list()).resolves.toHaveLength(1);
+    const audits = await permissionAuditRepository.list();
+    // Both evaluations are recorded: the field-only call as deny, the chained call as ask.
+    expect(audits).toHaveLength(2);
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'execution',
+          agentId: 'subagent-ephemeral-1',
+          toolId: 'workspace.write',
+          decision: 'ask',
+        }),
+        expect.objectContaining({
+          source: 'execution',
+          agentId: 'subagent-ephemeral-1',
+          toolId: 'workspace.write',
+          decision: 'deny',
+        }),
+      ]),
+    );
   });
 });

@@ -1,7 +1,8 @@
-use crate::process_output::{read_bounded, output_text};
+use crate::process_output::{output_text, read_bounded};
+use crate::shell_isolation::{command_builder, ShellIsolation};
 use serde::Serialize;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -22,6 +23,7 @@ pub struct SandboxShellResult {
     stdout: String,
     stderr: String,
     timed_out: bool,
+    isolation: ShellIsolation,
 }
 
 pub fn validate_command(command: &str) -> Result<(), String> {
@@ -38,38 +40,45 @@ pub fn validate_command(command: &str) -> Result<(), String> {
 }
 
 pub fn effective_timeout(seconds: Option<u64>) -> u64 {
-    seconds.unwrap_or(DEFAULT_TIMEOUT_SECS).clamp(1, MAX_TIMEOUT_SECS)
+    seconds
+        .unwrap_or(DEFAULT_TIMEOUT_SECS)
+        .clamp(1, MAX_TIMEOUT_SECS)
 }
 
-/// Runs one command in the mounted workspace root through `/bin/bash -lc`.
-///
-/// This is NOT an OS-level jail: the process starts in the workspace directory but the
-/// command itself can reference paths outside it. The safety boundary is the permission
-/// gate — every non-yolo agent must get an explicit user approval before this runs.
+/// Always permission-gated. Workspace isolation is the default; host mode is explicit.
 #[tauri::command]
-pub fn run_workspace_shell_command(
+pub async fn run_workspace_shell_command(
     state: State<'_, WorkspaceState>,
     command: String,
     timeout_seconds: Option<u64>,
+    isolation: Option<ShellIsolation>,
+) -> Result<SandboxShellResult, String> {
+    let root = mounted_root(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        run_shell_at(
+            root,
+            command,
+            timeout_seconds,
+            isolation.unwrap_or_default(),
+        )
+    })
+    .await
+    .map_err(|error| format!("Shell execution failed: {error}"))?
+}
+
+fn run_shell_at(
+    root: PathBuf,
+    command: String,
+    timeout_seconds: Option<u64>,
+    isolation: ShellIsolation,
 ) -> Result<SandboxShellResult, String> {
     validate_command(&command)?;
     let timeout = effective_timeout(timeout_seconds);
-    let root: PathBuf = mounted_root(&state)?;
-
-    #[cfg(unix)]
-    let mut builder = {
-        let mut builder = Command::new("/bin/bash");
-        builder.arg("-lc").arg(&command);
-        builder
-    };
-    #[cfg(windows)]
-    let mut builder = {
-        let mut builder = Command::new("powershell");
-        builder.arg("-NoProfile").arg("-Command").arg(&command);
-        builder
-    };
-    builder.current_dir(&root);
-    builder.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut builder = command_builder(Some(&root), &command, isolation)?;
+    builder
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -84,8 +93,8 @@ pub fn run_workspace_shell_command(
 
     // Drain both pipes on dedicated threads; waiting on the child while it fills the
     // 64 KiB pipe buffer would hang every chatty command.
-        fn drain_pipe(
-            pipe: impl std::io::Read + Send + 'static,
+    fn drain_pipe(
+        pipe: impl std::io::Read + Send + 'static,
         done: Arc<AtomicBool>,
     ) -> std::thread::JoinHandle<Vec<u8>> {
         std::thread::spawn(move || {
@@ -94,7 +103,10 @@ pub fn run_workspace_shell_command(
             buffer
         })
     }
-    let (stdout_done, stderr_done) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let (stdout_done, stderr_done) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
     let mut stdout_handle = process
         .stdout
         .take()
@@ -125,12 +137,7 @@ pub fn run_workspace_shell_command(
         if Instant::now() >= deadline {
             timed_out = true;
             kill_process_tree(process.id());
-            if let Some(handle) = stdout_handle.take() {
-                let _ = handle.join();
-            }
-            if let Some(handle) = stderr_handle.take() {
-                let _ = handle.join();
-            }
+            // Keep the drain handles: the final result must include output produced before timeout.
             let _ = process.wait();
             break;
         }
@@ -150,29 +157,35 @@ pub fn run_workspace_shell_command(
         }
     }
 
-
-    let mut stderr = output_text(
-        stderr_handle
-            .take()
-            .and_then(|handle| handle.join().ok())
-            .unwrap_or_default(),
-    );
+    let stdout_bytes = stdout_handle
+        .take()
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_default();
+    let stderr_bytes = stderr_handle
+        .take()
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_default();
+    let mut stderr = output_text(stderr_bytes);
     if timed_out {
         stderr.push_str(&format!(
             "\n[command timed out after {timeout} seconds and was stopped]"
         ));
     }
     Ok(SandboxShellResult {
-        cwd: root.to_string_lossy().replace('\\', "/"),
-        exit_code: process.try_wait().ok().flatten().and_then(|status| status.code()),
-        stdout: output_text(
-            stdout_handle
-                .take()
-                .and_then(|handle| handle.join().ok())
-                .unwrap_or_default(),
-        ),
+        cwd: if isolation == ShellIsolation::Workspace {
+            "/workspace".into()
+        } else {
+            root.to_string_lossy().replace('\\', "/")
+        },
+        exit_code: process
+            .try_wait()
+            .ok()
+            .flatten()
+            .and_then(|status| status.code()),
+        stdout: output_text(stdout_bytes),
         stderr,
         timed_out,
+        isolation,
     })
 }
 
@@ -203,5 +216,44 @@ mod tests {
         assert_eq!(effective_timeout(Some(0)), 1);
         assert_eq!(effective_timeout(Some(5)), 5);
         assert_eq!(effective_timeout(Some(10_000)), MAX_TIMEOUT_SECS);
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "Requires Bubblewrap and enabled unprivileged user namespaces"]
+    fn live_isolated_runner_returns_output_and_stops_at_timeout() {
+        let root = std::env::temp_dir().join(format!(
+            "iris-shell-runner-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let result = run_shell_at(
+            root.clone(),
+            "pwd; printf checked > result.txt".into(),
+            Some(5),
+            ShellIsolation::Workspace,
+        )
+        .unwrap();
+        assert_eq!(result.exit_code, Some(0), "{}", result.stderr);
+        assert_eq!(result.cwd, "/workspace");
+        assert_eq!(result.stdout.trim(), "/workspace");
+        assert_eq!(
+            std::fs::read_to_string(root.join("result.txt")).unwrap(),
+            "checked"
+        );
+        let started = Instant::now();
+        let stopped = run_shell_at(
+            root.clone(),
+            "printf started; sleep 60".into(),
+            Some(1),
+            ShellIsolation::Workspace,
+        )
+        .unwrap();
+        assert!(stopped.timed_out);
+        assert!(stopped.stdout.contains("started"));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

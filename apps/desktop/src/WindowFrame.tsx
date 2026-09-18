@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useRef } from 'react';
 import type { IrisObjectType } from '@iris/core';
 import { CloseIcon, IrisMark } from './icons';
+const BrowserState = lazy(() => import('./BrowserState').then(module => ({ default: module.BrowserState })));
+const DocumentsState = lazy(() => import('./DocumentsState').then(module => ({ default: module.DocumentsState })));
 const AgentsState = lazy(() => import('./AgentsState').then((module) => ({ default: module.AgentsState })));
 const ChannelsWindow = lazy(() => import('./ChannelsState').then((module) => ({ default: module.ChannelsWindow })));
 const GitHubState = lazy(() => import('./GitHubState').then((module) => ({ default: module.GitHubState })));
@@ -242,6 +244,10 @@ export function WindowFrame({
           <SchedulesState />
         ) : win.objectType === 'workspace' ? (
           <WorkspaceState />
+        ) : win.objectType === 'browser' ? (
+          <BrowserState />
+        ) : win.objectType === 'documents' ? (
+          <DocumentsState />
         ) : win.objectType === 'models' ? (
           <ModelsState />
         ) : win.objectType === 'memory' ? (

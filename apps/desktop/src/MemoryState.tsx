@@ -1,3 +1,4 @@
+import { KnowledgePanel } from './KnowledgePanel';
 import type { AgentDefinition,AgentMemoryAccess } from '@iris/core';
 import type {
 MemoryEmbeddingIndexBuildProgress,
@@ -27,7 +28,7 @@ type MemoryRetrievalConfig,
 import { agentRepository } from './persistence';
 
 export function MemoryState() {
-  const [memoryTab, setMemoryTab] = useState<'records' | 'benchmark' | 'constellation'>('records');
+  const [memoryTab, setMemoryTab] = useState<'records' | 'benchmark' | 'constellation' | 'knowledge'>('records');
   const [records, setRecords] = useState<MemoryRecord[]>([]);
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -299,7 +300,7 @@ export function MemoryState() {
         <span className="memory-local-seal">Local store</span>
       </div>
 
-      <div className="memory-facts">
+      {memoryTab !== 'knowledge' && <div className="memory-facts">
         <div>
           <strong>{records.length}</strong>
           <span>saved records</span>
@@ -308,20 +309,21 @@ export function MemoryState() {
           <strong>{grantedAgents}</strong>
           <span>agents with access</span>
         </div>
-      </div>
+      </div>}
 
-      <div style={{ display: 'flex', gap: '8px', margin: '14px 0 16px 0', borderBottom: '1px solid var(--line)', paddingBottom: '10px' }}>
+      <div className="memory-tabs" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', margin: '14px 0 16px 0', borderBottom: '1px solid var(--line)', paddingBottom: '10px' }}>
         <button
           type="button"
-          className={`button ${memoryTab === 'records' ? 'button-primary' : 'button-secondary'}`}
+          className={`row-button ${memoryTab === 'records' ? 'selected' : ''}`}
           onClick={() => setMemoryTab('records')}
           style={{ fontSize: '12px', padding: '6px 14px' }}
         >
           🧠 Stored Memories ({records.length})
         </button>
+        <button type="button" className={`row-button ${memoryTab === 'knowledge' ? 'selected' : ''}`} onClick={() => setMemoryTab('knowledge')}>Knowledge & preferences</button>
         <button
           type="button"
-          className={`button ${memoryTab === 'benchmark' ? 'button-primary' : 'button-secondary'}`}
+          className={`row-button ${memoryTab === 'benchmark' ? 'selected' : ''}`}
           onClick={() => setMemoryTab('benchmark')}
           style={{ fontSize: '12px', padding: '6px 14px' }}
         >
@@ -329,7 +331,7 @@ export function MemoryState() {
         </button>
         <button
           type="button"
-          className={`button ${memoryTab === 'constellation' ? 'button-primary' : 'button-secondary'}`}
+          className={`row-button ${memoryTab === 'constellation' ? 'selected' : ''}`}
           onClick={() => setMemoryTab('constellation')}
           style={{ fontSize: '12px', padding: '6px 14px' }}
         >
@@ -337,7 +339,9 @@ export function MemoryState() {
         </button>
       </div>
 
-      {memoryTab === 'benchmark' ? (
+      {memoryTab === 'knowledge' ? (
+        <KnowledgePanel scope={{kind:'global'}} />
+      ) : memoryTab === 'benchmark' ? (
         <MemoryBenchmarkView />
       ) : memoryTab === 'constellation' ? (
         <MemoryConstellationView records={records} agentId={selectedId} agentName={agents.find((agent) => agent.id === selectedId)?.name} />

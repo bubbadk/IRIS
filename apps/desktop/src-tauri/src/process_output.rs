@@ -7,7 +7,9 @@ pub fn read_bounded(mut pipe: impl Read) -> Vec<u8> {
     let mut result = Vec::new();
     let mut chunk = [0u8; 8192];
     while let Ok(count) = pipe.read(&mut chunk) {
-        if count == 0 { break; }
+        if count == 0 {
+            break;
+        }
         let retained = count.min((OUTPUT_LIMIT + 1).saturating_sub(result.len()));
         result.extend_from_slice(&chunk[..retained]);
     }
@@ -17,7 +19,9 @@ pub fn read_bounded(mut pipe: impl Read) -> Vec<u8> {
 pub fn output_text(bytes: Vec<u8>) -> String {
     let truncated = bytes.len() > OUTPUT_LIMIT;
     let mut text = String::from_utf8_lossy(&bytes[..bytes.len().min(OUTPUT_LIMIT)]).into_owned();
-    if truncated { text.push_str("\n[output truncated]"); }
+    if truncated {
+        text.push_str("\n[output truncated]");
+    }
     text
 }
 

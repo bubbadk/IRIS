@@ -1,3 +1,4 @@
+import { ApprovalSummaryById } from './ApprovalSummaryView';
 import type { AgentDefinition, ReasoningEffort } from '@iris/core';
 import type { ModelImage } from '@iris/providers';
 import { loadProviderConfigs } from '@iris/providers';
@@ -14,7 +15,6 @@ import {
   MessageImages,
   RichMessage,
   shortToolLabel,
-  ToolRequestView,
 } from './ChatContent';
 import { EmojiPicker } from './EmojiPicker';
 import { subscribeMcpServers } from './mcp';
@@ -34,9 +34,22 @@ export function ChatDesklet({
   onReset: () => void;
   initialQuery?: string;
 }) {
-  const [agents, setAgents] = useState<AgentDefinition[]>(() => agentRepository.listSync());
+  // A corrupt agent document fails the repository read instead of being silently replaced with an
+  // empty list, so this caller surfaces the exact reason and keeps the desktop usable.
+  const [initialAgents] = useState(() => {
+    try {
+      return { agents: agentRepository.listSync(), error: null as string | null };
+    } catch (failure) {
+      return {
+        agents: [] as AgentDefinition[],
+        error: failure instanceof Error ? failure.message : String(failure),
+      };
+    }
+  });
+  const [agents, setAgents] = useState<AgentDefinition[]>(initialAgents.agents);
+  const [agentLoadError, setAgentLoadError] = useState<string | null>(initialAgents.error);
   const [selectedAgentId, setSelectedAgentId] = useState(
-    () => agentRepository.listSync()[0]?.id || '',
+    () => initialAgents.agents[0]?.id || '',
   );
   const [draft, setDraft] = useState(initialQuery ?? '');
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
@@ -62,7 +75,6 @@ export function ChatDesklet({
     error,
     turnStartedAt,
     approval,
-    approvalInput,
     activeTools,
   } = currentAgentState;
 
@@ -107,12 +119,22 @@ export function ChatDesklet({
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const stored = await agentRepository.list();
-      const normalized = await Promise.all(stored.map(normalizeDesktopAgent));
-      if (!active) return;
-      setAgents(normalized);
-      setSelectedAgentId((current) => current || normalized[0]?.id || '');
-      setSkills(await listSkills());
+      try {
+        const stored = await agentRepository.list();
+        const normalized = await Promise.all(stored.map(normalizeDesktopAgent));
+        if (!active) return;
+        setAgents(normalized);
+        setSelectedAgentId((current) => current || normalized[0]?.id || '');
+        setSkills(await listSkills());
+        setAgentLoadError(null);
+      } catch (failure) {
+        if (!active) return;
+        setAgentLoadError(
+          failure instanceof Error
+            ? failure.message
+            : 'Saved agent configuration could not be read.',
+        );
+      }
     };
     void load();
     const unsubscribe = subscribeSkills(() => void listSkills().then(setSkills));
@@ -404,6 +426,9 @@ export function ChatDesklet({
                 </span>
                 <span className="tool-name">{tool.name.replaceAll('_', ' ')}</span>
                 <span className="tool-badge">{tool.status}</span>
+                {(tool.status === 'failed' || tool.status === 'denied') && tool.reason && (
+                  <p className="tool-failure-reason">{tool.reason}</p>
+                )}
               </div>
             ))}
           </div>
@@ -413,7 +438,7 @@ export function ChatDesklet({
             <p className="eyebrow">Permission requested</p>
             <strong>{approval.toolName} requires your approval</strong>
             <p>{approval.reason}</p>
-            <ToolRequestView input={approvalInput} />
+            <ApprovalSummaryById approvalId={approval.id} />
             <div>
               <button className="row-button" onClick={() => void resolveApproval('deny')}>
                 Deny
@@ -441,6 +466,17 @@ export function ChatDesklet({
             {turnStartedAt !== null && (
               <span className="desktop-chat-elapsed">{formatElapsed(elapsedSeconds)}</span>
             )}
+          </div>
+        )}
+        {agentLoadError && (
+          <div className="desktop-chat-turn-error" role="alert">
+            <span className="desktop-chat-turn-error-mark" aria-hidden="true">
+              !
+            </span>
+            <div>
+              <strong>Saved agent configuration could not be read</strong>
+              <p>{agentLoadError}</p>
+            </div>
           </div>
         )}
         {error && (

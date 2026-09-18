@@ -1,3 +1,6 @@
+import { redactInlineSecrets, redactSensitiveInput } from '@iris/tools';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { ModelImage } from '@iris/providers';
 import { diffWorkspaceText } from '@iris/workspaces';
 import { useRef, useState } from 'react';
@@ -5,51 +8,41 @@ import type { ComposerAttachment } from './attachments';
 import { DiffViewer } from './DiffViewer';
 
 export function RichMessage({ content }: { content: string }) {
-  const tokenPattern = /(https?:\/\/[^\s<]+|\*\*[^*]+\*\*)/g;
   return (
-    <>
-      {content.split(tokenPattern).map((token, index) => {
-        if (/^https?:\/\//.test(token)) {
-          const href = token.replace(/[),.;!?]+$/, '');
-          const trailing = token.slice(href.length);
-          const isImage =
-            /\.(?:png|jpg|jpeg|webp|gif)(?:\?.*)?$/i.test(href) ||
-            href.includes('pollinations.ai/prompt/') ||
-            href.includes('oaidalleapiprodscus');
-          if (isImage) {
-            return (
-              <span key={`${token}-${index}`} style={{ display: 'block', margin: '8px 0' }}>
-                <a href={href} target="_blank" rel="noreferrer" style={{ display: 'inline-block' }}>
-                  <img
-                    src={href}
-                    alt="Generated Visual"
-                    style={{
-                      maxWidth: '100%',
-                      maxHeight: '380px',
-                      borderRadius: '10px',
-                      boxShadow: '0 4px 14px rgba(0,0,0,0.1)',
-                      border: '1px solid var(--line)',
-                    }}
-                  />
-                </a>
-                {trailing}
-              </span>
-            );
-          }
-          return (
-            <span key={`${token}-${index}`}>
-              <a href={href} target="_blank" rel="noreferrer">
-                {href}
+    <div className="rich-message">
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        skipHtml
+        urlTransform={(url) => (/^https?:\/\//i.test(url) ? url : '')}
+        components={{
+          a: ({ href, children }) =>
+            href ? (
+              <a href={href} target="_blank" rel="noreferrer noopener">
+                {typeof children === 'string' &&
+                children === href &&
+                (/\.(?:png|jpg|jpeg|webp|gif)(?:\?.*)?$/i.test(href) ||
+                  href.includes('pollinations.ai/prompt/') ||
+                  href.includes('oaidalleapiprodscus')) ? (
+                  <img src={href} alt="Generated visual" loading="lazy" />
+                ) : (
+                  children
+                )}
               </a>
-              {trailing}
-            </span>
-          );
-        }
-        if (/^\*\*[^*]+\*\*$/.test(token))
-          return <strong key={`${token}-${index}`}>{token.slice(2, -2)}</strong>;
-        return <span key={`${token}-${index}`}>{token}</span>;
-      })}
-    </>
+            ) : (
+              <span>{children}</span>
+            ),
+          img: ({ src, alt }) =>
+            src ? <img src={src} alt={alt || 'Image'} loading="lazy" /> : <span>{alt}</span>,
+          table: ({ children }) => (
+            <div className="message-table-scroll">
+              <table>{children}</table>
+            </div>
+          ),
+        }}
+      >
+        {content}
+      </Markdown>
+    </div>
   );
 }
 
@@ -264,22 +257,28 @@ function describeToolRequest(input: unknown): string {
       `Patch preview · ${diff.changed ? 'changes requested' : 'no changes'}\n${diff.lines.map((line) => line.text).join('\n')}${diff.truncated ? '\n… preview truncated' : ''}`,
     );
   }
-  const remaining = Object.fromEntries(
-    Object.entries(value).filter(
-      ([key]) =>
-        ![
-          'path',
-          'sourcePath',
-          'targetPath',
-          'overwrite',
-          'content',
-          'expectedContent',
-          'updatedContent',
-        ].includes(key),
+  const remaining = redactSensitiveInput(
+    Object.fromEntries(
+      Object.entries(value).filter(
+        ([key]) =>
+          ![
+            'path',
+            'sourcePath',
+            'targetPath',
+            'overwrite',
+            'content',
+            'expectedContent',
+            'updatedContent',
+          ].includes(key),
+      ),
     ),
-  );
-  if (Object.keys(remaining).length > 0) lines.push(JSON.stringify(remaining, null, 2));
-  return lines.join('\n') || '{}';
+  ).value;
+  if (remaining && Object.keys(remaining).length > 0) {
+    lines.push(JSON.stringify(remaining, null, 2));
+  }
+  // A tool trace must never carry a credential into the transcript: key-shaped values are replaced
+  // by the shared redactor, and pasted `Authorization:`/`Bearer`/`--password` fragments are scrubbed.
+  return redactInlineSecrets(lines.join('\n')) || '{}';
 }
 
 export function formatMemoryDate(value: string): string {

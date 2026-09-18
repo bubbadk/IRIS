@@ -21,6 +21,12 @@ export function createJanitorCommandTool(): RegisteredTool {
       'Runs a user-requested diagnostic or maintenance command on the local PC or Unraid.',
     risk: 'execute',
     manualExecution: false,
+    // M-11: Janitor executes a caller-supplied command directly on the host (and can ask for sudo),
+    // so it is mandatory-approval like the workspace shell. `alwaysRequireApproval` is checked by
+    // the permission engine before allow rules and YOLO, so no rule, no autonomy mode and no
+    // delegated child can turn this into an unprompted host command. The prompt shows the target
+    // and the exact command (see `describeApproval`), and the approved command is immutable.
+    alwaysRequireApproval: true,
     inputSchema: {
       type: 'object',
       properties: {

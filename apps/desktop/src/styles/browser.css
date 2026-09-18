@@ -1,0 +1,56 @@
+.browser-state {
+  display: grid;
+  gap: 18px;
+  padding: 28px;
+}
+.browser-state header h2 {
+  margin: 6px 0 10px;
+  font-size: 28px;
+  letter-spacing: -0.8px;
+}
+.browser-state p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.browser-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.browser-control-card {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fffdf8;
+}
+.browser-control-card p {
+  margin: 8px 0 14px;
+  font-size: 13px;
+}
+.browser-location {
+  display: grid;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.browser-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+.browser-tabs button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, #fffdf8);
+  color: var(--ink);
+}
+.browser-location span,
+.browser-state small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.browser-capture {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}

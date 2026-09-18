@@ -1,17 +1,62 @@
-import { useEffect, useState } from 'react';
+import { ApprovalSummaryById } from './ApprovalSummaryView';
+import { ProjectCheckEditor } from './ProjectCheckEditor';
+import { KnowledgePanel } from './KnowledgePanel';
+import { useEffect, useRef, useState } from 'react';
+import { ProjectRunReview } from './ProjectRunReview';
 import type { AgentDefinition } from '@iris/core';
 import {
   addProjectTask,
+  describeProjectCheck,
+  type ProjectResultCheck,
   createProjectGraph,
   projectProgress,
   projectTaskState,
   setProjectTaskCompletion,
   type ProjectGraph,
+  type ProjectQueueEntry,
   type ProjectTaskRun,
 } from '@iris/workflows';
-import { agentRepository, projectGraphRepository, projectTaskRunRepository } from './persistence';
+import {
+  agentRepository,
+  projectGraphRepository,
+  projectQueueRepository,
+  projectTaskRunRepository,
+} from './persistence';
+import { projectQueueDispatcher, subscribeProjectQueueRuntime } from './projectQueueRuntime';
 import { projectWorkflowRuntime, subscribeProjectRuntime } from './projectRuntime';
 import { projectRunStatusLabel, sortProjectTaskRuns } from './projectRunHistory';
+
+function projectQueueEntryLabel(entry: ProjectQueueEntry): string {
+  switch (entry.status) {
+    case 'claimed':
+      return 'Queue dispatch in progress';
+    case 'launched':
+      return 'Worker launched';
+    case 'needs-attention':
+      return 'Queue dispatch needs attention';
+    case 'cancelled':
+      return 'Removed from the queue';
+    default:
+      return 'Queued';
+  }
+}
+
+function projectQueueEntryFallback(entry: ProjectQueueEntry): string {
+  switch (entry.status) {
+    case 'claimed':
+      return 'IRIS is waiting for the worker to return a real run record.';
+    case 'launched':
+      return entry.runId
+        ? `Worker run ${entry.runId} was created.`
+        : 'A worker run was created; open project history for its real status.';
+    case 'needs-attention':
+      return 'IRIS could not confirm a worker run, and this entry will not retry automatically.';
+    case 'cancelled':
+      return 'This entry was removed before a worker was launched.';
+    default:
+      return 'Starts after prerequisites are verified.';
+  }
+}
 
 function formatProjectDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -82,7 +127,8 @@ const projectPresets: ProjectPreset[] = [
   {
     title: 'Release & Packaging',
     badge: '3 steps',
-    objective: 'Prepare project for distribution, compile binary executables, and generate release notes.',
+    objective:
+      'Prepare project for distribution, compile binary executables, and generate release notes.',
     tasks: [
       {
         title: '1. Versioning & Changelog',
@@ -107,9 +153,11 @@ export function ProjectsState({
 }: {
   onOpenFlowStage?: (projectId: string) => void;
 } = {}) {
+  const historyRef = useRef<HTMLElement>(null);
   const [projects, setProjects] = useState<ProjectGraph[]>([]);
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
   const [runs, setRuns] = useState<ProjectTaskRun[]>([]);
+  const [queueEntries, setQueueEntries] = useState<ProjectQueueEntry[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState('');
@@ -119,6 +167,10 @@ export function ProjectsState({
   const [objective, setObjective] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState('');
+  const [resultChecks, setResultChecks] = useState<ProjectResultCheck[]>([]);
+  const [turnLimit, setTurnLimit] = useState(4);
+  const [timeLimitMinutes, setTimeLimitMinutes] = useState<number | ''>('');
   const [dependencyId, setDependencyId] = useState('');
   const [launchingTaskId, setLaunchingTaskId] = useState<string | null>(null);
   const [cancellingRunId, setCancellingRunId] = useState<string | null>(null);
@@ -142,6 +194,7 @@ export function ProjectsState({
           id: taskId,
           title: t.title,
           description: t.description,
+          turnLimit: 4,
           dependencyIds: depId ? [depId] : [],
           createdAt: new Date().toISOString(),
         });
@@ -153,7 +206,9 @@ export function ProjectsState({
       setShowProjectEditor(false);
       setError('');
     } catch (presetError) {
-      setError(presetError instanceof Error ? presetError.message : 'Could not create preset project.');
+      setError(
+        presetError instanceof Error ? presetError.message : 'Could not create preset project.',
+      );
     }
   }
 
@@ -163,10 +218,12 @@ export function ProjectsState({
       await projectWorkflowRuntime.reconcile();
       const stored = await projectGraphRepository.list();
       const storedRuns = await projectTaskRunRepository.list();
+      const storedQueue = await projectQueueRepository.list();
       const storedAgents = await agentRepository.list();
       if (!active) return;
       setProjects(stored);
       setRuns(storedRuns);
+      setQueueEntries(storedQueue);
       setAgents(storedAgents);
       setSelectedId(stored[0]?.id ?? null);
       setSelectedAgentId(storedAgents[0]?.id ?? '');
@@ -182,9 +239,15 @@ export function ProjectsState({
         },
       );
     });
+    const unsubscribeQueue = subscribeProjectQueueRuntime(() => {
+      void projectQueueRepository.list().then((storedQueue) => {
+        if (active) setQueueEntries(storedQueue);
+      });
+    });
     return () => {
       active = false;
       unsubscribe();
+      unsubscribeQueue();
     };
   }, []);
 
@@ -236,6 +299,10 @@ export function ProjectsState({
         id: `task-${crypto.randomUUID()}`,
         title: taskTitle,
         description: taskDescription,
+        acceptanceCriteria,
+        resultChecks,
+        turnLimit,
+        ...(timeLimitMinutes === '' ? {} : { timeLimitMinutes }),
         dependencyIds: dependencyId ? [dependencyId] : [],
         createdAt: new Date().toISOString(),
       });
@@ -243,6 +310,9 @@ export function ProjectsState({
       replaceProject(next);
       setTaskTitle('');
       setTaskDescription('');
+      setAcceptanceCriteria('');
+      setResultChecks([]);
+      setTimeLimitMinutes('');
       setDependencyId('');
       setError('');
     } catch (taskError) {
@@ -279,6 +349,58 @@ export function ProjectsState({
       );
     } finally {
       setLaunchingTaskId(null);
+    }
+  }
+
+  async function queueTask(taskId: string) {
+    if (!selected || !selectedAgentId) return;
+    setError('');
+    try {
+      const now = new Date().toISOString();
+      await projectQueueRepository.enqueue({
+        version: 1,
+        id: `project-queue-${crypto.randomUUID()}`,
+        projectId: selected.id,
+        taskId,
+        agentId: selectedAgentId,
+        status: 'queued',
+        queuedAt: now,
+        updatedAt: now,
+      });
+      await projectQueueDispatcher.tick();
+      setQueueEntries(await projectQueueRepository.list());
+    } catch (queueError) {
+      setError(queueError instanceof Error ? queueError.message : 'The task could not be queued.');
+    }
+  }
+
+  async function cancelQueuedTask(entry: ProjectQueueEntry) {
+    try {
+      // Re-read first: the dispatcher may have claimed, launched or already cancelled this entry
+      // while the row was rendered. Report the real state instead of overwriting it.
+      const current = await projectQueueRepository.get(entry.id);
+      if (!current) throw new Error('This queue entry no longer exists.');
+      if (!['queued', 'claimed'].includes(current.status)) {
+        setQueueEntries(await projectQueueRepository.list());
+        setError(
+          current.runId
+            ? `This entry is already "${current.status}", and worker run ${current.runId} exists. Cancel that run instead.`
+            : `This entry is already "${current.status}".`,
+        );
+        return;
+      }
+      await projectQueueRepository.save({
+        ...current,
+        status: 'cancelled',
+        updatedAt: new Date().toISOString(),
+        message: 'Removed from the project queue before dispatch.',
+      });
+      setQueueEntries(await projectQueueRepository.list());
+      setError('');
+    } catch (queueError) {
+      setError(
+        queueError instanceof Error ? queueError.message : 'The queue entry could not be removed.',
+      );
     }
   }
 
@@ -321,7 +443,9 @@ export function ProjectsState({
           <div className="schedule-presets-section">
             <div className="schedule-presets-header">
               <span className="schedule-presets-title">⚡ Project Presets</span>
-              <span className="schedule-presets-subtitle">Quickstart with a pre-configured task graph and dependency chain:</span>
+              <span className="schedule-presets-subtitle">
+                Quickstart with a pre-configured task graph and dependency chain:
+              </span>
             </div>
             <div className="schedule-presets-grid">
               {projectPresets.map((preset) => (
@@ -386,8 +510,8 @@ export function ProjectsState({
         <div className="projects-empty">
           <strong>No project graphs yet</strong>
           <p>
-            Projects let you define step-by-step tasks that autonomous agents execute with dependency
-            control. Select a preset above or author your own graph.
+            Projects let you define step-by-step tasks that autonomous agents execute with
+            dependency control. Select a preset above or author your own graph.
           </p>
         </div>
       ) : (
@@ -450,12 +574,19 @@ export function ProjectsState({
                 </dl>
               </div>
 
+              <details className="project-knowledge-section">
+                <summary>Project knowledge & preferences</summary>
+                <KnowledgePanel
+                  key={selected.id}
+                  scope={{ kind: 'project', projectId: selected.id }}
+                />
+              </details>
               <div className="project-runtime-truth">
                 <div>
                   <span />
                   <p>
-                    Ready tasks run only when you launch them. Success completes the task; failure
-                    or approval suspension leaves dependents blocked.
+                    Ready tasks run when you launch them. Worker reports await your review;
+                    dependencies unlock only after you verify the result.
                   </p>
                 </div>
                 <label>
@@ -511,7 +642,63 @@ export function ProjectsState({
                     placeholder="What makes this task complete?"
                   />
                 </label>
-                <button className="soft-button primary-button" disabled={!taskTitle.trim()}>
+                <label>
+                  Acceptance criteria <span>optional</span>
+                  <textarea
+                    aria-description="Each non-empty line is a required criterion with its own human assessment."
+                    value={acceptanceCriteria}
+                    onChange={(event) => setAcceptanceCriteria(event.target.value)}
+                    rows={2}
+                    placeholder="One required criterion per line."
+                  />
+                </label>
+                <ProjectCheckEditor checks={resultChecks} onChange={setResultChecks} />
+                <label>
+                  Maximum agent turns
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={turnLimit}
+                    onChange={(event) => setTurnLimit(Number(event.target.value))}
+                  />
+                  <span>
+                    Continue at the tool limit or after failed result checks, up to this many turns.
+                    You can pause between turns.
+                  </span>
+                </label>
+                <label>
+                  Wall-clock limit <span>optional</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={timeLimitMinutes}
+                    onChange={(event) =>
+                      setTimeLimitMinutes(
+                        event.target.value === '' ? '' : Number(event.target.value),
+                      )
+                    }
+                    placeholder="Minutes"
+                  />
+                  <span>
+                    Stops this worker run at a real deadline. A stopped run requires inspection
+                    before any manual continuation.
+                  </span>
+                </label>
+                <button
+                  className="soft-button primary-button"
+                  disabled={
+                    !taskTitle.trim() ||
+                    !Number.isInteger(turnLimit) ||
+                    turnLimit < 1 ||
+                    turnLimit > 10 ||
+                    (timeLimitMinutes !== '' &&
+                      (!Number.isInteger(timeLimitMinutes) ||
+                        timeLimitMinutes < 1 ||
+                        timeLimitMinutes > 1440))
+                  }
+                >
                   Add task
                 </button>
               </form>
@@ -532,6 +719,39 @@ export function ProjectsState({
                     const activeRun = taskRuns.find((run) =>
                       ['queued', 'running', 'suspended'].includes(run.status),
                     );
+                    // Every stored entry for this task stays visible. A dispatch that failed, or a
+                    // worker that really started, is part of the task's true state — hiding it made
+                    // an unresolved queue failure look like nothing had happened.
+                    const taskQueueEntries = queueEntries
+                      .filter(
+                        (entry) => entry.projectId === selected.id && entry.taskId === task.id,
+                      )
+                      .sort(
+                        (left, right) =>
+                          right.updatedAt.localeCompare(left.updatedAt) ||
+                          right.id.localeCompare(left.id),
+                      );
+                    const pendingQueueEntry = taskQueueEntries.find((entry) =>
+                      ['queued', 'claimed'].includes(entry.status),
+                    );
+                    const latestQueueEntry = taskQueueEntries[0];
+                    const settledQueueEntry = taskQueueEntries.find(
+                      (entry) =>
+                        entry !== pendingQueueEntry &&
+                        !['queued', 'claimed'].includes(entry.status),
+                    );
+                    const waitingQueueCount = taskQueueEntries.filter((entry) =>
+                      ['queued', 'claimed'].includes(entry.status),
+                    ).length;
+                    // A `launched` entry is proof that a worker run exists, so it must not be
+                    // followed by a control that implies nothing started.
+                    const queueBlocksNewWork =
+                      Boolean(pendingQueueEntry) || latestQueueEntry?.status === 'launched';
+                    const queueEntryAgentId =
+                      pendingQueueEntry?.agentId ?? latestQueueEntry?.agentId;
+                    const queuedAgent = queueEntryAgentId
+                      ? agents.find((agent) => agent.id === queueEntryAgentId)
+                      : undefined;
                     const dependencies = task.dependencyIds.map(
                       (id) => selected.tasks.find((candidate) => candidate.id === id)?.title ?? id,
                     );
@@ -545,24 +765,80 @@ export function ProjectsState({
                           </div>
                           {task.description && <p>{task.description}</p>}
                           <small>
+                            Up to {task.turnLimit ?? 1} agent turn
+                            {(task.turnLimit ?? 1) === 1 ? '' : 's'}
+                          </small>
+                          {!!task.resultChecks?.length && (
+                            <details>
+                              <summary>
+                                Automatic result checks ({task.resultChecks.length})
+                              </summary>
+                              <ul>
+                                {task.resultChecks.map((check) => (
+                                  <li key={check.id}>{describeProjectCheck(check)}</li>
+                                ))}
+                              </ul>
+                            </details>
+                          )}
+                          {task.acceptanceCriteria && (
+                            <p>
+                              <strong>Acceptance criteria:</strong> {task.acceptanceCriteria}
+                            </p>
+                          )}
+                          {task.timeLimitMinutes && (
+                            <small>Wall-clock limit: {task.timeLimitMinutes} minutes</small>
+                          )}
+                          <small>
                             {dependencies.length > 0
                               ? `After ${dependencies.join(', ')}`
                               : `Added ${formatProjectDate(task.createdAt)}`}
                           </small>
                           {latestRun && (
                             <div className="task-run-summary" data-run-state={latestRun.status}>
-                              <span>{latestRun.status}</span>
+                              <span>{projectRunStatusLabel(latestRun.status)}</span>
                               <small>
                                 {latestRun.agentName}
                                 {latestRun.status === 'suspended' && latestRun.approval
                                   ? ` · waiting for ${latestRun.approval.toolName}`
                                   : latestRun.status === 'failed'
                                     ? ` · ${latestRun.failure}`
-                                    : latestRun.status === 'completed' && latestRun.output
+                                    : latestRun.output
                                       ? ` · ${latestRun.output}`
                                       : latestRun.status === 'cancelled'
                                         ? ' · Cancelled before completion'
                                         : ''}
+                              </small>
+                            </div>
+                          )}
+                          {pendingQueueEntry && (
+                            <div
+                              className="task-run-summary"
+                              data-run-state={pendingQueueEntry.status}
+                              data-queue-entry-id={pendingQueueEntry.id}
+                            >
+                              <span>{projectQueueEntryLabel(pendingQueueEntry)}</span>
+                              <small>
+                                {queuedAgent?.name ?? 'Removed agent'}
+                                {waitingQueueCount > 1
+                                  ? ` · ${waitingQueueCount} entries are waiting for this task.`
+                                  : pendingQueueEntry.status === 'claimed'
+                                    ? ' · IRIS is waiting for the worker to return a real run record.'
+                                    : ' · Starts after prerequisites are verified.'}
+                              </small>
+                            </div>
+                          )}
+                          {settledQueueEntry && (
+                            <div
+                              className="task-run-summary"
+                              data-run-state={settledQueueEntry.status}
+                              data-queue-entry-id={settledQueueEntry.id}
+                              data-run-id={settledQueueEntry.runId ?? ''}
+                            >
+                              <span>{projectQueueEntryLabel(settledQueueEntry)}</span>
+                              <small>
+                                {queuedAgent?.name ?? 'Removed agent'} ·{' '}
+                                {settledQueueEntry.message ??
+                                  projectQueueEntryFallback(settledQueueEntry)}
                               </small>
                             </div>
                           )}
@@ -574,6 +850,7 @@ export function ProjectsState({
                               disabled={
                                 !selectedAgentId ||
                                 Boolean(activeRun) ||
+                                queueBlocksNewWork ||
                                 launchingTaskId === task.id
                               }
                               onClick={() => void launchTask(task.id)}
@@ -583,6 +860,38 @@ export function ProjectsState({
                                 : activeRun
                                   ? activeRun.status
                                   : 'Launch'}
+                            </button>
+                          )}
+                          {state !== 'completed' &&
+                            !queueBlocksNewWork &&
+                            !activeRun &&
+                            (!latestQueueEntry || latestQueueEntry.status === 'cancelled') && (
+                              <button
+                                className="row-button"
+                                disabled={!selectedAgentId}
+                                onClick={() => void queueTask(task.id)}
+                              >
+                                Queue
+                              </button>
+                            )}
+                          {state !== 'completed' &&
+                            !queueBlocksNewWork &&
+                            !activeRun &&
+                            latestQueueEntry?.status === 'needs-attention' && (
+                              <button
+                                className="row-button"
+                                disabled={!selectedAgentId}
+                                onClick={() => void queueTask(task.id)}
+                              >
+                                Queue again
+                              </button>
+                            )}
+                          {pendingQueueEntry?.status === 'queued' && (
+                            <button
+                              className="row-button"
+                              onClick={() => void cancelQueuedTask(pendingQueueEntry)}
+                            >
+                              Remove from queue
                             </button>
                           )}
                           {activeRun && (
@@ -597,13 +906,23 @@ export function ProjectsState({
                           <button
                             className="row-button"
                             disabled={state === 'blocked' || Boolean(activeRun)}
-                            onClick={() => void toggleTask(task.id, state !== 'completed')}
+                            onClick={() => {
+                              if (state !== 'completed' && latestRun) {
+                                setSelectedRunId(latestRun.id);
+                                historyRef.current?.scrollIntoView({
+                                  behavior: 'smooth',
+                                  block: 'start',
+                                });
+                              } else void toggleTask(task.id, state !== 'completed');
+                            }}
                           >
                             {state === 'completed'
                               ? 'Reopen'
                               : state === 'blocked'
                                 ? 'Waiting'
-                                : 'Complete manually'}
+                                : latestRun
+                                  ? 'Review worker result'
+                                  : 'Complete manually'}
                           </button>
                         </div>
                       </li>
@@ -612,7 +931,11 @@ export function ProjectsState({
                 </ol>
               )}
 
-              <section className="project-history" aria-label="Project run history">
+              <section
+                ref={historyRef}
+                className="project-history"
+                aria-label="Project run history"
+              >
                 <div className="project-section-heading">
                   <div>
                     <p className="eyebrow">Run history</p>
@@ -689,6 +1012,7 @@ export function ProjectsState({
                             <dd>
                               {formatProjectDateOrDash(
                                 selectedRun.completedAt ??
+                                  selectedRun.returnedAt ??
                                   selectedRun.failedAt ??
                                   selectedRun.cancelledAt,
                               )}
@@ -704,14 +1028,19 @@ export function ProjectsState({
                             <strong>Approval</strong>
                             <p>{selectedRun.approval.toolName}</p>
                             <small>{selectedRun.approval.reason}</small>
+                            <ApprovalSummaryById approvalId={selectedRun.approval.id} />
                           </div>
                         )}
-                        {selectedRun.output && (
-                          <div className="project-run-copy">
-                            <strong>Outcome</strong>
-                            <p>{selectedRun.output}</p>
-                          </div>
-                        )}
+                        <ProjectRunReview
+                          key={selectedRun.id}
+                          run={selectedRun}
+                          canAct={
+                            selected.tasks.some((task) => task.id === selectedRun.taskId) &&
+                            projectTaskState(selected, selectedRun.taskId) === 'ready' &&
+                            selectedRuns.find((run) => run.taskId === selectedRun.taskId)?.id ===
+                              selectedRun.id
+                          }
+                        />
                         {selectedRun.failure && (
                           <div className="project-run-callout error">
                             <strong>Failure</strong>

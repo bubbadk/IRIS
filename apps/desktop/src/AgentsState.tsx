@@ -1,3 +1,4 @@
+import { ApprovalSummaryById } from './ApprovalSummaryView';
 import { displayedAgentModel } from './agentModelSelection';
 import {
   AttachButton,
@@ -7,7 +8,6 @@ import {
   formatMemoryDate,
   MessageImages,
   RichMessage,
-  ToolRequestView,
 } from './ChatContent';
 import { ModelHandoffMarker } from './ModelHandoffMarker';
 import { formatCount } from './systemTelemetry';
@@ -41,7 +41,6 @@ export function AgentsState() {
     turnStartedAt,
     toolStatus,
     pendingApproval,
-    pendingToolInput,
     busy,
     error,
     selectedAgent,
@@ -57,6 +56,7 @@ export function AgentsState() {
     resolveAgentApproval,
     clearConversation,
   } = state;
+  const hasReasoningDraft = reasoningDraft.trim().length > 0;
   return (
     <div className="agents-state">
       <div className="agents-heading">
@@ -295,7 +295,7 @@ export function AgentsState() {
                   );
                 })
               )}
-              {reasoningDraft && (
+              {hasReasoningDraft && (
                 <div className={`desktop-chat-reasoning ${showReasoning ? 'expanded' : ''}`}>
                   <button
                     type="button"
@@ -355,7 +355,7 @@ export function AgentsState() {
                     <p>{toolStatus}</p>
                     {pendingApproval && (
                       <div className="agent-tool-request">
-                        <ToolRequestView input={pendingToolInput} />
+                        <ApprovalSummaryById approvalId={pendingApproval.id} />
                       </div>
                     )}
                   </div>

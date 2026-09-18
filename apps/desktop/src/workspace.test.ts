@@ -193,6 +193,28 @@ describe('agent workspace context', () => {
     ).resolves.toEqual([
       expect.stringMatching(/workspace “IRIS” is mounted at “\/home\/user\/IRIS”.*workspace\.read/),
     ]);
+    // The registered directory-creation identity counts as workspace access; the pre-rename
+    // spelling `workspace.directory` did not, so `workspace.mkdir` agents lost their context.
+    await expect(
+      context.build({
+        id: 'agent-3',
+        name: 'Creator',
+        autonomy: 'assist',
+        skillIds: [],
+        toolIds: ['workspace.mkdir'],
+      }),
+    ).resolves.toEqual([
+      expect.stringMatching(/workspace “IRIS” is mounted at “\/home\/user\/IRIS”.*workspace\.mkdir/),
+    ]);
+    await expect(
+      context.build({
+        id: 'agent-4',
+        name: 'Stale',
+        autonomy: 'assist',
+        skillIds: [],
+        toolIds: ['workspace.directory'],
+      }),
+    ).resolves.toEqual([expect.stringContaining('no workspace tools assigned')]);
   });
 });
 
@@ -211,3 +233,33 @@ function serviceWithCurrent(mount: WorkspaceMount): WorkspaceService {
     applyPatch: vi.fn(),
   };
 }
+
+it('binds result reads to the configured root and rejects mismatched mounts before invoking a check', async () => {
+  const mount: WorkspaceMount = {
+    version: 1,
+    id: 'workspace',
+    name: 'Project',
+    rootPath: '/project',
+    connectedAt: new Date().toISOString(),
+    verifiedAt: new Date().toISOString(),
+  };
+  const invokeNative = vi.fn(async (command: string) => {
+    if (command === 'mount_workspace') return { name: mount.name, rootPath: mount.rootPath };
+    return { relativePath: 'result.txt', content: 'actual', bytesRead: 6, truncated: false };
+  });
+  const service = new NativeWorkspaceService(repository(mount), {
+    available: () => true,
+    invokeNative,
+    now: () => new Date(),
+    createId: () => 'unused',
+  });
+  await expect(service.readForCheck('/other', 'result.txt')).rejects.toThrow('workspace changed');
+  expect(invokeNative).not.toHaveBeenCalledWith('read_project_check_file', expect.anything());
+  await expect(service.readForCheck('/project', 'result.txt')).resolves.toMatchObject({
+    content: 'actual',
+  });
+  expect(invokeNative).toHaveBeenCalledWith('read_project_check_file', {
+    expectedRoot: '/project',
+    relativePath: 'result.txt',
+  });
+});

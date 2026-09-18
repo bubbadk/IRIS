@@ -1,4 +1,47 @@
 import type { Capability, ProviderDefinition, ReasoningEffort } from '@iris/core';
+import {
+  catalogModelsFromDirectory,
+  catalogModelsFromIds,
+  chatSelectableModelIds,
+  classifyModel,
+  defaultChatModelState,
+  dedupeModelIds,
+  embeddingModelIds,
+  embeddingModelPattern,
+  imageSelectableModelIds,
+  modelCapabilities,
+  normalizedModelIds,
+  parseModelMetadata,
+  selectDefaultChatModel,
+  NO_COMPATIBLE_CHAT_MODEL,
+  type CatalogModel,
+  type ModelCatalogMetadata,
+  type ModelMetadataRecord,
+} from './modelCatalog';
+
+export type {
+  CatalogModel,
+  ModelCapability,
+  ModelCatalogMetadata,
+  ModelClassification,
+  ModelMetadataRecord,
+} from './modelCatalog';
+export {
+  catalogModelsFromDirectory,
+  catalogModelsFromIds,
+  chatSelectableModelIds,
+  classifyModel,
+  dedupeModelIds,
+  defaultChatModelState,
+  embeddingModelIds,
+  embeddingModelPattern,
+  imageSelectableModelIds,
+  modelCapabilities,
+  normalizedModelIds,
+  parseModelMetadata,
+  selectDefaultChatModel,
+  NO_COMPATIBLE_CHAT_MODEL,
+};
 
 export type ConfiguredProviderKind =
   'openai-compatible' | 'ollama' | 'anthropic' | 'gemini' | 'cohere' | 'azure-openai';
@@ -44,12 +87,47 @@ export interface ProviderCatalogEntry {
   credentialMode: ProviderCredentialMode;
   credentialNames: string[];
   connectionFields: readonly ProviderConnectionField[];
+  /** Model identifiers supplied by the provider directory, when available. */
+  models?: readonly string[];
+  /**
+   * Per-model provider-directory metadata, keyed by model id, for the models above. This is the
+   * capability evidence the model catalog classifies; entries without it are classified by the
+   * documented conservative fallback instead of being hidden.
+   */
+  modelMetadata?: Readonly<Record<string, ModelCatalogMetadata>>;
   supported: boolean;
   supportReason?: string;
   source: 'built-in' | 'models.dev';
+  /**
+   * Provider-recommended default model, when the directory publishes one. Trusted capability
+   * classification still filters it: an image-only recommendation is ignored in favour of a
+   * compatible chat model.
+   */
+  defaultModel?: string;
 }
 
 export const providerCatalog: readonly ProviderCatalogEntry[] = [
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    description: 'DeepSeek models through its OpenAI-compatible API.',
+    kind: 'openai-compatible',
+    endpoint: 'https://api.deepseek.com',
+    credentialMode: 'required',
+    credentialNames: ['DEEPSEEK_API_KEY'],
+    connectionFields: requiredApiKeyField,
+    // Offline fallback list. The live directory supplies the authoritative list (and now keeps every
+    // model it lists); this only applies before the first successful sync, so it names the DeepSeek
+    // chat and vision models IRIS is expected to find there.
+    models: [
+      'deepseek-flash',
+      'deepseek-v4-flash',
+      'deepseek-v4-flash-vision-exp',
+      'deepseek-v4-pro',
+    ],
+    supported: true,
+    source: 'built-in',
+  },
   {
     id: 'openai',
     name: 'OpenAI',
@@ -243,6 +321,12 @@ export interface ProviderConfig {
   catalogId?: ProviderCatalogId;
   credentialMode?: ProviderCredentialMode;
   availableModels?: string[];
+  /**
+   * Provider-directory capability metadata for `availableModels`, when the catalog supplied it. It
+   * is non-secret, order-stable, and only used for classification, so it is persisted alongside the
+   * model list; a live `/models` refresh leaves it undefined rather than inventing capabilities.
+   */
+  modelMetadata?: Readonly<Record<string, ModelCatalogMetadata>>;
   modelsRefreshedAt?: string;
 }
 
@@ -268,6 +352,7 @@ interface ProviderDirectoryRecord {
   npm?: unknown;
   api?: unknown;
   env?: unknown;
+  models?: unknown;
 }
 
 const providerEndpointOverrides: Readonly<Record<string, string>> = {
@@ -326,6 +411,21 @@ function directoryEntry(id: string, value: ProviderDirectoryRecord): ProviderCat
   const endpoint =
     (typeof value.api === 'string' ? value.api : undefined) ?? providerEndpointOverrides[id] ?? '';
   const supported = Boolean(protocol && endpoint);
+  // Every model the directory lists is kept. Earlier versions filtered this list down to a
+  // hardcoded pair of DeepSeek ids, which hid real models (deepseek-v4-flash,
+  // deepseek-v4-flash-vision-exp) purely because their names were not in the list. Capability
+  // classification now decides what is selectable for what, so the catalog is never truncated here.
+  const modelRecords =
+    value.models && typeof value.models === 'object' && !Array.isArray(value.models)
+      ? (value.models as Record<string, ModelMetadataRecord>)
+      : undefined;
+  const catalogModels = catalogModelsFromDirectory(modelRecords);
+  const models = catalogModels.length
+    ? normalizedModelIds(catalogModels.map((model) => model.id))
+    : undefined;
+  const modelMetadata = Object.fromEntries(
+    catalogModels.flatMap((model) => (model.metadata ? [[model.id, model.metadata]] : [])),
+  );
   const credentialMode = credentialNames.length ? 'required' : 'optional';
   return {
     id,
@@ -338,6 +438,8 @@ function directoryEntry(id: string, value: ProviderDirectoryRecord): ProviderCat
     credentialMode,
     credentialNames,
     connectionFields: connectionFieldsForCredentialMode(credentialMode),
+    models: models?.length ? models : undefined,
+    modelMetadata: Object.keys(modelMetadata).length ? modelMetadata : undefined,
     supported,
     supportReason: supported ? undefined : `Adapter required for ${value.npm}.`,
     source: 'models.dev',
@@ -348,12 +450,41 @@ function mergeProviderCatalog(entries: readonly ProviderCatalogEntry[]): Provide
   const merged = new Map(entries.map((entry) => [entry.id, entry]));
   for (const builtIn of providerCatalog) {
     const synced = merged.get(builtIn.id);
-    merged.set(builtIn.id, synced ? { ...synced, ...builtIn } : builtIn);
+    merged.set(
+      builtIn.id,
+      synced
+        ? {
+            ...synced,
+            ...builtIn,
+            models: synced.models ?? builtIn.models,
+            modelMetadata: synced.modelMetadata ?? builtIn.modelMetadata,
+          }
+        : builtIn,
+    );
   }
   return [...merged.values()].sort((left, right) => {
     if (left.supported !== right.supported) return left.supported ? -1 : 1;
     return left.name.localeCompare(right.name);
   });
+}
+
+/**
+ * Accepts persisted model metadata only in the shape classification expects. Storage can hold
+ * anything (an older write, an externally edited document), and a malformed metadata record must
+ * degrade to "no metadata" — the conservative identifier fallback — instead of throwing while a
+ * provider list is being classified.
+ */
+function normalizeStoredModelMetadata(
+  value: unknown,
+): Readonly<Record<string, ModelCatalogMetadata>> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value as Record<string, unknown>).flatMap(([id, record]) => {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return [];
+    const candidate = record as Partial<ModelCatalogMetadata>;
+    if (!Array.isArray(candidate.outputModalities)) return [];
+    return [[id, parseModelMetadata(id, record as ModelMetadataRecord)] as const];
+  });
+  return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
 export function loadProviderCatalog(): ProviderCatalogEntry[] {
@@ -377,6 +508,7 @@ export function loadProviderCatalog(): ProviderCatalogEntry[] {
         connectionFields: Array.isArray(entry.connectionFields)
           ? entry.connectionFields
           : connectionFieldsForCredentialMode(entry.credentialMode),
+        modelMetadata: normalizeStoredModelMetadata(entry.modelMetadata),
       }));
     return mergeProviderCatalog(valid);
   } catch {
@@ -428,7 +560,24 @@ export function providerCatalogIdForConfig(
   if (config.kind === 'gemini') return 'google';
   if (config.kind === 'cohere') return 'cohere';
   if (config.kind === 'azure-openai') return 'azure';
+  if (endpoint === 'https://api.deepseek.com' || endpoint === 'https://api.deepseek.com/v1') {
+    return 'deepseek';
+  }
   return endpoint === 'https://api.openai.com/v1' ? 'openai' : 'openai-compatible';
+}
+
+/** Builds the catalog models a provider entry advertises, metadata included. */
+export function catalogModelsForEntry(
+  entry: Pick<ProviderCatalogEntry, 'models' | 'modelMetadata'>,
+): CatalogModel[] {
+  return catalogModelsFromIds(entry.models ?? [], entry.modelMetadata);
+}
+
+/** The chat-compatible model ids a provider entry offers, in catalog order. */
+export function providerChatModelIds(
+  entry: Pick<ProviderCatalogEntry, 'models' | 'modelMetadata'>,
+): string[] {
+  return chatSelectableModelIds(catalogModelsForEntry(entry));
 }
 
 export function createProviderConfig(
@@ -440,12 +589,20 @@ export function createProviderConfig(
       field.defaultValue === undefined ? [] : [[field.id, field.defaultValue]],
     ),
   );
+  // Capability-aware default: never the alphabetically first model in the list. A provider whose
+  // catalog has no conversational model gets the controlled empty state and the UI shows
+  // `no compatible chat model` instead of preselecting an image or embedding model.
+  const model = selectDefaultChatModel(catalogModelsForEntry(entry), {
+    defaultModelId: entry.defaultModel,
+  });
   return {
     id: `${entry.id}-${crypto.randomUUID()}`,
     name: entry.id === 'ollama' ? 'Local Ollama' : entry.name,
     kind: entry.kind,
     endpoint: entry.endpoint,
-    model: '',
+    model,
+    availableModels: entry.models ? [...entry.models] : undefined,
+    modelMetadata: entry.modelMetadata,
     enabled: true,
     catalogId: entry.id,
     credentialMode: entry.credentialMode,
@@ -522,26 +679,41 @@ export function loadProviderConfigs(): ProviderConfig[] {
         ),
       ) as Omit<ProviderConfig, 'apiKey' | 'secretStored'>;
       const availableModels = Array.isArray(config.availableModels)
-        ? config.availableModels.filter(
-            (model): model is string => typeof model === 'string' && Boolean(model.trim()),
+        ? normalizedModelIds(
+            config.availableModels.filter(
+              (model): model is string => typeof model === 'string' && Boolean(model.trim()),
+            ),
           )
         : undefined;
       const catalogId = providerCatalogIdForConfig(config);
       const entry = catalog.find((candidate) => candidate.id === catalogId);
       const connectionFields = config.connectionFields ?? entry?.connectionFields;
       const legacyApiKey = (stored as { apiKey?: unknown }).apiKey;
+      const hasLegacyApiKey = typeof legacyApiKey === 'string' && legacyApiKey.length > 0;
       const connectionValues = {
         ...(config.connectionValues ?? {}),
-        ...(typeof legacyApiKey === 'string' && legacyApiKey ? { apiKey: legacyApiKey } : {}),
+        ...(hasLegacyApiKey ? { apiKey: legacyApiKey as string } : {}),
       };
+      // A legacy document that still carries a plaintext `apiKey` is authoritative evidence that the
+      // provider has a stored secret field — no marker is needed, because `hasApiKey`/`secretStored`
+      // are read-only legacy hints that nothing in this repository ever writes. Without this, the
+      // first `saveProviderConfigs` after loading (which the Models window performs on mount) would
+      // filter the key out of `connectionValues` and drop it from the persisted document, silently
+      // destroying a credential that the previous session could still use.
       const storedSecretFields = Array.isArray(current.storedSecretFields)
         ? current.storedSecretFields.filter((field): field is string => typeof field === 'string')
-        : legacy.hasApiKey || legacy.secretStored
+        : legacy.hasApiKey || legacy.secretStored || hasLegacyApiKey
           ? ['apiKey']
           : [];
+      // Metadata is only meaningful for the model list it describes: a stored list without metadata
+      // is classified by the conservative fallback rather than inheriting a stale catalog's shape.
+      const modelMetadata = availableModels
+        ? normalizeStoredModelMetadata(config.modelMetadata)
+        : undefined;
       return {
         ...config,
         availableModels,
+        modelMetadata,
         connectionFields,
         connectionValues,
         storedSecretFields,
@@ -643,7 +815,8 @@ function streamRetryDelay(attempt: number): number {
 function retryAfterDelay(header: string | null): number | undefined {
   if (!header) return undefined;
   const seconds = Number(header.trim());
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(STREAM_BACKOFF_CAP_MS, seconds * 1000);
+  if (Number.isFinite(seconds) && seconds >= 0)
+    return Math.min(STREAM_BACKOFF_CAP_MS, seconds * 1000);
   const date = Date.parse(header);
   if (!Number.isNaN(date)) return Math.max(0, Math.min(STREAM_BACKOFF_CAP_MS, date - Date.now()));
   return undefined;
@@ -690,7 +863,8 @@ async function openStream(
       const response = await fetcher(input, init);
       if (response.ok || !RETRYABLE_STREAM_STATUS.has(response.status)) return response;
       if (attempt === MAX_STREAM_ATTEMPTS) return response;
-      const wait = retryAfterDelay(response.headers.get('retry-after')) ?? streamRetryDelay(attempt);
+      const wait =
+        retryAfterDelay(response.headers.get('retry-after')) ?? streamRetryDelay(attempt);
       await response.body?.cancel().catch(() => undefined);
       await sleep(wait, signal);
     } catch (error) {
@@ -845,7 +1019,13 @@ export async function refreshProviderModels(
   fetcher: typeof fetch = defaultFetch,
   now: () => Date = () => new Date(),
 ): Promise<ProviderConfig> {
-  const availableModels = await fetchProviderModels(config, fetcher);
+  const reportedModels = await fetchProviderModels(config, fetcher);
+  const availableModels = reportedModels;
+  // A live `/models` list carries no capability metadata, so the default model is chosen by the
+  // documented conservative identifier policy instead of `availableModels[0]` — which used to hand
+  // a provider an image or embedding model purely because of its alphabetical position. Any stored
+  // catalog metadata describes the previous list and is dropped.
+  const defaultModel = selectDefaultChatModel(catalogModelsFromIds(availableModels));
   return {
     ...config,
     model:
@@ -853,8 +1033,9 @@ export async function refreshProviderModels(
         ? config.model
         : availableModels.includes(config.model)
           ? config.model
-          : availableModels[0],
+          : defaultModel,
     availableModels,
+    modelMetadata: undefined,
     modelsRefreshedAt: now().toISOString(),
   };
 }
@@ -959,10 +1140,7 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
   }
 
   async embed(input: readonly string[], signal?: AbortSignal): Promise<number[][]> {
-    const body =
-      this.config.kind === 'azure-openai'
-        ? { input }
-        : { model: this.model, input };
+    const body = this.config.kind === 'azure-openai' ? { input } : { model: this.model, input };
     const response = await openStream(this.fetcher, this.url(), {
       method: 'POST',
       headers: providerRequestHeaders(this.config, true),
@@ -1116,6 +1294,10 @@ function providerMessages(messages: ModelMessage[], format: ProviderStreamFormat
       return {
         role: message.role,
         content: format === 'sse' ? message.content || null : message.content,
+        // DeepSeek requires its reasoning_content to be replayed on every tool-call round.
+        ...(format === 'sse' && message.reasoningContent
+          ? { reasoning_content: message.reasoningContent }
+          : {}),
         // Sent back exactly as received so a reasoning model routed through OpenRouter keeps the
         // context that led to these tool calls instead of losing it on the next round.
         ...(format === 'sse' && message.reasoningDetails?.length
@@ -1174,6 +1356,15 @@ function isOpenRouterHost(endpoint: string): boolean {
   }
 }
 
+function isDeepSeekHost(endpoint: string): boolean {
+  try {
+    const host = new URL(endpoint).hostname;
+    return host === 'api.deepseek.com' || host.endsWith('.deepseek.com');
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Reasoning-effort request fields for OpenAI-compatible chat completions. OpenRouter's unified
  * gateway accepts the nested `reasoning.effort` form and translates it for whichever underlying
@@ -1186,6 +1377,9 @@ function reasoningRequestFields(
   effort: ReasoningEffort,
 ): Record<string, unknown> {
   if (isOpenRouterHost(config.endpoint)) return { reasoning: { effort } };
+  if (isDeepSeekHost(config.endpoint)) {
+    return { reasoning_effort: effort, thinking: { type: 'enabled' } };
+  }
   return { reasoning_effort: effort };
 }
 
@@ -1214,7 +1408,10 @@ function withOpenRouterCacheControl(
     marked[lastIndex] = { ...last, content: textBlock(last.content) };
   } else if (Array.isArray(last.content) && last.content.length > 0) {
     const parts = last.content.slice();
-    parts[parts.length - 1] = { ...(parts[parts.length - 1] as object), cache_control: cacheControl };
+    parts[parts.length - 1] = {
+      ...(parts[parts.length - 1] as object),
+      cache_control: cacheControl,
+    };
     marked[lastIndex] = { ...last, content: parts };
   }
   return marked;
@@ -1436,9 +1633,7 @@ async function* streamAnthropic(
       // Thinking and a custom temperature are mutually exclusive on Anthropic's API.
       temperature: thinkingBudget ? undefined : request.temperature,
       stop_sequences: request.stopSequences,
-      thinking: thinkingBudget
-        ? { type: 'enabled', budget_tokens: thinkingBudget }
-        : undefined,
+      thinking: thinkingBudget ? { type: 'enabled', budget_tokens: thinkingBudget } : undefined,
     }),
     signal,
   });
@@ -1504,7 +1699,11 @@ async function* streamAnthropic(
       if (delta?.type === 'text_delta' && typeof delta.text === 'string' && delta.text) {
         yield { text: delta.text, done: false };
       }
-      if (delta?.type === 'thinking_delta' && typeof delta.thinking === 'string' && delta.thinking) {
+      if (
+        delta?.type === 'thinking_delta' &&
+        typeof delta.thinking === 'string' &&
+        delta.thinking
+      ) {
         yield { text: '', done: false, reasoningText: delta.thinking };
         const pending = pendingThinking.get(index);
         if (pending?.type === 'thinking') pending.thinking += delta.thinking;
@@ -1651,7 +1850,12 @@ async function* streamGemini(
     }
   }
   const usage = toUsage(inputTokens, outputTokens);
-  yield { text: '', done: true, ...(toolCalls.length ? { toolCalls } : {}), ...(usage ? { usage } : {}) };
+  yield {
+    text: '',
+    done: true,
+    ...(toolCalls.length ? { toolCalls } : {}),
+    ...(usage ? { usage } : {}),
+  };
 }
 
 function cohereToolDeltas(event: Record<string, unknown>): Array<Record<string, unknown>> {
@@ -1730,7 +1934,12 @@ async function* streamCohere(
       return { id: call.id, name: call.name, input: parseToolInput(call.name, call.arguments) };
     });
   const usage = toUsage(inputTokens, outputTokens);
-  yield { text: '', done: true, ...(toolCalls.length ? { toolCalls } : {}), ...(usage ? { usage } : {}) };
+  yield {
+    text: '',
+    done: true,
+    ...(toolCalls.length ? { toolCalls } : {}),
+    ...(usage ? { usage } : {}),
+  };
 }
 
 export class ConfiguredModelProvider implements ModelProvider {
@@ -1896,7 +2105,9 @@ export class ConfiguredModelProvider implements ModelProvider {
           : (chunk.message?.content ?? '');
       const reasoningText =
         this.streamFormat === 'sse'
-          ? (chunk.choices?.[0]?.delta?.reasoning ?? chunk.choices?.[0]?.delta?.reasoning_content ?? '')
+          ? (chunk.choices?.[0]?.delta?.reasoning ??
+            chunk.choices?.[0]?.delta?.reasoning_content ??
+            '')
           : (chunk.message?.thinking ?? '');
       const done = this.streamFormat === 'sse' ? false : Boolean(chunk.done);
       if (text || reasoningText || done) {
@@ -1977,6 +2188,8 @@ export interface ModelMessage {
   toolCallId?: string;
   toolName?: string;
   toolCalls?: ModelToolCall[];
+  /** DeepSeek's streamed reasoning text, required on assistant tool-call round-trips. */
+  reasoningContent?: string;
   /**
    * Extended-thinking blocks that accompanied `toolCalls` on this assistant turn, present only for
    * Anthropic's interleaved thinking. Round-tripped verbatim on the next request so the model keeps

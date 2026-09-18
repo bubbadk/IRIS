@@ -1,4 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { ToolRegistry } from '@iris/tools';
+
+function fixtureRegistry(...ids: string[]): ToolRegistry {
+  const registry = new ToolRegistry();
+  for (const id of ids) registry.register({ id, name: id, description: id, risk: 'read', async run() {} });
+  return registry;
+}
 import {
   LocalAgentRepository,
   LocalConversationRepository,
@@ -30,6 +37,41 @@ function memoryStorage(): Storage {
     get length() {
       return values.size;
     },
+  };
+}
+
+/** A version 3 delegated suspension, exactly as the runtime writes it. */
+function delegatedTurnFixture(): Record<string, unknown> {
+  return {
+    version: 4,
+    agentId: 'subagent-1',
+    providerId: 'provider-1',
+    model: 'model-1',
+    conversation: [{ role: 'user', content: 'Delegated turn' }],
+    modelHistory: [{ role: 'user', content: 'Delegated turn' }],
+    pending: {
+      kind: 'tool-approval',
+      turnId: 'turn-delegated',
+      call: { id: 'call-delegated', name: 'shell_exec', input: {} },
+      approval: {
+        id: 'approval-delegated',
+        toolId: 'shell.exec',
+        toolName: 'Run command',
+        reason: 'Always ask.',
+      },
+      remainingCalls: [],
+      assistantText: '',
+    },
+    delegatedAgent: {
+      id: 'subagent-1',
+      name: 'Operator',
+      autonomy: 'operate',
+      approvalMode: 'ask',
+      skillIds: [],
+      toolIds: ['shell.exec'],
+      delegationDepth: 1,
+    },
+    delegationChain: { depth: 1, ancestors: [{ id: 'root-agent', approvalMode: 'ask' }] },
   };
 }
 
@@ -82,32 +124,61 @@ describe('MCP server-request policy persistence', () => {
     });
   });
 
-  it('drops malformed or unsupported stored policies', async () => {
-    storage.setItem(
-      'iris.mcp.server-request-policies.v1',
-      JSON.stringify([
-        {
-          version: 1,
-          id: 'ok',
-          serverId: 'mcp',
-          method: 'roots/list',
-          decision: 'allow',
-          updatedAt: 'now',
-        },
-        {
-          version: 1,
-          id: 'bad',
-          serverId: 'mcp',
-          method: 'notifications/unknown',
-          decision: 'allow',
-          updatedAt: 'now',
-        },
-      ]),
-    );
+  it('fails closed on an unsupported stored policy and keeps the original document byte-identical', async () => {
+    const raw = JSON.stringify([
+      {
+        version: 1,
+        id: 'ok',
+        serverId: 'mcp',
+        method: 'roots/list',
+        decision: 'allow',
+        updatedAt: 'now',
+      },
+      {
+        version: 1,
+        id: 'bad',
+        serverId: 'mcp',
+        method: 'notifications/unknown',
+        decision: 'allow',
+        updatedAt: 'now',
+      },
+    ]);
+    storage.setItem('iris.mcp.server-request-policies.v1', raw);
     const repository = new LocalMcpServerRequestPolicyRepository(storage);
-    expect(await repository.list()).toHaveLength(1);
+    await expect(repository.list()).rejects.toThrow('MCP server-request policies');
+    await expect(
+      repository.save({
+        version: 1,
+        id: 'new',
+        serverId: 'mcp',
+        method: 'roots/list',
+        decision: 'deny',
+        updatedAt: 'now',
+      }),
+    ).rejects.toThrow('MCP server-request policies');
+    expect(storage.getItem('iris.mcp.server-request-policies.v1')).toBe(raw);
+  });
+
+  it('removes one stored decision per server method without touching the rest', async () => {
+    const repository = new LocalMcpServerRequestPolicyRepository(storage);
+    await repository.save({
+      version: 1,
+      id: 'policy-1',
+      serverId: 'mcp',
+      method: 'roots/list',
+      decision: 'allow',
+      updatedAt: 'now',
+    });
+    await repository.save({
+      version: 1,
+      id: 'policy-2',
+      serverId: 'mcp',
+      method: 'sampling/createMessage',
+      decision: 'deny',
+      updatedAt: 'now',
+    });
     await repository.remove('mcp', 'roots/list');
-    expect(await repository.list()).toEqual([]);
+    expect(await repository.list()).toMatchObject([{ id: 'policy-2' }]);
   });
 });
 
@@ -131,45 +202,40 @@ describe('local agent persistence', () => {
     ]);
   });
 
-  it('migrates valid legacy agents, drops malformed records, and repairs v2 storage', async () => {
-    storage.setItem(
-      'iris.agents.config.v1',
-      JSON.stringify([
-        {
-          id: 'legacy-agent',
-          name: 'Legacy agent',
-          autonomy: 'assist',
-          skillIds: [],
-          toolIds: [],
-        },
-        { id: 'broken', name: 'Missing runtime fields' },
-      ]),
-    );
+  it('migrates a valid legacy document and fails closed on a partially invalid one', async () => {
+    const legacyAgent = {
+      id: 'legacy-agent',
+      name: 'Legacy agent',
+      autonomy: 'assist',
+      skillIds: [],
+      toolIds: [],
+    };
+    storage.setItem('iris.agents.config.v1', JSON.stringify([legacyAgent]));
     const repository = new LocalAgentRepository(storage);
-    await expect(repository.list()).resolves.toEqual([
-      {
-        id: 'legacy-agent',
-        name: 'Legacy agent',
-        autonomy: 'assist',
-        skillIds: [],
-        toolIds: [],
-      },
-    ]);
+    await expect(repository.list()).resolves.toEqual([legacyAgent]);
     expect(storage.getItem('iris.agents.config.v2')).toContain('legacy-agent');
 
-    storage.setItem(
-      'iris.agents.config.v2',
-      JSON.stringify([
-        { id: 'valid', name: 'Valid', autonomy: 'observe', skillIds: [], toolIds: [] },
-        { id: 'invalid', name: 'Invalid', autonomy: 'unknown', skillIds: [], toolIds: [] },
-      ]),
-    );
-    await expect(repository.list()).resolves.toHaveLength(1);
-    expect(storage.getItem('iris.agents.config.v2')).not.toContain('invalid');
+    // A document containing an unusable record must not be silently shortened and rewritten.
+    const partiallyInvalid = JSON.stringify([
+      { id: 'valid', name: 'Valid', autonomy: 'observe', skillIds: [], toolIds: [] },
+      { id: 'invalid', name: 'Invalid', autonomy: 'unknown', skillIds: [], toolIds: [] },
+    ]);
+    storage.setItem('iris.agents.config.v2', partiallyInvalid);
+    await expect(repository.list()).rejects.toThrow('agent configurations');
+    expect(() => repository.listSync()).toThrow('agent configurations');
+    expect(storage.getItem('iris.agents.config.v2')).toBe(partiallyInvalid);
+
+    // A malformed legacy document also fails closed and is never migrated.
+    const brokenLegacy = JSON.stringify([legacyAgent, { id: 'broken', name: 'Missing fields' }]);
+    storage.setItem('iris.agents.config.v1', brokenLegacy);
+    storage.removeItem('iris.agents.config.v2');
+    await expect(repository.list()).rejects.toThrow('agent configurations');
+    expect(storage.getItem('iris.agents.config.v1')).toBe(brokenLegacy);
+    expect(storage.getItem('iris.agents.config.v2')).toBeNull();
   });
 
   it('rejects invalid writes and returns defensive capability arrays', async () => {
-    const repository = new LocalAgentRepository(storage);
+    const repository = new LocalAgentRepository(storage, fixtureRegistry('tool-1'));
     await expect(
       repository.save({
         id: 'invalid',
@@ -249,16 +315,17 @@ describe('local agent persistence', () => {
     expect(await repository.list('agent-1')).toEqual([]);
   });
 
-  it('stores one resumable tool turn per agent and removes it by approval', async () => {
+  it('stores one resumable tool turn per agent and removes it by turn id', async () => {
     const repository = new LocalSuspendedAgentTurnRepository(storage);
     const turn = {
-      version: 2 as const,
+      version: 4 as const,
       agentId: 'agent-1',
       providerId: 'provider-1',
       model: 'model-1',
       conversation: [{ role: 'user' as const, content: 'Inspect this host' }],
       modelHistory: [{ role: 'user' as const, content: 'Inspect this host' }],
       pending: {
+        kind: 'tool-approval' as const,
         turnId: 'turn-1',
         call: { id: 'call-1', name: 'system_inspect_host', input: {} },
         approval: {
@@ -283,9 +350,225 @@ describe('local agent persistence', () => {
         approval: { ...turn.pending.approval, id: 'approval-2' },
       },
     });
+    // The superseded approval is gone, the replacement is stored once, and `list` reports it.
     await expect(repository.getByApprovalId('approval-1')).resolves.toBeNull();
-    await repository.remove('approval-2');
+    await expect(repository.getByApprovalId('approval-2')).resolves.toMatchObject({
+      pending: { turnId: 'turn-1' },
+    });
+    await expect(repository.list()).resolves.toHaveLength(1);
+    await repository.removeByTurnId('turn-1');
     await expect(repository.getByAgentId('agent-1')).resolves.toBeNull();
+    await expect(repository.list()).resolves.toEqual([]);
+  });
+
+  it('stores and reads a delegation wait that owns no approval of its own', async () => {
+    const repository = new LocalSuspendedAgentTurnRepository(storage);
+    const turn = {
+      version: 4 as const,
+      agentId: 'agent-1',
+      providerId: 'provider-1',
+      model: 'model-1',
+      conversation: [{ role: 'user' as const, content: 'Delegate this' }],
+      modelHistory: [{ role: 'user' as const, content: 'Delegate this' }],
+      pending: {
+        kind: 'delegation' as const,
+        turnId: 'turn-delegation',
+        waiting: [
+          {
+            call: { id: 'call-1', name: 'cortex_delegate_subagent', input: {} },
+            children: [
+              {
+                childAgentId: 'subagent-1',
+                approvalId: 'approval-child',
+                ownerAgentId: 'subagent-2',
+                toolId: 'shell.exec',
+                toolName: 'Run command',
+                depth: 2,
+                partialOutput: 'Working on it…',
+              },
+            ],
+          },
+        ],
+        remainingCalls: [],
+        assistantText: 'Delegating now.',
+      },
+    };
+
+    await repository.save(turn);
+    await expect(repository.getByAgentId('agent-1')).resolves.toEqual(turn);
+    await expect(repository.list()).resolves.toEqual([turn]);
+    // A turn that only waits on a descendant's approval must never be returned as the owner of it.
+    await expect(repository.getByApprovalId('approval-child')).resolves.toBeNull();
+    await repository.removeByTurnId('turn-delegation');
+    await expect(repository.getByAgentId('agent-1')).resolves.toBeNull();
+  });
+
+  it('still reads a version 2 suspended turn and upgrades it to the current shape', async () => {
+    // Version 2 predates delegated sub-agent suspensions: it is structurally a root-agent turn, so
+    // it must keep resuming after the runtime started writing version 3 records.
+    const legacy = {
+      version: 2,
+      agentId: 'legacy-agent',
+      providerId: 'provider-1',
+      model: 'model-1',
+      conversation: [{ role: 'user', content: 'Legacy suspended turn' }],
+      modelHistory: [{ role: 'user', content: 'Legacy suspended turn' }],
+      pending: {
+        turnId: 'turn-legacy',
+        call: { id: 'call-legacy', name: 'system_inspect_host', input: {} },
+        approval: {
+          id: 'approval-legacy',
+          toolId: 'system.inspect-host',
+          toolName: 'Inspect IRIS host',
+          reason: 'Ask every time.',
+        },
+        remainingCalls: [],
+        assistantText: '',
+      },
+    };
+    storage.setItem('iris.agents.suspended-turns.v1', JSON.stringify([legacy]));
+
+    const repository = new LocalSuspendedAgentTurnRepository(storage);
+    const restored = await repository.getByApprovalId('approval-legacy');
+    expect(restored?.version).toBe(4);
+    expect(restored?.agentId).toBe('legacy-agent');
+    // An older record is structurally an approval the turn owns; nothing is guessed about delegation.
+    expect(restored?.pending.kind).toBe('tool-approval');
+    expect(restored?.delegatedAgent).toBeUndefined();
+    expect(restored?.delegationChain).toBeUndefined();
+  });
+
+  it('still reads a version 3 delegated turn and upgrades it to the current shape', async () => {
+    // Version 3 has the delegated definition and chain but no pending discriminant, so it must keep
+    // resuming as the approval turn it is.
+    const legacy: Record<string, unknown> = { ...delegatedTurnFixture(), version: 3 };
+    delete (legacy.pending as Record<string, unknown>).kind;
+    storage.setItem('iris.agents.suspended-turns.v1', JSON.stringify([legacy]));
+
+    const repository = new LocalSuspendedAgentTurnRepository(storage);
+    const restored = await repository.getByApprovalId('approval-delegated');
+    expect(restored?.version).toBe(4);
+    expect(restored?.pending.kind).toBe('tool-approval');
+    expect(restored?.delegatedAgent).toMatchObject({ id: 'subagent-1', delegationDepth: 1 });
+    expect(restored?.delegationChain).toEqual({
+      depth: 1,
+      ancestors: [{ id: 'root-agent', approvalMode: 'ask' }],
+    });
+  });
+
+  it('reads a valid version 4 delegated turn with its runtime definition and chain', async () => {
+    const valid = delegatedTurnFixture();
+    storage.setItem('iris.agents.suspended-turns.v1', JSON.stringify([valid]));
+
+    const repository = new LocalSuspendedAgentTurnRepository(storage);
+    await expect(repository.getByApprovalId('approval-delegated')).resolves.toMatchObject({
+      version: 4,
+      agentId: 'subagent-1',
+      delegatedAgent: { id: 'subagent-1', delegationDepth: 1 },
+      delegationChain: { depth: 1, ancestors: [{ id: 'root-agent', approvalMode: 'ask' }] },
+    });
+  });
+
+  it('fails closed on a delegation wait that cannot be resumed safely', async () => {
+    const wait = {
+      version: 4,
+      agentId: 'agent-1',
+      providerId: 'provider-1',
+      model: 'model-1',
+      conversation: [{ role: 'user', content: 'Delegate this' }],
+      modelHistory: [{ role: 'user', content: 'Delegate this' }],
+      pending: {
+        kind: 'delegation',
+        turnId: 'turn-delegation',
+        waiting: [
+          {
+            call: { id: 'call-1', name: 'cortex_delegate_subagent', input: {} },
+            children: [
+              {
+                childAgentId: 'subagent-1',
+                approvalId: 'approval-child',
+                ownerAgentId: 'subagent-2',
+                depth: 2,
+              },
+            ],
+          },
+        ],
+        remainingCalls: [],
+        assistantText: '',
+      },
+    };
+    const corruptions: Record<string, unknown>[] = [
+      // A blocked child without its owner cannot be resolved by the right turn.
+      (() => {
+        const broken = structuredClone(wait);
+        delete (broken.pending.waiting[0].children[0] as Record<string, unknown>).ownerAgentId;
+        return broken;
+      })(),
+      // A delegation wait with nothing blocked would have resumed the turn instead of persisting it.
+      (() => {
+        const broken = structuredClone(wait);
+        broken.pending.waiting[0].children[0] = { childAgentId: 'subagent-1' } as never;
+        return broken;
+      })(),
+      // A wait with no calls at all is not a resumable state.
+      (() => {
+        const broken = structuredClone(wait);
+        broken.pending.waiting = [] as never;
+        return broken;
+      })(),
+      // An unknown suspension kind is never guessed into an approval turn.
+      (() => {
+        const broken = structuredClone(wait);
+        (broken.pending as Record<string, unknown>).kind = 'something-else';
+        return broken;
+      })(),
+    ];
+
+    for (const corrupt of corruptions) {
+      storage.setItem('iris.agents.suspended-turns.v1', JSON.stringify([corrupt]));
+      const repository = new LocalSuspendedAgentTurnRepository(storage);
+      await expect(repository.list()).rejects.toThrow(
+        /failed suspended agent turns validation/,
+      );
+      expect(storage.getItem('iris.agents.suspended-turns.v1')).not.toBeNull();
+    }
+
+    // The valid shape next to it keeps reading, so the failure is about the corrupt record only.
+    storage.setItem('iris.agents.suspended-turns.v1', JSON.stringify([wait]));
+    const repository = new LocalSuspendedAgentTurnRepository(storage);
+    await expect(repository.list()).resolves.toHaveLength(1);
+    await expect(repository.getByAgentId('agent-1')).resolves.toMatchObject({
+      pending: { kind: 'delegation' },
+    });
+  });
+
+  it('fails the whole read when a delegated turn is corrupt instead of dropping it silently', async () => {
+    const valid = delegatedTurnFixture();
+    const corruptions: Record<string, unknown>[] = [
+      // The stored agent no longer matches the turn identity: resuming it would use a wrong agent.
+      {
+        ...valid,
+        delegatedAgent: { ...(valid.delegatedAgent as Record<string, unknown>), id: 'someone-else' },
+      },
+      // A delegated record without a chain can never be evaluated safely.
+      { ...valid, delegationChain: undefined },
+      { ...valid, delegationChain: { depth: -1, ancestors: [] } },
+      { ...valid, delegationChain: { depth: 1, ancestors: [{ id: '' }] } },
+      {
+        ...valid,
+        delegatedAgent: { ...(valid.delegatedAgent as Record<string, unknown>), toolIds: 'not-an-array' },
+      },
+    ];
+
+    for (const corrupt of corruptions) {
+      storage.setItem('iris.agents.suspended-turns.v1', JSON.stringify([corrupt]));
+      const repository = new LocalSuspendedAgentTurnRepository(storage);
+      await expect(repository.getByApprovalId('approval-delegated')).rejects.toThrow(
+        /failed suspended agent turns validation/,
+      );
+      // Fail closed: the stored document is retained, never replaced with an empty structure.
+      expect(storage.getItem('iris.agents.suspended-turns.v1')).not.toBeNull();
+    }
   });
 
   it('stores inspectable Cortex context packs newest-first per agent', async () => {
@@ -524,7 +807,7 @@ describe('local project graph persistence', () => {
     await expect(repository.get('project-1')).resolves.toEqual(first);
   });
 
-  it('ignores malformed stored graphs and removes only the requested project', async () => {
+  it('fails closed on a malformed stored graph and removes only the requested project', async () => {
     const repository = new LocalProjectGraphRepository(storage);
     const valid = {
       version: 1 as const,
@@ -535,11 +818,23 @@ describe('local project graph persistence', () => {
       createdAt: '2026-08-27T12:00:00.000Z',
       updatedAt: '2026-08-27T12:00:00.000Z',
     };
-    storage.setItem('iris.projects.graphs.v1', JSON.stringify([{ broken: true }, valid]));
+    const corrupt = JSON.stringify([{ broken: true }, valid]);
+    storage.setItem('iris.projects.graphs.v1', corrupt);
 
-    await expect(repository.list()).resolves.toEqual([valid]);
+    await expect(repository.list()).rejects.toThrow('project graphs');
+    // A write attempted after the failed read must not replace the unreadable document.
+    await expect(repository.remove('project-1')).rejects.toThrow('project graphs');
+    await expect(repository.save(valid)).rejects.toThrow('project graphs');
+    expect(storage.getItem('iris.projects.graphs.v1')).toBe(corrupt);
+
+    // Replacing an unreadable document is an explicit out-of-band decision; once it holds valid
+    // data again, normal reads and removal work, and removal only drops the requested project.
+    storage.setItem('iris.projects.graphs.v1', JSON.stringify([]));
+    await repository.save(valid);
+    const second = { ...valid, id: 'project-2', title: 'Document IRIS' };
+    await repository.save(second);
     await repository.remove('project-1');
-    await expect(repository.list()).resolves.toEqual([]);
+    await expect(repository.list()).resolves.toEqual([second]);
   });
 
   it('persists truthful task-run history independently per project', async () => {
@@ -621,18 +916,22 @@ describe('local skill persistence', () => {
     expect((await repository.list()).map((item) => item.id)).toEqual(['skill-2']);
   });
 
-  it('returns defensive copies and drops malformed persisted values', async () => {
+  it('returns defensive copies and fails closed on a malformed persisted value', async () => {
     const repository = new LocalSkillRepository(storage);
     await repository.save(skill);
     const loaded = await repository.get('skill-1');
     loaded!.name = 'Changed copy';
     expect(await repository.get('skill-1')).toMatchObject({ name: 'Release checklist' });
 
-    storage.setItem(
-      'iris.skills.definitions.v1',
-      JSON.stringify([skill, { ...skill, id: 'broken', instructions: '' }, { nonsense: true }]),
-    );
-    expect((await repository.list()).map((item) => item.id)).toEqual(['skill-1']);
+    const corrupt = JSON.stringify([
+      skill,
+      { ...skill, id: 'broken', instructions: '' },
+      { nonsense: true },
+    ]);
+    storage.setItem('iris.skills.definitions.v1', corrupt);
+    await expect(repository.list()).rejects.toThrow('skills');
+    await expect(repository.save({ ...skill, id: 'other' })).rejects.toThrow('skills');
+    expect(storage.getItem('iris.skills.definitions.v1')).toBe(corrupt);
   });
 
   it('refuses to persist an invalid skill instead of storing unusable state', async () => {
@@ -646,7 +945,7 @@ describe('local skill persistence', () => {
 
 describe('local permission persistence', () => {
   it('saves and removes explicit rules by id', async () => {
-    const repository = new LocalPermissionRuleRepository(storage);
+    const repository = new LocalPermissionRuleRepository(storage, fixtureRegistry('files.read'));
     const rule = {
       id: 'agent-1:files.read',
       agentId: 'agent-1',

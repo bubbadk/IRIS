@@ -9,6 +9,7 @@ import {
   missingProviderConnectionFields,
   providerCatalog,
   providerAcceptsApiKey,
+  providerCatalogIdForConfig,
   providerRequiresApiKey,
   ProviderRegistry,
   refreshProviderCatalog,
@@ -49,6 +50,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe('provider configuration', () => {
   it('offers every implemented provider path through a first-class catalog', () => {
     expect(providerCatalog.map((entry) => entry.id)).toEqual([
+      'deepseek',
       'openai',
       'anthropic',
       'google',
@@ -113,6 +115,7 @@ describe('provider configuration', () => {
             npm: '@ai-sdk/openai-compatible',
             api: 'https://api.alpha.example/v1',
             env: ['ALPHA_API_KEY'],
+            models: { 'alpha-chat': {}, 'alpha-reasoner': {} },
           },
           'bedrock-example': {
             name: 'Bedrock Example',
@@ -129,12 +132,37 @@ describe('provider configuration', () => {
       credentialMode: 'required',
       supported: true,
       source: 'models.dev',
+      models: ['alpha-chat', 'alpha-reasoner'],
     });
     expect(catalog.find((entry) => entry.id === 'bedrock-example')).toMatchObject({
       supported: false,
       supportReason: 'Adapter required for @ai-sdk/amazon-bedrock.',
     });
     expect(loadProviderCatalog()).toEqual(catalog);
+  });
+
+  it('creates a DeepSeek configuration with the live directory model choices', () => {
+    const config = createProviderConfig('deepseek');
+    expect(config).toMatchObject({
+      name: 'DeepSeek',
+      endpoint: 'https://api.deepseek.com',
+      model: 'deepseek-flash',
+      catalogId: 'deepseek',
+    });
+    // Every DeepSeek model the directory publishes is offered. The previous build filtered this
+    // list down to a hardcoded pair, hiding deepseek-v4-flash and the vision variant (M-28).
+    expect(config.availableModels).toEqual([
+      'deepseek-flash',
+      'deepseek-v4-flash',
+      'deepseek-v4-flash-vision-exp',
+      'deepseek-v4-pro',
+    ]);
+    expect(
+      providerCatalogIdForConfig({
+        kind: 'openai-compatible',
+        endpoint: 'https://api.deepseek.com/v1',
+      }),
+    ).toBe('deepseek');
   });
 
   it('derives credential requirements from the catalog instead of provider branding', () => {
@@ -259,6 +287,15 @@ describe('provider configuration', () => {
     });
 
     expect(models).toEqual(['alpha', 'zeta']);
+  });
+
+  it('uses the current DeepSeek API model identifiers after refresh', async () => {
+    const refreshed = await refreshProviderModels(
+      createProviderConfig('deepseek'),
+      async () => new Response(JSON.stringify({ data: [{ id: 'deepseek-v4-pro' }] })),
+    );
+
+    expect(refreshed.availableModels).toEqual(['deepseek-v4-pro']);
   });
 
   it('uses native discovery routes and credentials for Anthropic, Gemini, and Cohere', async () => {
@@ -723,7 +760,9 @@ describe('provider configuration', () => {
               'data: [DONE]\n\n',
           );
         }
-        return new Response('data: {"choices":[{"delta":{"content":"Done."}}]}\n\ndata: [DONE]\n\n');
+        return new Response(
+          'data: {"choices":[{"delta":{"content":"Done."}}]}\n\ndata: [DONE]\n\n',
+        );
       },
     );
 
@@ -757,11 +796,65 @@ describe('provider configuration', () => {
     }
     const secondRequestMessages = requests[1]?.messages as Array<Record<string, unknown>>;
     const carriedAssistant = secondRequestMessages.find(
-      (message) => message.role === 'assistant' && (message as { tool_calls?: unknown[] }).tool_calls,
+      (message) =>
+        message.role === 'assistant' && (message as { tool_calls?: unknown[] }).tool_calls,
     );
     expect(carriedAssistant?.reasoning_details).toEqual([
       { index: 0, type: 'reasoning.text', text: 'Step one.' },
     ]);
+  });
+
+  it('replays DeepSeek reasoning_content with assistant tool calls', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const providerInstance = createModelProvider(
+      { ...provider, endpoint: 'https://api.deepseek.com' },
+      async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response('data: [DONE]\n\n');
+      },
+    );
+
+    for await (const _chunk of providerInstance.stream({
+      model: 'deepseek-flash',
+      messages: [
+        {
+          role: 'assistant',
+          content: '',
+          reasoningContent: 'I checked the available options.',
+          toolCalls: [{ id: 'call-1', name: 'step', input: {} }],
+        },
+        { role: 'tool', content: 'ok', toolCallId: 'call-1', toolName: 'step' },
+      ],
+    })) {
+      void _chunk;
+    }
+
+    const assistant = (requestBody?.messages as Array<Record<string, unknown>>)[0];
+    expect(assistant?.reasoning_content).toBe('I checked the available options.');
+  });
+
+  it('explicitly enables DeepSeek thinking mode for streamed reasoning', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const providerInstance = createModelProvider(
+      { ...provider, endpoint: 'https://api.deepseek.com' },
+      async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response('data: [DONE]\n\n');
+      },
+    );
+
+    for await (const _chunk of providerInstance.stream({
+      model: 'deepseek-flash',
+      messages: [{ role: 'user', content: 'Think about this.' }],
+      reasoningEffort: 'medium',
+    })) {
+      void _chunk;
+    }
+
+    expect(requestBody).toMatchObject({
+      reasoning_effort: 'medium',
+      thinking: { type: 'enabled' },
+    });
   });
 
   it('streams native Anthropic text and tool use', async () => {
@@ -1130,7 +1223,12 @@ describe('provider configuration', () => {
   it('enables Anthropic extended thinking with a token budget and streams the trace', async () => {
     let requestBody: Record<string, unknown> = {};
     const providerInstance = createModelProvider(
-      { ...provider, kind: 'anthropic', endpoint: 'https://api.anthropic.com/v1', model: 'claude-sonnet' },
+      {
+        ...provider,
+        kind: 'anthropic',
+        endpoint: 'https://api.anthropic.com/v1',
+        model: 'claude-sonnet',
+      },
       async (input, init) => {
         requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
         return new Response(
@@ -1193,7 +1291,9 @@ describe('provider configuration', () => {
     let requestBody: Record<string, unknown> = {};
     const providerInstance = createModelProvider(provider, async (input, init) => {
       requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      return new Response('data: {"choices":[{"delta":{"content":"I see a cat."}}]}\n\ndata: [DONE]\n\n');
+      return new Response(
+        'data: {"choices":[{"delta":{"content":"I see a cat."}}]}\n\ndata: [DONE]\n\n',
+      );
     });
 
     for await (const _chunk of providerInstance.stream({
@@ -1222,7 +1322,12 @@ describe('provider configuration', () => {
   it('sends an image as a native Anthropic base64 image block', async () => {
     let requestBody: Record<string, unknown> = {};
     const providerInstance = createModelProvider(
-      { ...provider, kind: 'anthropic', endpoint: 'https://api.anthropic.com/v1', model: 'claude-sonnet' },
+      {
+        ...provider,
+        kind: 'anthropic',
+        endpoint: 'https://api.anthropic.com/v1',
+        model: 'claude-sonnet',
+      },
       async (input, init) => {
         requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
         return new Response('data: {"type":"message_stop"}\n\n');
@@ -1265,7 +1370,11 @@ describe('provider configuration', () => {
     for await (const _chunk of providerInstance.stream({
       model: 'llava',
       messages: [
-        { role: 'user', content: 'What is this?', images: [{ mimeType: 'image/png', data: 'CCCC' }] },
+        {
+          role: 'user',
+          content: 'What is this?',
+          images: [{ mimeType: 'image/png', data: 'CCCC' }],
+        },
       ],
     })) {
       void _chunk;
@@ -1430,9 +1539,9 @@ describe('provider configuration', () => {
 
   it('refuses to build an embedder for a provider type without embeddings', async () => {
     const { createEmbeddingProvider } = await import('./index');
-    expect(() =>
-      createEmbeddingProvider({ ...provider, kind: 'anthropic' }, 'x'),
-    ).toThrow('does not support embeddings');
+    expect(() => createEmbeddingProvider({ ...provider, kind: 'anthropic' }, 'x')).toThrow(
+      'does not support embeddings',
+    );
   });
 
   it('reports OpenAI-compatible token usage on the final chunk', async () => {
@@ -1555,13 +1664,15 @@ describe('provider configuration', () => {
 
   it('surfaces a gateway rate-limit body instead of a generic status line', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
-    const providerInstance = createModelProvider(provider, async () =>
-      new Response(
-        JSON.stringify({
-          error: { message: 'Rate limit exceeded: free-tier limit is 20 requests per minute.' },
-        }),
-        { status: 429, statusText: 'Unknown Error' },
-      ),
+    const providerInstance = createModelProvider(
+      provider,
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: { message: 'Rate limit exceeded: free-tier limit is 20 requests per minute.' },
+          }),
+          { status: 429, statusText: 'Unknown Error' },
+        ),
     );
 
     await expect(async () => {
@@ -1578,12 +1689,14 @@ describe('provider configuration', () => {
 
   it('surfaces a bare Retry-After header when a rate limit carries no error body at all', async () => {
     // A retry-after of 0 keeps the built-in retry backoff instant so the test itself stays fast.
-    const providerInstance = createModelProvider(provider, async () =>
-      new Response(null, {
-        status: 429,
-        statusText: 'Unknown Error',
-        headers: { 'retry-after': '0' },
-      }),
+    const providerInstance = createModelProvider(
+      provider,
+      async () =>
+        new Response(null, {
+          status: 429,
+          statusText: 'Unknown Error',
+          headers: { 'retry-after': '0' },
+        }),
     );
 
     await expect(async () => {

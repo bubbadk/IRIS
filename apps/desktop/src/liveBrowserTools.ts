@@ -1,13 +1,29 @@
+import { notifyBrowserChanged } from './browserSession';
 import { invoke } from '@tauri-apps/api/core';
 import type { RegisteredTool } from '@iris/tools';
 import { createBrowserNavigateTool, createBrowserVisionTool } from '@iris/tools';
+import { isTauriRuntime } from './credentials';
+import { webToolFetch } from './webFetch';
 
 /**
  * Real browser automation backed by the Rust WebDriver session (chromedriver +
- * headless Chrome). Clicks and key presses are genuine WebDriver input events.
+ * visible Chrome). Clicks and key presses are genuine WebDriver input events.
  * navigate/vision degrade to plain HTTP fetching when no browser session is
  * running, stated plainly in their outputs — they never pretend a browser exists.
+ *
+ * H-01: the HTTP fallback is the same guarded transport `web.search`/`web.extract` use, so the
+ * public-web destination policy is enforced in the native layer for every browser route too. In a
+ * browser preview there is no native policy to consult, so the fallback refuses rather than
+ * fetching the model-chosen URL with the page's own network access.
  */
+export async function guardedBrowserFetch(url: string, init?: RequestInit): Promise<Response> {
+  if (!isTauriRuntime()) {
+    throw new Error(
+      'Reading a public web page requires the installed IRIS desktop app, where every destination is checked against the IRIS network policy. The browser preview cannot perform this read.',
+    );
+  }
+  return webToolFetch(url, init);
+}
 
 type InvokeFn = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 type FetchImpl = (url: string, init?: RequestInit) => Promise<Response>;
@@ -75,10 +91,25 @@ function optionalBoundedInteger(
 
 function requireUrl(input: Record<string, unknown>): string {
   const url = input.url;
-  if (typeof url !== 'string' || !url.trim().startsWith('http')) {
+  if (typeof url !== 'string' || !url.trim()) {
     throw new Error('A valid http:// or https:// URL is required.');
   }
-  return url.trim();
+  const trimmed = url.trim();
+  // Only an explicit http/https address is a navigation target. Anything else (`ftp:`, `file:`,
+  // `data:`, `javascript:` or an embedded-credential URL) is refused here as well as natively.
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error('A valid http:// or https:// URL is required.');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('A valid http:// or https:// URL is required.');
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('A URL with embedded credentials cannot be opened.');
+  }
+  return trimmed;
 }
 
 export function createBrowserStartTool(deps: LiveBrowserDependencies): RegisteredTool {
@@ -86,7 +117,7 @@ export function createBrowserStartTool(deps: LiveBrowserDependencies): Registere
     id: 'browser.start',
     name: 'Start automated browser',
     description:
-      'Launches a real headless Chrome/Chromium session through WebDriver for interactive automation. No browser is running until this is called; browser.click, browser.type and browser.vision require it.',
+      'Launches a real visible Chrome/Chromium session through WebDriver for interactive automation. No browser is running until this is called; browser.click, browser.type and browser.vision require it.',
     risk: 'execute',
     providerName: 'browser_start',
     manualExecution: false,
@@ -111,8 +142,8 @@ export function createBrowserNavigateLiveTool(deps: LiveBrowserDependencies): Re
     id: 'browser.navigate',
     name: 'Browser Navigate',
     description:
-      'With a running browser session: navigates the real headless browser (JavaScript executes) and returns the loaded page with clickable element refs. Without a session: falls back to a plain HTTP fetch with no JavaScript, which is stated in the result.',
-    risk: 'read',
+      'With a running browser session: navigates the real visible browser (JavaScript executes) and returns the loaded page with clickable element refs. Without a session: falls back to a plain HTTP fetch with no JavaScript, which is stated in the result.',
+    risk: 'execute',
     providerName: 'browser_navigate',
     manualExecution: false,
     inputSchema: {
@@ -129,7 +160,7 @@ export function createBrowserNavigateLiveTool(deps: LiveBrowserDependencies): Re
       try {
         return await deps.invokeNative('browser_navigate', { url });
       } catch (error) {
-        if (error instanceof Error && NO_SESSION_PATTERN.test(error.message)) {
+        if (NO_SESSION_PATTERN.test(error instanceof Error ? error.message : String(error))) {
           const result = (await fallback.run({ url }, {
             agentId: '',
             agentName: '',
@@ -157,7 +188,7 @@ export function createBrowserClickLiveTool(deps: LiveBrowserDependencies): Regis
         ref: {
           type: 'integer',
           minimum: 0,
-          description: 'Element ref index from the latest browser page snapshot.',
+          description: 'Opaque element ref from the latest page snapshot. Older refs are refused after a new snapshot or user takeover.',
         },
         selector: { type: 'string', description: 'CSS selector of the element.' },
         text: { type: 'string', description: 'Visible text label of the element.' },
@@ -170,7 +201,7 @@ export function createBrowserClickLiveTool(deps: LiveBrowserDependencies): Regis
       if (Object.keys(value).some((key) => !allowed.has(key))) {
         throw new Error('Browser Click received an unsupported input field.');
       }
-      const reference = optionalBoundedInteger(value.ref, 'ref', 0, 149);
+      const reference = optionalBoundedInteger(value.ref, 'ref', 0, Number.MAX_SAFE_INTEGER);
       const selector = typeof value.selector === 'string' ? value.selector : undefined;
       const text = typeof value.text === 'string' ? value.text : undefined;
       if (reference === undefined && !selector?.trim() && !text?.trim()) {
@@ -196,7 +227,7 @@ export function createBrowserTypeLiveTool(deps: LiveBrowserDependencies): Regist
         ref: {
           type: 'integer',
           minimum: 0,
-          description: 'Element ref index from the latest browser page snapshot.',
+          description: 'Opaque element ref from the latest page snapshot. Older refs are refused after a new snapshot or user takeover.',
         },
         selector: { type: 'string', description: 'CSS selector of the input field.' },
         text: { type: 'string', description: 'The text to type.' },
@@ -220,7 +251,7 @@ export function createBrowserTypeLiveTool(deps: LiveBrowserDependencies): Regist
       if (value.text.length > 5000) {
         throw new Error('Browser Type Text is limited to 5000 characters per call.');
       }
-      const reference = optionalBoundedInteger(value.ref, 'ref', 0, 149);
+      const reference = optionalBoundedInteger(value.ref, 'ref', 0, Number.MAX_SAFE_INTEGER);
       const selector = typeof value.selector === 'string' ? value.selector : undefined;
       if (reference === undefined && !selector?.trim()) {
         throw new Error('Browser Type Text needs a ref or a selector to find the field.');
@@ -244,8 +275,8 @@ export function createBrowserVisionLiveTool(deps: LiveBrowserDependencies): Regi
     id: 'browser.vision',
     name: 'Browser Vision Snapshot',
     description:
-      'With a running browser session: captures a real screenshot of the headless browser and saves it as a PNG in the workspace (iris-vision/) — returns the file path plus the page title and URL. Without a session: falls back to HTTP-only structural parsing, stated in the result.',
-    risk: 'read',
+      'With a running browser session: captures a real screenshot of the browser and saves it as a PNG in the workspace (iris-vision/) — returns the file path plus the page title and URL. Without a session: falls back to HTTP-only structural parsing, stated in the result.',
+    risk: 'execute',
     providerName: 'browser_vision',
     manualExecution: false,
     inputSchema: {
@@ -264,14 +295,15 @@ export function createBrowserVisionLiveTool(deps: LiveBrowserDependencies): Regi
       if (Object.keys(value).some((key) => !allowed.has(key))) {
         throw new Error('Browser Vision Snapshot received an unsupported input field.');
       }
-      const url = typeof value.url === 'string' && value.url.trim() ? value.url.trim() : undefined;
+      const url =
+        value.url === undefined ? undefined : requireUrl({ url: value.url });
       try {
         if (url) {
           await deps.invokeNative('browser_navigate', { url });
         }
         return await deps.invokeNative('browser_vision');
       } catch (error) {
-        if (error instanceof Error && NO_SESSION_PATTERN.test(error.message)) {
+        if (NO_SESSION_PATTERN.test(error instanceof Error ? error.message : String(error))) {
           if (!url) {
             throw new Error(
               'No browser session is running. Pass a url for HTTP-only inspection, or call browser.start first.',
@@ -345,7 +377,11 @@ export function createAllLiveBrowserTools(deps: LiveBrowserDependencies): Regist
 }
 
 const defaultDependencies: LiveBrowserDependencies = {
-  invokeNative: (command, args) => invoke(command, args),
+  invokeNative: async (command, args) => {
+    try { return await invoke(command, args); }
+    finally { notifyBrowserChanged(); }
+  },
+  fetchImpl: guardedBrowserFetch,
 };
 
 export function createAllBrowserSessionTools(): RegisteredTool[] {

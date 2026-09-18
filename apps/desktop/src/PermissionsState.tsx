@@ -17,11 +17,13 @@ import {
   permissionRuleRepository,
   toolApprovalRepository,
 } from './persistence';
-import { agentRuntime, consumeAgentEvents, subscribeAgentRuntime } from './agentRuntime';
+import { agentRuntime, subscribeAgentRuntime } from './agentRuntime';
+import { resolveAgentApproval } from './agentApproval';
 import { projectWorkflowRuntime, subscribeProjectRuntime } from './projectRuntime';
 import { createToolExecutor, toolRegistry } from './tooling';
 import { subscribeMcpServers } from './mcp';
 import { agentToolRuleId } from './agentPermissions';
+import { ApprovalRecordSummary } from './ApprovalSummaryView';
 
 function decisionLabel(decision: PermissionDecision): string {
   if (decision === 'ask') return 'Ask every time';
@@ -174,6 +176,7 @@ function ApprovalRow({
           {approval.agentName} · {approval.toolName}
         </strong>
         <small>{approval.evaluation.reason}</small>
+        <ApprovalRecordSummary approval={approval} />
       </span>
       <time dateTime={approval.createdAt}>
         {new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(
@@ -381,10 +384,16 @@ export function PermissionsState() {
     try {
       const suspended = await agentRuntime.suspendedForApproval(approval.id);
       if (suspended) {
-        await consumeAgentEvents(agentRuntime.resolveApproval(approval.id, decision));
+        // One central path for every surface: the agent chain resumes and the scheduled run the
+        // approval belongs to is completed from the same typed outcome.
+        const resolution = await resolveAgentApproval(approval.id, decision);
         setExecutionMessages((current) => ({
           ...current,
-          [approval.toolId]: 'Agent turn continued and its conversation was saved.',
+          [approval.toolId]: resolution.suspended
+            ? 'Agent turn continued; another approval is still pending.'
+            : resolution.output !== null
+              ? `Agent turn finished: ${resolution.output.slice(0, 200)}`
+              : 'Agent turn continued and its conversation was saved.',
         }));
         return;
       }
@@ -421,10 +430,12 @@ export function PermissionsState() {
     try {
       const suspended = await agentRuntime.suspendedForApproval(approval.id);
       if (suspended) {
-        await consumeAgentEvents(agentRuntime.resolveApproval(approval.id, 'approve'));
+        const resolution = await resolveAgentApproval(approval.id, 'approve');
         setExecutionMessages((current) => ({
           ...current,
-          [approval.toolId]: 'Approved agent turn continued and its conversation was saved.',
+          [approval.toolId]: resolution.suspended
+            ? 'Approved; another approval is still pending.'
+            : 'Approved agent turn continued and its conversation was saved.',
         }));
         return;
       }

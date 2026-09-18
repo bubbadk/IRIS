@@ -1,7 +1,7 @@
 import type { AgentDefinition } from '@iris/core';
 
 export const skillNameLimit = 80;
-export const skillSummaryLimit = 200;
+export const skillSummaryLimit = 500;
 export const skillInstructionsLimit = 8000;
 export const skillBundleFilePathLimit = 240;
 export const skillBundleFileContentLimit = 256 * 1024;

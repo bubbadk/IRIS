@@ -149,6 +149,9 @@ function parseMutationResult(value: unknown): WorkspaceMutationResult {
     throw new Error('The native workspace returned an invalid mutation result.');
   }
   return {
+    ...(result.restorePointId
+      ? { restorePointId: requiredText(result.restorePointId, 'restore-point identity') }
+      : {}),
     relativePath: requiredText(result.relativePath, 'mutation path'),
     kind: result.kind,
     created: result.created,
@@ -249,6 +252,22 @@ export class NativeWorkspaceService implements WorkspaceService {
         ...(maxBytes === undefined ? {} : { maxBytes }),
       }),
     );
+  }
+
+  async readForCheck(
+    expectedRoot: string,
+    relativePath: string,
+  ): Promise<WorkspaceTextFile | null> {
+    const mount = await this.requireMounted();
+    if (mount.rootPath !== expectedRoot)
+      throw new Error(
+        'The mounted workspace changed. Mount the configured check folder before continuing.',
+      );
+    const result = await this.dependencies.invokeNative('read_project_check_file', {
+      expectedRoot,
+      relativePath,
+    });
+    return result === null ? null : parseTextFile(result);
   }
 
   async search(query: string, maxResults?: number): Promise<WorkspaceSearchResult> {
@@ -379,7 +398,9 @@ const workspaceToolIds = new Set([
   'workspace.list',
   'workspace.search',
   'workspace.read',
-  'workspace.directory',
+  // The registered directory-creation identity. The pre-rename spelling
+  // (`workspace.directory`) left `workspace.mkdir` without a workspace context.
+  'workspace.mkdir',
   'workspace.write',
   'workspace.move',
   'workspace.delete',

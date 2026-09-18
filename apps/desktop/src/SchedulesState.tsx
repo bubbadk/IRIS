@@ -1,3 +1,4 @@
+import { ApprovalSummaryById } from './ApprovalSummaryView';
 import { useEffect, useState } from 'react';
 import type { AgentDefinition } from '@iris/core';
 import {
@@ -10,7 +11,13 @@ import {
   type ScheduledRun,
 } from '@iris/workflows';
 import { agentRepository, scheduleRepository, scheduledRunRepository } from './persistence';
-import { resolveScheduledApproval, subscribeScheduleRuntime } from './scheduledRuntime';
+import {
+  resolveScheduledApproval,
+  subscribeScheduleRuntime,
+  scheduledRuntimeStatus,
+  setScheduledQueuePaused,
+} from './scheduledRuntime';
+import { scheduledQueue } from './scheduledQueue';
 import { lastUserActivityAt } from './userActivity';
 
 const dreamingPromptSuggestion =
@@ -63,7 +70,8 @@ const schedulePresets: SchedulePreset[] = [
   {
     title: 'Daily Tech & AI Briefing',
     badge: 'Daily 08:00',
-    description: 'Summarizes the most critical tech, AI, and software developments from the past 24 hours.',
+    description:
+      'Summarizes the most critical tech, AI, and software developments from the past 24 hours.',
     name: 'Daily Tech & Architecture Briefing',
     recurrence: 'daily',
     timeOfDay: '08:00',
@@ -73,7 +81,8 @@ const schedulePresets: SchedulePreset[] = [
   {
     title: 'Inbox & Channels Triage',
     badge: 'Daily 09:00',
-    description: 'Reviews incoming communications and prepares an actionable summary of priority items.',
+    description:
+      'Reviews incoming communications and prepares an actionable summary of priority items.',
     name: 'Daily Communications Summary',
     recurrence: 'daily',
     timeOfDay: '09:00',
@@ -129,6 +138,9 @@ export function SchedulesState() {
   const [idleMinutes, setIdleMinutes] = useState(60);
   const [maxAttempts, setMaxAttempts] = useState(1);
   const [error, setError] = useState('');
+  const [runtimeStatus, setRuntimeStatus] = useState(scheduledRuntimeStatus);
+  const [queuePaused, setQueuePaused] = useState(false);
+  const [queueBusy, setQueueBusy] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<string>();
 
   function applyPreset(preset: SchedulePreset) {
@@ -142,6 +154,8 @@ export function SchedulesState() {
   }
 
   async function refresh() {
+    setRuntimeStatus(scheduledRuntimeStatus());
+    setQueuePaused(await scheduledQueue.isPaused());
     const [storedSchedules, storedRuns, storedAgents] = await Promise.all([
       scheduleRepository.list(),
       scheduledRunRepository.list(),
@@ -154,8 +168,12 @@ export function SchedulesState() {
   }
 
   useEffect(() => {
-    void refresh();
-    return subscribeScheduleRuntime(() => void refresh());
+    const load = () =>
+      void refresh().catch((failure) =>
+        setError(failure instanceof Error ? failure.message : 'The queue could not be loaded.'),
+      );
+    load();
+    return subscribeScheduleRuntime(load);
   }, []);
 
   function resetEditor() {
@@ -289,13 +307,49 @@ export function SchedulesState() {
           ＋ New schedule
         </button>
       </header>
+      <section className="schedule-queue-controls" aria-label="Schedule queue">
+        <div>
+          <strong>{queuePaused ? 'Queue paused' : 'Schedule queue'}</strong>
+          <p>{runtimeStatus.message}</p>
+          <small>
+            {runs.filter((run) => run.status === 'queued').length} queued ·{' '}
+            {runs.filter((run) => run.status === 'running').length} running ·{' '}
+            {runs.filter((run) => run.status === 'suspended').length} awaiting approval
+          </small>
+        </div>
+        <button
+          type="button"
+          className="row-button"
+          disabled={queueBusy}
+          onClick={() => {
+            setQueueBusy(true);
+            void setScheduledQueuePaused(!queuePaused)
+              .then(refresh)
+              .catch((failure) =>
+                setError(
+                  failure instanceof Error ? failure.message : 'Queue controls could not be saved.',
+                ),
+              )
+              .finally(() => setQueueBusy(false));
+          }}
+        >
+          {queuePaused ? 'Resume queue' : 'Pause new jobs'}
+        </button>
+        <small>
+          Queued jobs retain their original prompt and agent. Disabling a schedule stops future
+          occurrences; pause the queue to hold jobs already saved. Jobs interrupted after execution
+          begins require inspection and are never replayed automatically.
+        </small>
+      </section>
 
       {editing && (
         <form className="schedule-editor" onSubmit={(event) => void save(event)}>
           <div className="schedule-presets-section">
             <div className="schedule-presets-header">
               <span className="schedule-presets-title">⚡ Quick Presets</span>
-              <span className="schedule-presets-subtitle">Select a preset job to populate the configuration automatically:</span>
+              <span className="schedule-presets-subtitle">
+                Select a preset job to populate the configuration automatically:
+              </span>
             </div>
             <div className="schedule-presets-grid">
               {schedulePresets.map((preset) => (
@@ -397,7 +451,7 @@ export function SchedulesState() {
             )}
 
             <label>
-              Max attempts
+              Preflight attempts
               <input
                 type="number"
                 min="1"
@@ -407,6 +461,10 @@ export function SchedulesState() {
                   setMaxAttempts(Math.min(10, Math.max(1, Number(event.target.value) || 1)))
                 }
               />
+              <small>
+                Retry only configuration checks before execution. Failures after dispatch require
+                inspection.
+              </small>
             </label>
 
             {recurrence === 'once' && (
@@ -527,7 +585,9 @@ export function SchedulesState() {
                     run.output ??
                     (run.status === 'suspended'
                       ? 'Waiting for permission approval.'
-                      : 'No outcome recorded.')}
+                      : run.status === 'queued'
+                        ? 'Saved in the queue; waiting for dispatch and an available agent.'
+                        : 'No outcome recorded.')}
                 </span>
               </button>
               {selectedRunId === run.id && (
@@ -545,8 +605,18 @@ export function SchedulesState() {
                         : `Failed: ${scheduleDateLabel(run.failedAt)}`}
                     </span>
                   )}
-                  {run.retryAt && <span>Retry: {scheduleDateLabel(run.retryAt)}</span>}
+                  {run.retryAt && run.retrySafe && (
+                    <span>Preflight retry: {scheduleDateLabel(run.retryAt)}</span>
+                  )}
+                  {run.status === 'failed' && !run.retrySafe && (
+                    <span>
+                      No automatic replay. Inspect the actual outcome before creating new work.
+                    </span>
+                  )}
                   {run.approvalId && <span>Approval: {run.approvalId}</span>}
+                  {run.status === 'suspended' && run.approvalId && (
+                    <ApprovalSummaryById approvalId={run.approvalId} />
+                  )}
                   {run.status === 'suspended' && run.approvalId && (
                     <div>
                       <button

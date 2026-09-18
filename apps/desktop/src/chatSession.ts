@@ -81,12 +81,19 @@ export class ChatSessions {
         this.runtime.suspendedForAgent(agentId),
       ]);
       if (before !== this.getSnapshot(agentId)) return;
+      // A turn that is waiting on a *descendant's* approval owns no approval of its own: it has no
+      // decision to offer here, and its activity line must say so instead of claiming otherwise.
+      const owned = suspended?.pending.kind === 'tool-approval' ? suspended.pending : null;
       this.update(agentId, {
         messages,
-        approval: suspended?.pending.approval ?? null,
-        approvalInput: suspended?.pending.call.input ?? null,
+        approval: owned?.approval ?? null,
+        approvalInput: owned?.call.input ?? null,
         assistantDraft: suspended?.pending.assistantText ?? before.assistantDraft,
-        activity: suspended ? `Permission required for ${suspended.pending.approval.toolName}` : '',
+        activity: owned
+          ? `Permission required for ${owned.approval.toolName}`
+          : suspended
+            ? 'Waiting for a delegated sub-agent approval'
+            : '',
       });
     } catch (error) {
       this.update(agentId, { error: error instanceof Error ? error.message : String(error) });

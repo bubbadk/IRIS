@@ -13,16 +13,18 @@ import {
 } from '@iris/memory';
 import { invoke } from '@tauri-apps/api/core';
 import {
+  catalogModelsFromIds,
+  classifyModel,
   createEmbeddingProvider,
+  embeddingModelIds,
   fetchProviderEmbeddingModels,
   loadProviderConfigs,
-  providerConnectionFields,
   providerConnectionValue,
   providerSupportsEmbeddings,
   refreshProviderModels,
   type ProviderConfig,
 } from '@iris/providers';
-import { isTauriRuntime, loadProviderSecrets } from './credentials';
+import { isTauriRuntime, resolveProviderConnection } from './credentials';
 import { memoryEmbeddingIndexRepository } from './persistence';
 
 export type MemoryRetrievalConfig =
@@ -89,28 +91,14 @@ export function validateMemoryRetrievalConfig(
 }
 
 async function connectProvider(provider: ProviderConfig): Promise<ProviderConfig> {
-  const hasSecretFields = providerConnectionFields(provider).some((field) => field.secret);
-  const storedSecrets =
-    hasSecretFields || provider.storedSecretFields?.length
-      ? await loadProviderSecrets(provider.id)
-      : null;
-  return {
-    ...provider,
-    connectionValues: {
-      ...(storedSecrets ?? {}),
-      ...(provider.connectionValues ?? {}),
-      ...(provider.apiKey ? { apiKey: provider.apiKey } : {}),
-    },
-  };
+  // Single precedence contract: the trusted keyring always outranks legacy plaintext state (M-29).
+  return resolveProviderConnection(provider);
 }
 
-// Model-name families that identify an embedding model across the common providers. `/models`
-// returns chat, audio and image models too, so the picker filters down to these.
-const embeddingModelPattern =
-  /(embed|bge[-_]|gte[-_]|(^|[-_/])e5[-_]|nomic|mxbai|arctic-embed|minilm|jina|voyage|sfr-embedding|instructor)/i;
-
+// Embedding classification lives in the shared model catalog: this module must not keep its own
+// pattern, because two lists would drift and one of them would eventually hide a real model (M-28).
 export function isEmbeddingModelName(model: string): boolean {
-  return embeddingModelPattern.test(model);
+  return classifyModel({ id: model }).embedding;
 }
 
 /**
@@ -119,7 +107,7 @@ export function isEmbeddingModelName(model: string): boolean {
  * so the picker never suggests a model that cannot embed. The field still accepts a typed name.
  */
 export function selectEmbeddingModels(models: readonly string[]): string[] {
-  return [...models.filter(isEmbeddingModelName)].sort((left, right) => left.localeCompare(right));
+  return embeddingModelIds(catalogModelsFromIds(models));
 }
 
 /**

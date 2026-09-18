@@ -5,6 +5,9 @@ const runStatusLabels: Record<ProjectTaskRun['status'], string> = {
   running: 'Running',
   suspended: 'Waiting for approval',
   completed: 'Completed',
+  'awaiting-review': 'Ready for review',
+  'needs-attention': 'Needs attention',
+  paused: 'Paused at checkpoint',
   failed: 'Failed',
   cancelled: 'Cancelled',
 };

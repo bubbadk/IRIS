@@ -1,4 +1,3 @@
-
 .desktop-chat {
   position: relative;
   width: min(790px, 100%);
@@ -31,6 +30,7 @@
   backdrop-filter: blur(18px) saturate(1.05);
 }
 .chat-active .command-stage {
+  z-index: 4;
   left: 0;
   width: 100%;
   transform: none;
@@ -173,14 +173,21 @@
   background: rgba(255, 255, 255, 0.85);
   border: 1px solid rgba(63, 58, 49, 0.16);
   border-radius: 18px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.035), 0 1px 2px rgba(0, 0, 0, 0.02);
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.035),
+    0 1px 2px rgba(0, 0, 0, 0.02);
   backdrop-filter: blur(14px);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
 }
 .desktop-chat-composer:focus-within {
   border-color: rgba(96, 122, 105, 0.48);
   background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 6px 22px rgba(96, 122, 105, 0.1), 0 0 0 1px rgba(96, 122, 105, 0.25);
+  box-shadow:
+    0 6px 22px rgba(96, 122, 105, 0.1),
+    0 0 0 1px rgba(96, 122, 105, 0.25);
 }
 .desktop-chat-composer textarea {
   min-height: 52px;
@@ -620,7 +627,6 @@ kbd {
   font-size: 10px;
 }
 
-
 .desktop-objects {
   position: absolute;
   z-index: 2;
@@ -685,4 +691,158 @@ kbd {
 .object-skills {
   background: #e6edef;
   color: #607d84;
+}
+
+/* Keep long replies inside the scrolling body instead of shrinking over the header. */
+.desktop-chat-body > *,
+.desktop-chat-heading,
+.desktop-chat-composer {
+  flex-shrink: 0;
+}
+.desktop-chat-message-row {
+  display: flex;
+  min-width: 0;
+}
+.desktop-chat-message-row.user-row {
+  justify-content: flex-end;
+}
+.desktop-chat-message {
+  min-width: 0;
+  max-width: 94%;
+  padding: 16px 20px;
+  border-radius: 18px;
+  line-height: 1.65;
+}
+.desktop-chat-message.user-message {
+  background: rgba(225, 233, 222, 0.65);
+}
+.desktop-chat-message.agent-message {
+  background: rgba(255, 254, 250, 0.65);
+}
+.message-header {
+  margin-bottom: 10px;
+  color: #607566;
+  font-size: 12px;
+  font-weight: 650;
+}
+.message-footer {
+  margin-top: 14px;
+}
+.reactions-container {
+  display: flex;
+  gap: 6px;
+}
+.reaction-btn {
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 8px;
+  padding: 4px 7px;
+  cursor: pointer;
+}
+.rich-message {
+  min-width: 0;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.rich-message > :first-child {
+  margin-top: 0;
+}
+.rich-message > :last-child {
+  margin-bottom: 0;
+}
+.rich-message p {
+  margin: 0.7em 0;
+  white-space: pre-line;
+}
+.rich-message h1,
+.rich-message h2,
+.rich-message h3 {
+  line-height: 1.3;
+  margin: 1.1em 0 0.5em;
+}
+.rich-message h1 {
+  font-size: 1.5em;
+}
+.rich-message h2 {
+  font-size: 1.3em;
+}
+.rich-message h3 {
+  font-size: 1.15em;
+}
+.rich-message li {
+  margin: 0.3em 0;
+}
+.rich-message pre {
+  overflow: auto;
+  padding: 14px;
+  border-radius: 10px;
+  background: rgba(90, 100, 86, 0.07);
+  white-space: pre;
+}
+.rich-message code {
+  font-size: 0.9em;
+  background: rgba(90, 100, 86, 0.07);
+  padding: 0.1em 0.25em;
+  border-radius: 4px;
+}
+.rich-message pre code {
+  padding: 0;
+  background: transparent;
+}
+.rich-message blockquote {
+  border-left: 3px solid #aab8a8;
+  margin-left: 0;
+  padding-left: 16px;
+}
+.rich-message img {
+  display: block;
+  max-width: 100%;
+  max-height: 380px;
+  border-radius: 10px;
+  margin: 8px 0;
+}
+.message-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.rich-message table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.rich-message th,
+.rich-message td {
+  padding: 9px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+.rich-message th {
+  background: rgba(90, 100, 86, 0.06);
+}
+.active-tool-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 9px 12px;
+  background: rgba(255, 254, 250, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 12px;
+}
+.active-tool-item .tool-badge {
+  color: #687564;
+}
+.active-tool-item.tool-failed .tool-badge,
+.active-tool-item.tool-denied .tool-badge {
+  color: #985441;
+}
+.tool-failure-reason {
+  grid-column: 2 / -1;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #985441;
+}
+.desktop-chat-heading .desktop-chat-actions {
+  display: flex;
 }
