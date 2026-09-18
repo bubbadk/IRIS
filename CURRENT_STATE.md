@@ -36,7 +36,7 @@ Neither phase pushed, tagged or published anything.
 Re-derived by the Phase 2J final gate, re-run after the Phase 2K documentation edits, re-run on hosted
 runners for the 0.3.1 platform repairs, and re-run for the 0.3.2 truthfulness repairs:
 
-- **TypeScript** (`pnpm test`): **134 files / 1415 passed / 0 failed / 0 skipped / 0 todo**.
+- **TypeScript** (`pnpm test`): **134 files / 1416 passed / 0 failed / 0 skipped / 0 todo**.
 - **Rust, Linux** (`cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml`): **128 passed /
   0 failed / 13 ignored**. Twelve of the 13 ignored tests were additionally executed explicitly and
   passed; the thirteenth is a child-process fixture, not a standalone assertion.

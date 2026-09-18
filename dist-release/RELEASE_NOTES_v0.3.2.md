@@ -102,7 +102,7 @@ IRIS states its gaps as plainly as its capabilities. Current product-scope limit
 
 | Suite | Files | Passed | Failed | Skipped | Todo | Ignored |
 | --- | --- | --- | --- | --- | --- | --- |
-| TypeScript (`pnpm test`) | 134 | 1415 | 0 | 0 | 0 | — |
+| TypeScript (`pnpm test`) | 134 | 1416 | 0 | 0 | 0 | — |
 | Rust, Linux CachyOS `cargo test` (local) | — | 128 | 0 | — | — | 13 |
 | Rust, `macos-14` runner `cargo test` | — | 123 | 0 | — | — | 10 |
 | Rust, `windows-latest` runner `cargo test --lib` | — | 107 | 0 | — | — | 9 |

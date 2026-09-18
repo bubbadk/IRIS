@@ -42,21 +42,26 @@ export function ChannelsWindow() {
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     let active = true;
-    void Promise.all([
-      loadChannelConnection(),
-      loadDurableChannelInbox(),
-      loadChannelAttention(),
-    ])
-      .then(([next, messages, records]) => {
+    void Promise.all([loadChannelConnection(), loadDurableChannelInbox()])
+      .then(([next, messages]) => {
         if (active) {
           setConfig(next);
           setInbox(messages);
-          setAttention(records);
           setLoaded(true);
         }
       })
       .catch((error: unknown) => {
         if (active) setTestStatus(String(error));
+      });
+    // Additive: a failure to read the attention records must not stop the window from opening, and
+    // it is reported in its own right rather than silently swallowed.
+    void loadChannelAttention()
+      .then((records) => {
+        if (active) setAttention(records);
+      })
+      .catch(() => {
+        if (active)
+          setTestStatus('Channel attention records could not be read. Existing data was retained.');
       });
     return () => {
       active = false;
@@ -106,8 +111,13 @@ export function ChannelsWindow() {
         const notice =
           result.error ?? (result.status !== 'completed' ? `Channel polling ${result.status}.` : null);
         if (notice) setTestStatus(notice);
-        const records = await loadChannelAttention();
-        if (active) setAttention(records);
+        // Additive: a failed refresh must not masquerade as an inbox failure or discard the notice.
+        try {
+          const records = await loadChannelAttention();
+          if (active) setAttention(records);
+        } catch {
+          if (active) setTestStatus('Channel attention records could not be read.');
+        }
         setInbox(await loadDurableChannelInbox());
       } catch {
         if (active) setTestStatus('Channel inbox could not be loaded. Existing data was retained.');

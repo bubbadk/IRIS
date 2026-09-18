@@ -121,7 +121,7 @@ Optional Telegram polling routes approve/deny decisions from an allowlisted chat
 
 ### 7. Verified locally
 
-Verified on Linux (CachyOS/Arch family): **134 TypeScript test files / 1415 tests passed** (0 failed, 0 skipped, 0 todo) and **128 native tests passed** (0 failed, 13 ignored), alongside `pnpm typecheck`, `pnpm lint` (`--max-warnings=0`), `pnpm build` and `pnpm build:binary`, plus isolated native startup boots with no panic and successful repository, scheduler and queue initialisation. Additional verification exercised the live browser runtime, the enforcing proxy, the native reader, Bubblewrap isolation, an OS keyring round trip and a signed-updater fixture. See the [0.3.2 release notes](dist-release/RELEASE_NOTES_v0.3.2.md) for the full implemented / limited / not-verified breakdown. The release workflow also runs the native suite on hosted runners: **macOS 123 passed** (0 failed, 10 ignored) and **Windows 107 passed** (0 failed, 9 ignored), so those targets carry measured native coverage instead of being build-only. The totals differ because Unix-only cases run only where the platform supports them.
+Verified on Linux (CachyOS/Arch family): **134 TypeScript test files / 1416 tests passed** (0 failed, 0 skipped, 0 todo) and **128 native tests passed** (0 failed, 13 ignored), alongside `pnpm typecheck`, `pnpm lint` (`--max-warnings=0`), `pnpm build` and `pnpm build:binary`, plus isolated native startup boots with no panic and successful repository, scheduler and queue initialisation. Additional verification exercised the live browser runtime, the enforcing proxy, the native reader, Bubblewrap isolation, an OS keyring round trip and a signed-updater fixture. See the [0.3.2 release notes](dist-release/RELEASE_NOTES_v0.3.2.md) for the full implemented / limited / not-verified breakdown. The release workflow also runs the native suite on hosted runners: **macOS 123 passed** (0 failed, 10 ignored) and **Windows 107 passed** (0 failed, 9 ignored), so those targets carry measured native coverage instead of being build-only. The totals differ because Unix-only cases run only where the platform supports them.
 
 **Retained capabilities:** FP-AMB memory benchmark view and Memory Constellation, dual-tier model takeover, GitHub operations, WebDriver browser tools, permission-gated workspace commands, agent teams, attachments, command palette, Project Flow Reactor, memory inspection, Subtitle Studio, and optional web/image integrations. Live remote channel delivery and identity, installer launch on macOS and Windows, the installed Linux background-service lifecycle and the production-signed updater lifecycle remain unverified.
 
@@ -167,7 +167,7 @@ Verify your checkout with the same commands CI runs:
 ```bash
 pnpm typecheck                                                    # 0 type errors
 pnpm lint                                                         # --max-warnings=0
-pnpm test                                                         # 134 files / 1415 tests
+pnpm test                                                         # 134 files / 1416 tests
 cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml      # 128 passed / 13 ignored
 pnpm build
 pnpm build:binary

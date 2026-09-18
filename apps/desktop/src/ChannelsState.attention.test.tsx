@@ -80,4 +80,13 @@ describe('channel attention surface', () => {
     const container = await render();
     expect(container.textContent ?? '').not.toContain('needs attention');
   });
+
+  it('still opens, and says so, when the attention read fails', async () => {
+    mocks.loadChannelAttention.mockRejectedValueOnce(new Error('storage unavailable'));
+    const container = await render();
+    const text = container.textContent ?? '';
+    // Reading attention is additive: it must never stop the window from opening or working.
+    expect(text).toContain('Save connection settings');
+    expect(text).toContain('Channel attention records could not be read.');
+  });
 });
