@@ -38,10 +38,31 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   localStorage.clear();
   vi.unstubAllGlobals();
   document.body.innerHTML = '';
 });
+
+function findButton(container: HTMLElement, label: string): HTMLButtonElement {
+  const found = [...container.querySelectorAll('button')].find(
+    (item) => item.textContent?.trim() === label,
+  );
+  if (!found) throw new Error(`No button labelled "${label}".`);
+  return found as HTMLButtonElement;
+}
+
+async function edit(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      element instanceof HTMLInputElement
+        ? HTMLInputElement.prototype
+        : HTMLTextAreaElement.prototype,
+      'value',
+    )!.set!.call(element, value);
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
 
 async function render() {
   const container = document.createElement('div');
@@ -83,5 +104,68 @@ describe('Documents UI under a corrupt store', () => {
     expect(text).toContain('No documents saved yet.');
     expect(text).toContain('A home for your deliverables.');
     expect(text).not.toContain('Existing data has been retained');
+  });
+});
+
+describe('Documents UI after a successful reload', () => {
+  /**
+   * Regression for F2. The success branch replaced the document list and cleared `loadFailed`, but
+   * never cleared the error string, and the alert renders whenever that string is non-empty. After
+   * a corrupt store was repaired and "Refresh documents" was pressed, the UI showed the real
+   * document list and the "Existing data has been retained" error at the same time — it denied data
+   * it was displaying. Only the first load was pinned, which is why this shipped.
+   */
+  it('stops denying the data once a reload succeeds', async () => {
+    const documents = await import('./documents');
+    const { createDocument } = await import('@iris/workspaces');
+    const document = createDocument({
+      id: 'recovered',
+      title: 'Recovered plan',
+      format: 'markdown',
+      revision: {
+        id: 'revision-1',
+        content: '# Recovered',
+        createdAt: '2026-09-18T10:00:00Z',
+        author: { kind: 'user', id: 'user', name: 'You' },
+      },
+    });
+    vi.spyOn(documents.documentRepository, 'list')
+      .mockRejectedValueOnce(
+        new Error('Saved documents are invalid. Existing data has been retained.'),
+      )
+      .mockResolvedValue([document]);
+
+    const container = await render();
+    expect(container.textContent).toContain('Existing data has been retained');
+
+    await act(async () => findButton(container, 'Refresh documents').click());
+
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('Existing data has been retained');
+    expect(text).not.toContain('Saved documents could not be read.');
+    expect(text).toContain('Recovered plan');
+  });
+
+  /**
+   * The converse must also hold: a successful reload is evidence about the *load* only. It may
+   * clear the load error it supersedes, but it must not erase a refused save or export that the
+   * user has not read yet.
+   */
+  it('keeps an action error that the reload did not supersede', async () => {
+    const documents = await import('./documents');
+    vi.spyOn(documents.documentRepository, 'list').mockResolvedValue([]);
+    vi.spyOn(documents.documentRepository, 'create').mockRejectedValue(
+      new Error('The document could not be created.'),
+    );
+
+    const container = await render();
+    await act(async () => findButton(container, 'New document').click());
+    await edit(container.querySelector('input')!, 'Refused document');
+    await act(async () => findButton(container, 'Create document').click());
+    expect(container.textContent).toContain('The document could not be created.');
+
+    await act(async () => findButton(container, 'Refresh documents').click());
+
+    expect(container.textContent).toContain('The document could not be created.');
   });
 });

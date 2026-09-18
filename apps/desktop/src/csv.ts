@@ -94,7 +94,14 @@ export function csvCell(value: string): string {
   return needsQuotes(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
-/** Serializes rows to RFC 4180 CSV text terminated with CRLF records. */
+/**
+ * Serializes rows to RFC 4180 CSV text, terminating every record with CRLF.
+ *
+ * The trailing CRLF is what makes the writer faithful rather than merely conventional: without it
+ * the final record carries no separator, so a document whose last record is blank — `"a\n\n"` is the
+ * two records `[["a"], [""]]` — serialized to `"a\r\n"`, reparsed as `[["a"]]`, and the export
+ * completeness gate refused valid content while claiming it was incomplete.
+ */
 export function serializeCsv(rows: readonly (readonly string[])[]): string {
-  return rows.map((row) => row.map(csvCell).join(',')).join('\r\n');
+  return rows.map((row) => `${row.map(csvCell).join(',')}\r\n`).join('');
 }

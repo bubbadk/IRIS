@@ -53,7 +53,12 @@ export function DocumentsState() {
    * user their data is gone when it is still there.
    */
   const [loadFailed, setLoadFailed] = useState(false);
-  const [error, setError] = useState('');
+  /**
+   * The single alert slot, which remembers what produced it. A successful reload is only evidence
+   * about the *load*: it may clear the load error it supersedes, but it must not wipe an action
+   * error (a refused save or export) that the user has not read yet.
+   */
+  const [alert, setAlert] = useState<{ source: 'load' | 'action'; message: string } | null>(null);
   const [notice, setNotice] = useState('');
   const [historyId, setHistoryId] = useState('');
   const [refresh, setRefresh] = useState(0);
@@ -65,10 +70,11 @@ export function DocumentsState() {
         if (active) {
           setDocs(values);
           setLoadFailed(false);
+          setAlert((current) => (current?.source === 'load' ? null : current));
         }
       } catch (failure) {
         if (active) {
-          setError(String(failure));
+          setAlert({ source: 'load', message: String(failure) });
           setLoadFailed(true);
         }
       } finally {
@@ -104,14 +110,14 @@ export function DocumentsState() {
     setContent(doc.revisions.at(-1)!.content);
     setHistoryId('');
     setCreating(false);
-    setError('');
+    setAlert(null);
     setNotice('');
   }
   async function action(
     kind: 'create' | 'save' | 'export' | 'word' | 'pdf' | 'xlsx' | 'pptx' | 'csv',
   ) {
     setBusy(true);
-    setError('');
+    setAlert(null);
     setNotice('');
     try {
       if (kind === 'create') {
@@ -145,7 +151,11 @@ export function DocumentsState() {
         if (path) setNotice(`Exported: ${path}`);
       }
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'The document operation failed.');
+      setAlert({
+        source: 'action',
+        message:
+          failure instanceof Error ? failure.message : 'The document operation failed.',
+      });
     } finally {
       setBusy(false);
     }
@@ -430,9 +440,9 @@ export function DocumentsState() {
             </>
           )}
           {notice && <p role="status">{notice}</p>}
-          {error && (
+          {alert && (
             <p className="workspace-error" role="alert">
-              {error}
+              {alert.message}
             </p>
           )}
         </section>
