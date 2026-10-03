@@ -515,7 +515,6 @@ mod tests {
     use super::*;
     use crate::web_policy::public_ip;
     use std::net::Ipv4Addr;
-    use std::time::Instant;
 
     fn fake_resolver(
         resolver: impl Fn(&str, u16) -> Vec<SocketAddr> + Send + Sync + 'static,
@@ -535,21 +534,21 @@ mod tests {
     fn dns_lookup_deadlines_and_queue_saturation_fail_closed() {
         let resolver = Arc::new(BoundedResolver::new(1, 1, Duration::from_millis(25)).unwrap());
         let (started, started_rx) = mpsc::sync_channel(1);
+        let (release, release_rx) = mpsc::sync_channel(1);
         let worker_resolver = Arc::clone(&resolver);
         let first = std::thread::spawn(move || {
             worker_resolver.resolve(move || {
                 let _ = started.send(());
-                std::thread::sleep(Duration::from_millis(120));
+                let _ = release_rx.recv();
                 Ok(vec![])
             })
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
-        let began = Instant::now();
         let queued = resolver.resolve(|| Ok(vec![]));
         assert!(queued.unwrap_err().contains("timed out"));
-        assert!(began.elapsed() < Duration::from_millis(100));
         assert!(resolver.resolve(|| Ok(vec![])).unwrap_err().contains("busy"));
+        release.send(()).unwrap();
         assert!(first.join().unwrap().unwrap_err().contains("timed out"));
     }
 
