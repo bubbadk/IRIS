@@ -6,7 +6,11 @@ import type {
   MemoryEmbeddingScope,
   MemoryRecord,
 } from '@iris/memory';
-import { loadProviderConfigs, missingProviderConnectionFields } from '@iris/providers';
+import {
+  loadProviderConfigs,
+  missingProviderConnectionFields,
+  saveProviderConfigs,
+} from '@iris/providers';
 
 /**
  * M-29 credential precedence, exercised through production callers rather than only the merge
@@ -25,7 +29,7 @@ vi.mock('@tauri-apps/api/core', () => ({
   isTauri: () => true,
 }));
 
-import { resolveProviderConnection } from './credentials';
+import { migrateLegacyProviderSecrets, resolveProviderConnection } from './credentials';
 import { ConfiguredMemoryRetriever } from './memoryRetrieval';
 import { providerResolver } from './agentRuntime';
 
@@ -155,6 +159,27 @@ afterEach(() => {
 });
 
 describe('M-29 credential precedence matrix', () => {
+  it('moves a legacy plaintext key into the keyring before safe config persistence', async () => {
+    seedProvider('p-migrate');
+    const migrated = await migrateLegacyProviderSecrets([providerConfig('p-migrate')]);
+    saveProviderConfigs(migrated);
+
+    expect(keyring.get('p-migrate')).toBe('OLD_PLAINTEXT_KEY');
+    const saved = localStorage.getItem(providerStorageKey) ?? '';
+    expect(saved).not.toContain('OLD_PLAINTEXT_KEY');
+    expect(JSON.parse(saved)[0].storedSecretFields).toContain('apiKey');
+  });
+
+  it('keeps the keyring value authoritative while removing a stale plaintext copy', async () => {
+    seedProvider('p-migrate-existing');
+    keyring.set('p-migrate-existing', 'CURRENT_KEYRING_KEY');
+    const migrated = await migrateLegacyProviderSecrets([providerConfig('p-migrate-existing')]);
+    saveProviderConfigs(migrated);
+
+    expect(keyring.get('p-migrate-existing')).toBe('CURRENT_KEYRING_KEY');
+    expect(localStorage.getItem(providerStorageKey)).not.toContain('OLD_PLAINTEXT_KEY');
+  });
+
   it('uses the keyring credential when legacy plaintext is also present', async () => {
     seedProvider('p-keyring');
     keyring.set('p-keyring', 'KEY_A');
@@ -172,13 +197,13 @@ describe('M-29 credential precedence matrix', () => {
   it('follows a rotated keyring credential without restarting', async () => {
     seedProvider('p-rotated');
     keyring.set('p-rotated', 'KEY_A');
-    expect((await resolveProviderConnection(providerConfig('p-rotated'))).connectionValues?.apiKey).toBe(
-      'KEY_A',
-    );
+    expect(
+      (await resolveProviderConnection(providerConfig('p-rotated'))).connectionValues?.apiKey,
+    ).toBe('KEY_A');
     keyring.set('p-rotated', 'NEWER_KEY');
-    expect((await resolveProviderConnection(providerConfig('p-rotated'))).connectionValues?.apiKey).toBe(
-      'NEWER_KEY',
-    );
+    expect(
+      (await resolveProviderConnection(providerConfig('p-rotated'))).connectionValues?.apiKey,
+    ).toBe('NEWER_KEY');
   });
 
   it('keeps the documented legacy migration behaviour when the keyring holds nothing', async () => {
@@ -258,7 +283,10 @@ describe('M-29 through the agent/provider execution path', () => {
     const captured: CapturedRequest[] = [];
     stubFetch(captured, () => new Response('data: [DONE]\n\n', { status: 200 }));
 
-    const selected = { providerPolicyId: 'p-agent', model: 'gpt-4o-mini' } as unknown as AgentDefinition;
+    const selected = {
+      providerPolicyId: 'p-agent',
+      model: 'gpt-4o-mini',
+    } as unknown as AgentDefinition;
     const { provider, model } = await providerResolver.resolve(selected, undefined);
     for await (const chunk of provider.stream({ model, messages: [] })) void chunk;
 
@@ -295,7 +323,7 @@ describe('M-29 secret leakage', () => {
     const consume = async () => {
       for await (const chunk of provider.stream({ model: 'gpt-4o', messages: [] })) void chunk;
     };
-    await expect(consume()).rejects.toThrow(/Model request failed with 500/);
+    await expect(consume()).rejects.toThrow(/Model request failed \(HTTP 500\)/);
     let message = '';
     try {
       await consume();
@@ -319,7 +347,11 @@ describe('M-29 through the memory embedding path', () => {
     keyring.set('p-memory', 'KEY_A');
     localStorage.setItem(
       memoryStorageKey,
-      JSON.stringify({ strategy: 'embedding', providerId: 'p-memory', model: 'text-embedding-3-small' }),
+      JSON.stringify({
+        strategy: 'embedding',
+        providerId: 'p-memory',
+        model: 'text-embedding-3-small',
+      }),
     );
     const captured: CapturedRequest[] = [];
     stubFetch(

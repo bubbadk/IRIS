@@ -51,12 +51,14 @@ describe('bridgeGateway', () => {
     const customConfig: ChannelsConfig = {
       telegram: {
         enabled: true,
+        notifyOnProjectUpdates: false,
         botToken: '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11',
         allowedChatIds: ['987654321'],
         lastUpdateId: 10,
       },
       discord: {
         enabled: true,
+        notifyOnProjectUpdates: false,
         webhookUrl: 'https://discord.com/api/webhooks/1234/abcd',
       },
     };

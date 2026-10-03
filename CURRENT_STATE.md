@@ -1,7 +1,11 @@
 # IRIS Current State
 
-Updated 2026-09-18. **Release version: 0.3.3.** Source, built binaries and published
-releases are separate. The current tree is **IRIS 0.3.3**: the 0.3.0 candidate — a large body of
+Updated 2026-10-04. **Source candidate: 0.3.4; latest published release: 0.3.3.** The working tree
+contains follow-up fixes and the synchronized 0.3.4 version bump on `codex/release-v0.3.4`. This
+candidate has not been pushed, tagged or published.
+Local source, generated artifacts and published releases are separate. `main` and the base commit
+both point to `7f23c89`, the commit tagged and published as `v0.3.3`. This branch contains the
+unreleased 0.3.4 candidate on top of that base: the 0.3.0 foundation plus the
 post-0.2.11 work that passed the Phase 2J final adversarial release gate — plus the
 platform-portability repairs of 0.3.1, the three truthfulness repairs of 0.3.2 and the agent
 workspace availability repair of 0.3.3. Phase 2K.1 applied
@@ -11,13 +15,14 @@ workers. Phase 2L.1 repaired the platform defects, applied 0.3.1, and tagged `v0
 run passed the native suite on Linux, macOS and Windows and then stopped at updater signing, because
 the configured signing key and password were not a matching pair, producing no release object,
 artifact, checksum, signature or updater metadata. That signing configuration has since been
-corrected. **`v0.3.0` and `v0.3.1` are source tags with no published releases**, deliberately left in
-place rather than moved or deleted.
+corrected. **`v0.3.0` and `v0.3.1` are source tags with no published releases**. `v0.3.2` and
+`v0.3.3` are published GitHub releases; `v0.3.3` is marked Latest and includes signed platform
+artifacts and the updater manifest.
 
 Phase 2M.1 repairs the three remaining Medium truthfulness findings in this tree — a CSV export that
 refused valid content ending in a blank record, a Documents window that kept denying data it was
 displaying after a successful reload, and durable channel-attention records that no part of the
-application read — and applies 0.3.2 across all version metadata. Phase 2M.2 applies 0.3.3 and repairs
+application read — and published these repairs as 0.3.2. Phase 2M.2 applies 0.3.3 and repairs
 the agent workspace availability defect introduced with the 0.3.0 configuration guard: an agent or
 permission rule naming a tool identity the registry did not publish (an MCP server that has not
 connected yet, or is simply offline) aborted the whole agent and permission read, so the Agent
@@ -39,12 +44,12 @@ notes, preserved the finding backlog, reviewed the release workflow and signing 
 re-ran full verification. Phase 2K.1 then committed the candidate as a single atomic commit.
 Neither phase pushed, tagged or published anything.
 
-## Latest verified counts
+## Verification recorded for the current release
 
-Re-derived by the Phase 2J final gate, re-run after the Phase 2K documentation edits, re-run on hosted
-runners for the 0.3.1 platform repairs, and re-run for the 0.3.2 truthfulness repairs:
+The published 0.3.3 release notes record these checks. They are release evidence, not a fresh run
+performed during this documentation correction:
 
-- **TypeScript** (`pnpm test`): **134 files / 1416 passed / 0 failed / 0 skipped / 0 todo**.
+- **TypeScript** (`pnpm test`): **137 files / 1428 passed / 0 failed**.
 - **Rust, Linux** (`cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml`): **128 passed /
   0 failed / 13 ignored**. Twelve of the 13 ignored tests were additionally executed explicitly and
   passed; the thirteenth is a child-process fixture, not a standalone assertion.
@@ -68,21 +73,25 @@ binding), `H2` (channel recovery), `H3` (secret temp file), `H4` (cancellation t
 channel fencing are all closed and were re-verified against the current tree. Detail remains in the
 audit reports; user-facing context is summarised in the release notes draft.
 
-## Surviving findings (post-release backlog; not release-blocking)
+## Remaining audit debt (not release-blocking)
 
-- **Medium F1** — CSV export falsely refuses valid content ending in a blank record
-  (`apps/desktop/src/documentExport.ts`).
-- **Medium F2** — the Documents UI keeps showing a stale error after a successful reload
-  (`apps/desktop/src/DocumentsState.tsx`).
-- **Medium F2C** — channel-attention state is durable but not surfaced in the app
-  (`bridgeGateway.ts`, `ChannelsState.tsx`).
+- The three Medium truthfulness findings F1 (CSV trailing blank record), F2 (stale Documents load
+  error) and F2C (channel-attention observability) were repaired in 0.3.2 and are covered by
+  regression tests; they are closed, not open backlog items.
 - **Low** — 18 reproduced historical Lows plus 3 static-only observations, one new `ProjectsState`
   reconcile availability observation (`F-2J3-1`), and the Tauri ACL observation (the app declares 67
   native commands but no application-level ACL entries; in-command runtime checks and a strict
   window CSP remain). Full technical detail is in the audit reports.
 
-None of these was repaired in Phase 2K. They are recorded for a follow-up truthfulness pass, not for
-this release.
+The Phase 2J gate found no open Critical or High finding. The 2026-09-18 low-finding counts below
+are historical. The 0.3.4 candidate includes legacy credential migration, safer XLSX/PPTX export,
+Projects load recovery, bounded browser DNS resolution, provider-error redaction, opt-in project
+status notifications, and approval-gated project test checks. Fresh local verification on 2026-10-04:
+typecheck and lint pass; 138 TypeScript test files / 1437 tests pass. Rust/native verification and a
+desktop binary build remain outstanding because Cargo is unavailable in this environment. This
+candidate is not release-ready.
+Remaining Low observations and the Tauri ACL observation remain recorded in the historical audit
+reports.
 
 ## Implemented foundations and partial work
 
@@ -142,16 +151,16 @@ this release.
 - **Updater:** Readable target-version notes and signature/target/install-error checks are integrated.
   AppImage tooling handles Arch with `NO_STRIP`; the manual signing-required draft-release workflow
   attaches per-platform SHA-256 manifests. Historical signed-install/tamper/rollback evidence is not
-  verification of this session's binary. Local `dist-release/latest.json` is stale unsigned 0.2.10;
-  current public release state was not checked online.
+  verification of this session's binary. The local `dist-release/latest.json` was refreshed from the
+  published 0.3.3 updater manifest on 2026-09-30.
 
 ## Debt, blockers and next work
 
-- **Release version: 0.3.2 — truthfulness repairs applied, synchronized and prepared for
-  publication.** The explicit user version decision is applied and synchronized across the workspace
-  manifests, `tauri.conf.json`, `Cargo.toml`, `Cargo.lock` and this file. `v0.3.0` and `v0.3.1` remain
-  source tags with no published releases. Publication (tag, signed build, GitHub release) still
-  requires a fresh, explicit human approval for that exact invocation.
+- **Release candidate: 0.3.4 — not published.** Workspace manifests, Tauri config, Cargo.toml and
+  the IRIS Cargo.lock entry are bumped. Cargo tests and the native binary build remain unverified.
+  The published 0.3.3 artifacts and updater manifest remain the latest available. Signed 0.3.4
+  platform assets and updater metadata must be produced by the release workflow after native
+  verification.
 - An unintended partial QC-3 expansion was removed from active source and preserved separately in
   `/mnt/ai/IRIS-deferred/QC3-2026-09-12-z290fbrp`. It is unfinished and is not accepted evidence.
 - Independent semantic review and permission-gated test-command execution (QC-3) remain missing.
@@ -163,9 +172,6 @@ this release.
   fixtures.
 - Onboarding does not validate provider connections or save entered secrets through the credential
   store during setup; unified account/channel/profile/security onboarding remains partial.
-- macOS/Windows target machines, production updater signing keys and fresh explicit publication
-  approval are external prerequisites. The 0.3.0 and 0.3.1 commits are published as the `v0.3.0`
-  (`4c4debda`) and `v0.3.1` (`a284144`) source tags with no release objects. `v0.3.2` is published
-  and carries the three truthfulness repairs. `v0.3.3`, this tree, carries those plus the agent
-  workspace availability repair; its publication is not authorized yet and remains a separate,
-  explicit human decision.
+- macOS/Windows runtime acceptance remains limited to the evidence recorded for the release; asset
+  publication alone is not a user-machine installation test. A future publication still requires
+  fresh, explicit human approval for that exact invocation.

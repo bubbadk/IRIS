@@ -17,7 +17,7 @@ import { ensureAssignedToolsRequireApproval } from './agentPermissions';
 // initialization (memory service, host inspection) into onboarding and its tests.
 import { toolRegistry } from './toolRegistry';
 import { mountWorkspace } from './workspace';
-import { resolveProviderConnection, saveProviderSecrets } from './credentials';
+import { saveProviderSecrets } from './credentials';
 import { createDefaultAgentTeam, createSystemJanitorPreset } from './agentPresets';
 
 // Re-exported so existing callers and tests keep one import site for the system preset; the
@@ -107,7 +107,7 @@ export function OnboardingWizard({
   onFinish,
   darkMode,
 }: {
-  onFinish: () => void;
+  onFinish: (firstTask?: string) => void;
   darkMode: boolean;
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -119,6 +119,10 @@ export function OnboardingWizard({
   const [ollamaModel, setOllamaModel] = useState('llama3.2');
   const [workspacePath, setWorkspacePath] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [setupComplete, setSetupComplete] = useState(false);
+  const [verifiedProviderName, setVerifiedProviderName] = useState('');
+  const [verifiedModelName, setVerifiedModelName] = useState('');
+  const [firstTask, setFirstTask] = useState('Help me plan my first project.');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const handleSkip = () => {
@@ -160,9 +164,9 @@ export function OnboardingWizard({
 
   const handleComplete = async () => {
     setIsSaving(true);
-    setStatusMessage('Configuring your IRIS operating environment…');
+    setStatusMessage('Checking the provider and finding a usable chat model…');
     try {
-      // 1. Prepare the provider. The workspace is verified before any configuration is saved.
+      // 1. Verify a real chat model before persisting credentials or provider configuration.
       const providerId = `${providerType}-${crypto.randomUUID().slice(0, 8)}`;
       const defaults = setupProviderDefaults(providerType);
       let providerConfig: ProviderConfig =
@@ -181,6 +185,17 @@ export function OnboardingWizard({
               connectionValues: { apiKey: apiKey.trim() },
             };
 
+      const discovered = await refreshProviderModels(providerConfig);
+      if (!discovered.model.trim()) {
+        throw new Error(
+          'The provider responded, but IRIS could not identify a compatible chat model. Check the provider model list and try again.',
+        );
+      }
+      providerConfig = {
+        ...discovered,
+        connectionValues: providerConfig.connectionValues,
+      };
+
       // 2. Mount Workspace if provided. Never create an unverified fallback record.
       if (workspacePath.trim()) {
         await mountWorkspace(workspacePath.trim());
@@ -195,24 +210,6 @@ export function OnboardingWizard({
           connectionValues: storedInOsKeyring ? undefined : providerConfig.connectionValues,
           ...(storedInOsKeyring ? { storedSecretFields: ['apiKey'] } : {}),
         };
-      }
-
-      // 3b. When the shared catalog has no model list yet (it syncs from models.dev on first run of
-      // the Models surface), ask the provider for its real models and let the same capability-aware
-      // policy pick the default. An offline or failing provider keeps the empty model state instead
-      // of a guessed name; nothing is hardcoded and setup still completes.
-      if (providerType !== 'ollama' && !providerConfig.model.trim()) {
-        try {
-          const connected = await resolveProviderConnection(providerConfig);
-          const discovered = await refreshProviderModels(connected);
-          providerConfig = {
-            ...discovered,
-            connectionValues: providerConfig.connectionValues,
-            storedSecretFields: providerConfig.storedSecretFields,
-          };
-        } catch {
-          /* The Models surface can refresh and choose a default later. */
-        }
       }
 
       const existingConfigs = loadProviderConfigs();
@@ -237,12 +234,19 @@ export function OnboardingWizard({
         );
       }
 
-      markOnboardingComplete();
-      onFinish();
+      setVerifiedProviderName(providerConfig.name);
+      setVerifiedModelName(providerConfig.model);
+      setStatusMessage(null);
+      setSetupComplete(true);
     } catch (error) {
       setIsSaving(false);
       setStatusMessage(`Setup error: ${error instanceof Error ? error.message : String(error)}`);
     }
+  };
+
+  const finishSetup = (startFirstTask: boolean) => {
+    markOnboardingComplete();
+    onFinish(startFirstTask ? firstTask.trim() : undefined);
   };
 
   return (
@@ -265,6 +269,7 @@ export function OnboardingWizard({
               type="button"
               className="onboarding-skip-top-btn"
               onClick={handleSkip}
+              disabled={isSaving}
               title="Skip setup and open existing workspace"
               aria-label="Skip setup"
             >
@@ -298,214 +303,263 @@ export function OnboardingWizard({
         </div>
 
         <div className="onboarding-body">
-          {step === 1 && (
-            <div className="step-content">
-              <h3>Step 1: Choose Your AI Model Provider</h3>
+          {setupComplete ? (
+            <div className="step-content" role="status">
+              <h3>Your provider is ready</h3>
               <p className="step-desc">
-                IRIS is 100% model-agnostic. Run completely locally with Ollama or connect leading
-                cloud providers.
+                IRIS reached {verifiedProviderName} and found the real model {verifiedModelName}.
+                Your first task will open in chat. Review it and press Enter when you are ready to
+                send it.
               </p>
-
-              <div className="provider-selection-grid">
-                <button
-                  type="button"
-                  className={`provider-card ${providerType === 'openrouter' ? 'selected' : ''}`}
-                  onClick={() => setProviderType('openrouter')}
-                >
-                  <span className="provider-icon">🌐</span>
-                  <div className="provider-info">
-                    <strong>OpenRouter</strong>
-                    <span>Claude 3.7, GPT-4o, DeepSeek R1</span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  className={`provider-card ${providerType === 'ollama' ? 'selected' : ''}`}
-                  onClick={() => setProviderType('ollama')}
-                >
-                  <span className="provider-icon">🦙</span>
-                  <div className="provider-info">
-                    <strong>Local Ollama</strong>
-                    <span>100% offline, private, and free</span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  className={`provider-card ${providerType === 'anthropic' ? 'selected' : ''}`}
-                  onClick={() => setProviderType('anthropic')}
-                >
-                  <span className="provider-icon">⚡</span>
-                  <div className="provider-info">
-                    <strong>Anthropic Claude</strong>
-                    <span>Direct API (Claude 3.7 Sonnet)</span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  className={`provider-card ${providerType === 'openai' ? 'selected' : ''}`}
-                  onClick={() => setProviderType('openai')}
-                >
-                  <span className="provider-icon">🧠</span>
-                  <div className="provider-info">
-                    <strong>OpenAI</strong>
-                    <span>Direct API (GPT-4o, o3-mini)</span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  className={`provider-card ${providerType === 'gemini' ? 'selected' : ''}`}
-                  onClick={() => setProviderType('gemini')}
-                >
-                  <span className="provider-icon">💎</span>
-                  <div className="provider-info">
-                    <strong>Google Gemini</strong>
-                    <span>Gemini 2.5 Flash / Pro</span>
-                  </div>
-                </button>
-              </div>
-
-              <div className="provider-config-inputs">
-                {providerType === 'ollama' ? (
-                  <div className="input-group">
-                    <label htmlFor="ollama-url">Ollama Server URL:</label>
-                    <input
-                      id="ollama-url"
-                      type="text"
-                      value={ollamaUrl}
-                      onChange={(e) => setOllamaUrl(e.target.value)}
-                      placeholder="http://localhost:11434"
-                    />
-                    <label htmlFor="ollama-model" style={{ marginTop: 8 }}>
-                      Model Name:
-                    </label>
-                    <input
-                      id="ollama-model"
-                      type="text"
-                      value={ollamaModel}
-                      onChange={(e) => setOllamaModel(e.target.value)}
-                      placeholder="e.g. llama3.2, qwen2.5-coder"
-                    />
-                  </div>
-                ) : (
-                  <div className="input-group">
-                    <label htmlFor="provider-api-key">API Key for {providerType}:</label>
-                    <input
-                      id="provider-api-key"
-                      type="password"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder="sk-..."
-                      autoFocus
-                    />
-                  </div>
-                )}
+              <div className="input-group">
+                <label htmlFor="onboarding-first-task">Your first task</label>
+                <textarea
+                  id="onboarding-first-task"
+                  value={firstTask}
+                  onChange={(event) => setFirstTask(event.target.value)}
+                  rows={3}
+                  maxLength={4000}
+                  placeholder="Describe one small, real task for IRIS."
+                />
               </div>
             </div>
-          )}
+          ) : (
+            <>
+              {step === 1 && (
+                <div className="step-content">
+                  <h3>Step 1: Choose Your AI Model Provider</h3>
+                  <p className="step-desc">
+                    IRIS is 100% model-agnostic. Run completely locally with Ollama or connect
+                    leading cloud providers.
+                  </p>
 
-          {step === 2 && (
-            <div className="step-content">
-              <h3>Step 2: Mount a Project Workspace (Optional)</h3>
-              <p className="step-desc">
-                Mount a folder on your computer where agents can read and edit files safely with
-                permission gates. You can change this anytime.
-              </p>
-
-              <div className="input-group">
-                <label htmlFor="workspace-folder">Path to project folder:</label>
-                <div className="onboarding-workspace-picker">
-                  <input
-                    id="workspace-folder"
-                    type="text"
-                    value={workspacePath}
-                    onChange={(e) => setWorkspacePath(e.target.value)}
-                    placeholder="/path/to/project or leave empty"
-                  />
-                  {isTauri() && (
+                  <div className="provider-selection-grid">
                     <button
                       type="button"
-                      className="onboarding-btn-secondary"
-                      onClick={chooseWorkspace}
+                      className={`provider-card ${providerType === 'openrouter' ? 'selected' : ''}`}
+                      onClick={() => setProviderType('openrouter')}
                     >
-                      Choose folder
+                      <span className="provider-icon">🌐</span>
+                      <div className="provider-info">
+                        <strong>OpenRouter</strong>
+                        <span>Claude 3.7, GPT-4o, DeepSeek R1</span>
+                      </div>
                     </button>
-                  )}
+
+                    <button
+                      type="button"
+                      className={`provider-card ${providerType === 'ollama' ? 'selected' : ''}`}
+                      onClick={() => setProviderType('ollama')}
+                    >
+                      <span className="provider-icon">🦙</span>
+                      <div className="provider-info">
+                        <strong>Local Ollama</strong>
+                        <span>100% offline, private, and free</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`provider-card ${providerType === 'anthropic' ? 'selected' : ''}`}
+                      onClick={() => setProviderType('anthropic')}
+                    >
+                      <span className="provider-icon">⚡</span>
+                      <div className="provider-info">
+                        <strong>Anthropic Claude</strong>
+                        <span>Direct API (Claude 3.7 Sonnet)</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`provider-card ${providerType === 'openai' ? 'selected' : ''}`}
+                      onClick={() => setProviderType('openai')}
+                    >
+                      <span className="provider-icon">🧠</span>
+                      <div className="provider-info">
+                        <strong>OpenAI</strong>
+                        <span>Direct API (GPT-4o, o3-mini)</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`provider-card ${providerType === 'gemini' ? 'selected' : ''}`}
+                      onClick={() => setProviderType('gemini')}
+                    >
+                      <span className="provider-icon">💎</span>
+                      <div className="provider-info">
+                        <strong>Google Gemini</strong>
+                        <span>Gemini 2.5 Flash / Pro</span>
+                      </div>
+                    </button>
+                  </div>
+
+                  <div className="provider-config-inputs">
+                    {providerType === 'ollama' ? (
+                      <div className="input-group">
+                        <label htmlFor="ollama-url">Ollama Server URL:</label>
+                        <input
+                          id="ollama-url"
+                          type="text"
+                          value={ollamaUrl}
+                          onChange={(e) => setOllamaUrl(e.target.value)}
+                          placeholder="http://localhost:11434"
+                        />
+                        <label htmlFor="ollama-model" style={{ marginTop: 8 }}>
+                          Model Name:
+                        </label>
+                        <input
+                          id="ollama-model"
+                          type="text"
+                          value={ollamaModel}
+                          onChange={(e) => setOllamaModel(e.target.value)}
+                          placeholder="e.g. llama3.2, qwen2.5-coder"
+                        />
+                      </div>
+                    ) : (
+                      <div className="input-group">
+                        <label htmlFor="provider-api-key">API Key for {providerType}:</label>
+                        <input
+                          id="provider-api-key"
+                          type="password"
+                          value={apiKey}
+                          onChange={(e) => setApiKey(e.target.value)}
+                          placeholder="sk-..."
+                          autoFocus
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </div>
+              )}
+
+              {step === 2 && (
+                <div className="step-content">
+                  <h3>Step 2: Mount a Project Workspace (Optional)</h3>
+                  <p className="step-desc">
+                    Mount a folder on your computer where agents can read and edit files safely with
+                    permission gates. You can change this anytime.
+                  </p>
+
+                  <div className="input-group">
+                    <label htmlFor="workspace-folder">Path to project folder:</label>
+                    <div className="onboarding-workspace-picker">
+                      <input
+                        id="workspace-folder"
+                        type="text"
+                        value={workspacePath}
+                        onChange={(e) => setWorkspacePath(e.target.value)}
+                        placeholder="/path/to/project or leave empty"
+                      />
+                      {isTauri() && (
+                        <button
+                          type="button"
+                          className="onboarding-btn-secondary"
+                          onClick={chooseWorkspace}
+                        >
+                          Choose folder
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {step === 3 && (
+                <div className="step-content">
+                  <h3>Step 3: Your Starter Specialist Team</h3>
+                  <p className="step-desc">
+                    IRIS automatically configures a starter team of specialists you can customize
+                    anytime:
+                  </p>
+
+                  <div className="agent-preview-list">
+                    <div className="agent-preview-card">
+                      <span className="agent-avatar">👑</span>
+                      <div>
+                        <strong>IRIS Coordinator</strong>
+                        <p>
+                          Primary coordinator with reasoning, MCP tools, and sub-agent delegation.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="agent-preview-card">
+                      <span className="agent-avatar">💻</span>
+                      <div>
+                        <strong>Senior Developer</strong>
+                        <p>Code architecture, refactoring, diagnostics, and visual diff reviews.</p>
+                      </div>
+                    </div>
+                    <div className="agent-preview-card">
+                      <span className="agent-avatar">🛡️</span>
+                      <div>
+                        <strong>System Janitor</strong>
+                        <p>Monitors system health, cleans memory, and maintains workspaces.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {statusMessage && <p className="onboarding-status-message">{statusMessage}</p>}
+            </>
           )}
-
-          {step === 3 && (
-            <div className="step-content">
-              <h3>Step 3: Your Starter Specialist Team</h3>
-              <p className="step-desc">
-                IRIS automatically configures a starter team of specialists you can customize
-                anytime:
-              </p>
-
-              <div className="agent-preview-list">
-                <div className="agent-preview-card">
-                  <span className="agent-avatar">👑</span>
-                  <div>
-                    <strong>IRIS Coordinator</strong>
-                    <p>Primary coordinator with reasoning, MCP tools, and sub-agent delegation.</p>
-                  </div>
-                </div>
-                <div className="agent-preview-card">
-                  <span className="agent-avatar">💻</span>
-                  <div>
-                    <strong>Senior Developer</strong>
-                    <p>Code architecture, refactoring, diagnostics, and visual diff reviews.</p>
-                  </div>
-                </div>
-                <div className="agent-preview-card">
-                  <span className="agent-avatar">🛡️</span>
-                  <div>
-                    <strong>System Janitor</strong>
-                    <p>Monitors system health, cleans memory, and maintains workspaces.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {statusMessage && <p className="onboarding-status-message">{statusMessage}</p>}
         </div>
 
         <div className="onboarding-footer">
-          {step > 1 && (
-            <button
-              type="button"
-              className="onboarding-btn-secondary"
-              onClick={() => setStep((s) => (s - 1) as 1 | 2)}
-            >
-              ← Back
-            </button>
-          )}
-          <div style={{ flex: 1 }} />
-          {step === 1 && (
-            <button type="button" className="onboarding-btn-primary" onClick={handleNextStep1}>
-              Next: Workspace →
-            </button>
-          )}
-          {step === 2 && (
-            <button type="button" className="onboarding-btn-primary" onClick={handleNextStep2}>
-              Next: Agent Team →
-            </button>
-          )}
-          {step === 3 && (
-            <button
-              type="button"
-              className="onboarding-btn-primary finalize"
-              onClick={handleComplete}
-              disabled={isSaving}
-            >
-              {isSaving ? 'Configuring…' : '🚀 Launch IRIS'}
-            </button>
+          {setupComplete ? (
+            <>
+              <button
+                type="button"
+                className="onboarding-btn-secondary"
+                onClick={() => finishSetup(false)}
+              >
+                Finish setup
+              </button>
+              <div style={{ flex: 1 }} />
+              <button
+                type="button"
+                className="onboarding-btn-primary finalize"
+                onClick={() => finishSetup(true)}
+                disabled={!firstTask.trim()}
+              >
+                Open first task →
+              </button>
+            </>
+          ) : (
+            <>
+              {step > 1 && (
+                <button
+                  type="button"
+                  className="onboarding-btn-secondary"
+                  onClick={() => setStep((s) => (s - 1) as 1 | 2)}
+                >
+                  ← Back
+                </button>
+              )}
+              <div style={{ flex: 1 }} />
+              {step === 1 && (
+                <button type="button" className="onboarding-btn-primary" onClick={handleNextStep1}>
+                  Next: Workspace →
+                </button>
+              )}
+              {step === 2 && (
+                <button type="button" className="onboarding-btn-primary" onClick={handleNextStep2}>
+                  Next: Agent Team →
+                </button>
+              )}
+              {step === 3 && (
+                <button
+                  type="button"
+                  className="onboarding-btn-primary finalize"
+                  onClick={handleComplete}
+                  disabled={isSaving}
+                >
+                  {isSaving ? 'Configuring…' : '🚀 Launch IRIS'}
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>

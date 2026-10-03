@@ -140,6 +140,39 @@ export function ProjectRunReview({
           ))}
         </div>
       )}
+      {run.testCommand && (
+        <div className="project-check-results">
+          <strong>Required test command</strong>
+          <pre>{run.testCommand}</pre>
+          {!run.testResult ? (
+            <p>No matching command result was captured for this run.</p>
+          ) : (
+            <>
+              <p>
+                {run.testResult.exitCode === 0 &&
+                !run.testResult.timedOut &&
+                run.testResult.isolation === 'workspace'
+                  ? 'Passed'
+                  : 'Failed or unverified'}{' '}
+                · exit {run.testResult.exitCode ?? 'unknown'} · {run.testResult.isolation} isolation
+                {run.testResult.timedOut ? ' · timed out' : ''}
+              </p>
+              {run.testResult.stdout && (
+                <details>
+                  <summary>Standard output</summary>
+                  <pre>{run.testResult.stdout}</pre>
+                </details>
+              )}
+              {run.testResult.stderr && (
+                <details>
+                  <summary>Error output</summary>
+                  <pre>{run.testResult.stderr}</pre>
+                </details>
+              )}
+            </>
+          )}
+        </div>
+      )}
       {run.output && (
         <div>
           <strong>Last saved worker report</strong>
@@ -149,16 +182,18 @@ export function ProjectRunReview({
       {run.previousRunId && <small>Continued from a saved run report.</small>}
       {run.status === 'needs-attention' && (
         <p className="project-review-notice">
-          {run.stopReason === 'check-error'
-            ? 'A result check could not run. Resolve the reported problem before continuing; the task remains unfinished.'
-            : run.stopReason === 'check-failed'
-              ? 'Result checks still fail and no automatic correction turns remain. The task remains unfinished.'
-              : 'The worker reached its execution limit. Its report is saved; the task remains unfinished.'}
+          {run.stopReason === 'test-failed'
+            ? 'The required test command did not produce a passing workspace-isolated result. The task remains unfinished.'
+            : run.stopReason === 'check-error'
+              ? 'A result check could not run. Resolve the reported problem before continuing; the task remains unfinished.'
+              : run.stopReason === 'check-failed'
+                ? 'Result checks still fail and no automatic correction turns remain. The task remains unfinished.'
+                : 'The worker reached its execution limit. Its report is saved; the task remains unfinished.'}
         </p>
       )}
       {reviewable && (
         <p className="project-review-notice">
-          {run.resultChecks?.length
+          {run.resultChecks?.length || run.testCommand
             ? 'The configured checks passed. They do not prove overall quality or factual accuracy. Review the deliverable before completing this task.'
             : 'The worker has returned a report. IRIS has not independently verified it. Check the result before completing this task.'}
         </p>

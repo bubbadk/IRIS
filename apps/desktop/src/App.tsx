@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChatDesklet } from './ChatDesklet';
 import { CommandPalette } from './CommandPalette';
 import { subscribeDesktopActivity } from './desktopActivity';
+import { startChannelRuntime } from './channelRuntime';
 import { objects } from './desktopObjects';
 import { DesktopWidget } from './DesktopWidget';
 import { HomeIcon, IrisMark, SearchIcon } from './icons';
@@ -189,6 +190,7 @@ export function App() {
 
   useEffect(() => startScheduledRuntime(), []);
   useEffect(() => startProjectQueueRuntime(), []);
+  useEffect(() => startChannelRuntime(), []);
   useEffect(() => subscribeDesktopActivity(() => undefined), []);
 
   useEffect(() => {
@@ -442,7 +444,16 @@ export function App() {
       />
 
       {showOnboarding && (
-        <OnboardingWizard onFinish={() => setShowOnboarding(false)} darkMode={darkMode} />
+        <OnboardingWizard
+          onFinish={(firstTask) => {
+            setShowOnboarding(false);
+            if (firstTask) {
+              setQuery(firstTask);
+              setChatStarted(true);
+            }
+          }}
+          darkMode={darkMode}
+        />
       )}
 
       {availableUpdate && (

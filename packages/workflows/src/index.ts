@@ -42,6 +42,8 @@ export interface ProjectTask {
   description?: string;
   acceptanceCriteria?: string;
   resultChecks?: ProjectResultCheck[];
+  /** Exact test command; workers must use the approved, isolated shell tool to run it. */
+  testCommand?: string;
   turnLimit?: number;
   /** A real wall-clock budget for one worker run. Omit for no time limit. */
   timeLimitMinutes?: number;
@@ -107,10 +109,12 @@ export interface ProjectTaskRun {
   failure?: string;
   cancelledAt?: string;
   returnedAt?: string;
-  stopReason?: 'tool-limit' | 'check-failed' | 'check-error';
+  stopReason?: 'tool-limit' | 'check-failed' | 'check-error' | 'test-failed';
   checkReports?: ProjectCheckReport[];
   acceptanceCriteria?: string;
   resultChecks?: ProjectResultCheck[];
+  testCommand?: string;
+  testResult?: ProjectTestResult;
   turnLimit?: number;
   turnsUsed?: number;
   timeLimitMinutes?: number;
@@ -128,6 +132,17 @@ export interface ProjectTaskRun {
     note: string;
     checkReport?: ProjectCheckReport;
   };
+}
+
+export interface ProjectTestResult {
+  command: string;
+  runtimeTurnId: string;
+  capturedAt: string;
+  isolation: 'workspace' | 'host';
+  exitCode: number | null;
+  timedOut: boolean;
+  stdout: string;
+  stderr: string;
 }
 
 /** Internal review receipt, created by the runtime from actual reads, never worker output. */
@@ -282,10 +297,7 @@ export interface ScheduleRunner {
   available?(agentId: string): Promise<boolean>;
   /** Read-only configuration checks; this method must not execute the agent or tools. */
   prepare?(input: { schedule: ScheduleDefinition; run: ScheduledRun }): Promise<void>;
-  run(input: {
-    schedule: ScheduleDefinition;
-    run: ScheduledRun;
-  }): AsyncIterable<ScheduledRunEvent>;
+  run(input: { schedule: ScheduleDefinition; run: ScheduledRun }): AsyncIterable<ScheduledRunEvent>;
   resume(
     input: { schedule: ScheduleDefinition; run: ScheduledRun },
     approvalId: string,
@@ -917,6 +929,12 @@ export interface ProjectWorkerExecutionInput {
 export type ProjectWorkerEvent =
   | { type: 'started'; runtimeTurnId: string }
   | {
+      type: 'test-result';
+      runtimeTurnId: string;
+      command: string;
+      result: unknown;
+    }
+  | {
       type: 'approval-required';
       runtimeTurnId: string;
       approval: ProjectTaskRunApproval;
@@ -988,6 +1006,7 @@ export interface AddProjectTaskInput {
   description?: string;
   acceptanceCriteria?: string;
   resultChecks?: ProjectResultCheck[];
+  testCommand?: string;
   turnLimit?: number;
   timeLimitMinutes?: number;
   dependencyIds?: string[];
@@ -1012,6 +1031,7 @@ export function cloneProjectGraph(graph: ProjectGraph): ProjectGraph {
     tasks: graph.tasks.map((task) => ({
       ...task,
       resultChecks: cloneProjectChecks(task.resultChecks),
+      ...(task.testCommand ? { testCommand: task.testCommand } : {}),
       dependencyIds: [...task.dependencyIds],
     })),
   };
@@ -1023,6 +1043,7 @@ export function cloneProjectTaskRun(run: ProjectTaskRun): ProjectTaskRun {
     ...(run.qualityReviews ? { qualityReviews: structuredClone(run.qualityReviews) } : {}),
     ...(run.qualityRejections ? { qualityRejections: structuredClone(run.qualityRejections) } : {}),
     resultChecks: cloneProjectChecks(run.resultChecks),
+    ...(run.testResult ? { testResult: { ...run.testResult } } : {}),
     checkReports: run.checkReports?.map((report) => ({
       ...report,
       results: report.results.map((result) => ({ ...result })),
@@ -1095,6 +1116,9 @@ export function addProjectTask(graph: ProjectGraph, input: AddProjectTaskInput):
   if (dependencyIds.includes(id)) throw new Error('A task cannot depend on itself.');
   for (const dependencyId of dependencyIds) taskById(graph, dependencyId);
   const description = input.description?.trim();
+  const testCommand = input.testCommand?.trim();
+  if (testCommand && (testCommand.length > 8000 || testCommand.includes('\0')))
+    throw new Error('A test command must be 1–8,000 characters and cannot contain a NUL byte.');
   if (input.resultChecks !== undefined && !validProjectChecks(input.resultChecks))
     throw new Error('Choose up to eight valid result checks.');
   if (input.turnLimit !== undefined && !validTurnLimit(input.turnLimit))
@@ -1126,6 +1150,7 @@ export function addProjectTask(graph: ProjectGraph, input: AddProjectTaskInput):
         ...(input.resultChecks?.length
           ? { resultChecks: cloneProjectChecks(input.resultChecks) }
           : {}),
+        ...(testCommand ? { testCommand } : {}),
         ...(input.turnLimit !== undefined ? { turnLimit: input.turnLimit } : {}),
         ...(input.timeLimitMinutes !== undefined
           ? { timeLimitMinutes: input.timeLimitMinutes }
@@ -1237,6 +1262,11 @@ export function validateProjectGraph(value: unknown): value is ProjectGraph {
       !task.title.trim() ||
       (task.description !== undefined && typeof task.description !== 'string') ||
       (task.acceptanceCriteria !== undefined && typeof task.acceptanceCriteria !== 'string') ||
+      (task.testCommand !== undefined &&
+        (typeof task.testCommand !== 'string' ||
+          !task.testCommand.trim() ||
+          task.testCommand.length > 8000 ||
+          task.testCommand.includes('\0'))) ||
       (task.resultChecks !== undefined && !validProjectChecks(task.resultChecks)) ||
       (task.turnLimit !== undefined && !validTurnLimit(task.turnLimit)) ||
       (task.timeLimitMinutes !== undefined && !validTimeLimit(task.timeLimitMinutes)) ||
@@ -1321,7 +1351,52 @@ export function validateProjectTaskRun(value: unknown): value is ProjectTaskRun 
   if (run.pausedAt !== undefined && typeof run.pausedAt !== 'string') return false;
   if (
     run.stopReason !== undefined &&
-    !['tool-limit', 'check-failed', 'check-error'].includes(run.stopReason)
+    !['tool-limit', 'check-failed', 'check-error', 'test-failed'].includes(run.stopReason)
+  )
+    return false;
+  if (
+    run.testCommand !== undefined &&
+    (typeof run.testCommand !== 'string' ||
+      !run.testCommand.trim() ||
+      run.testCommand.length > 8000 ||
+      run.testCommand.includes('\0'))
+  )
+    return false;
+  if (run.testResult !== undefined) {
+    const result = run.testResult;
+    if (
+      !result ||
+      result.command !== run.testCommand ||
+      typeof result.runtimeTurnId !== 'string' ||
+      !result.runtimeTurnId ||
+      typeof result.capturedAt !== 'string' ||
+      Number.isNaN(Date.parse(result.capturedAt)) ||
+      !['workspace', 'host'].includes(result.isolation) ||
+      (result.exitCode !== null && !Number.isInteger(result.exitCode)) ||
+      typeof result.timedOut !== 'boolean' ||
+      typeof result.stdout !== 'string' ||
+      typeof result.stderr !== 'string' ||
+      result.stdout.length > 20000 ||
+      result.stderr.length > 20000
+    )
+      return false;
+  }
+  if (
+    run.testCommand &&
+    ['awaiting-review', 'completed'].includes(run.status ?? '') &&
+    (!run.testResult ||
+      run.testResult.runtimeTurnId !== run.runtimeTurnId ||
+      run.testResult.isolation !== 'workspace' ||
+      run.testResult.exitCode !== 0 ||
+      run.testResult.timedOut)
+  )
+    return false;
+  if (
+    run.stopReason === 'test-failed' &&
+    (!run.testResult ||
+      run.testResult.runtimeTurnId !== run.runtimeTurnId ||
+      run.testResult.isolation !== 'workspace' ||
+      (run.testResult.exitCode === 0 && !run.testResult.timedOut))
   )
     return false;
   if (run.resultChecks !== undefined && !validProjectChecks(run.resultChecks)) return false;
@@ -1518,7 +1593,10 @@ export class ProjectWorkflowRuntime {
           )
         : this.reservations.reserve(input.agentId, reservationOwner, this.timestamp());
       if (!held)
-        throw new ProjectWorkerBusyError(input.agentId, this.reservations.holder(input.agentId)?.ownerId);
+        throw new ProjectWorkerBusyError(
+          input.agentId,
+          this.reservations.holder(input.agentId)?.ownerId,
+        );
       // Phase 2H.1 — the local reservation is provisional until the cross-process authority
       // confirms no other live IRIS process is executing this agent. A refusal here is a busy
       // outcome for the launch, never a concurrent execution.
@@ -1576,6 +1654,7 @@ export class ProjectWorkflowRuntime {
       agentName: requireText(prepared.agentName, 'a worker agent name'),
       acceptanceCriteria: task.acceptanceCriteria,
       resultChecks: cloneProjectChecks(task.resultChecks),
+      testCommand: task.testCommand,
       turnLimit: task.turnLimit ?? 1,
       ...(task.timeLimitMinutes
         ? {
@@ -2009,6 +2088,7 @@ export class ProjectWorkflowRuntime {
               runtimeTurnId: event.runtimeTurnId,
               returnedAt: undefined,
               stopReason: undefined,
+              testResult: undefined,
               updatedAt: this.timestamp(),
             };
             run = await this.save(run);
@@ -2025,6 +2105,30 @@ export class ProjectWorkflowRuntime {
             };
             run = await this.save(run);
             if (!occupiesProjectExecution(run)) return cloneProjectTaskRun(run);
+          } else if (event.type === 'test-result') {
+            if (
+              event.command !== run.testCommand ||
+              event.runtimeTurnId !== run.runtimeTurnId ||
+              !event.result ||
+              typeof event.result !== 'object'
+            )
+              continue;
+            const result = event.result as Partial<ProjectTestResult>;
+            const captured: ProjectTestResult = {
+              command: event.command,
+              runtimeTurnId: event.runtimeTurnId,
+              capturedAt: this.timestamp(),
+              isolation: result.isolation === 'workspace' ? 'workspace' : 'host',
+              exitCode:
+                typeof result.exitCode === 'number' && Number.isInteger(result.exitCode)
+                  ? result.exitCode
+                  : null,
+              timedOut: result.timedOut === true,
+              stdout: typeof result.stdout === 'string' ? result.stdout.slice(0, 20000) : '',
+              stderr: typeof result.stderr === 'string' ? result.stderr.slice(0, 20000) : '',
+            };
+            run = { ...run, testResult: captured, updatedAt: this.timestamp() };
+            run = await this.save(run);
           } else {
             returned = true;
             if (needsNewTurn && event.runtimeTurnId === previousTurnId)
@@ -2042,7 +2146,7 @@ export class ProjectWorkflowRuntime {
           return cloneProjectTaskRun(run);
         }
         if (
-          !['tool-limit', 'check-failed'].includes(run.stopReason ?? '') ||
+          !['tool-limit', 'check-failed', 'test-failed'].includes(run.stopReason ?? '') ||
           (run.turnsUsed ?? 1) >= (run.turnLimit ?? 1) ||
           !this.workers.continue
         )
@@ -2174,6 +2278,17 @@ export class ProjectWorkflowRuntime {
       failedAt: undefined,
       failure: undefined,
     };
+    if (
+      !stopReason &&
+      run.testCommand &&
+      (!run.testResult ||
+        run.testResult.runtimeTurnId !== runtimeTurnId ||
+        run.testResult.isolation !== 'workspace' ||
+        run.testResult.exitCode !== 0 ||
+        run.testResult.timedOut)
+    ) {
+      returned = { ...returned, status: 'needs-attention', stopReason: 'test-failed' };
+    }
     if (!stopReason && run.resultChecks?.length) {
       const report = await checkProjectResults(
         run.resultChecks,
@@ -2189,18 +2304,21 @@ export class ProjectWorkflowRuntime {
           : undefined;
       returned = {
         ...returned,
-        stopReason: reason,
+        stopReason: reason ?? returned.stopReason,
         checkReports: [
           ...(run.checkReports ?? []).filter((old) => old.runtimeTurnId !== runtimeTurnId),
           report,
         ],
-        status: !reason
-          ? 'awaiting-review'
-          : reason === 'check-failed' &&
-              returned.turnsUsed! < (run.turnLimit ?? 1) &&
-              this.workers.continue
-            ? 'running'
-            : 'needs-attention',
+        status:
+          returned.stopReason === 'test-failed'
+            ? 'needs-attention'
+            : !reason
+              ? 'awaiting-review'
+              : reason === 'check-failed' &&
+                  returned.turnsUsed! < (run.turnLimit ?? 1) &&
+                  this.workers.continue
+                ? 'running'
+                : 'needs-attention',
       };
     }
     const stored = await this.runs.get(run.id);

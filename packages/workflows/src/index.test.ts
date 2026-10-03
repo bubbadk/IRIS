@@ -641,6 +641,87 @@ function workerExecutor(
 }
 
 describe('project workflow runtime', () => {
+  it('requires an exact workspace-isolated passing test result before human review', async () => {
+    const graph = graphWithDependency();
+    graph.tasks[0]!.testCommand = 'pnpm test';
+    const state = repositories(graph);
+    const runtime = new ProjectWorkflowRuntime(
+      state.projects,
+      state.runs,
+      workerExecutor(async function* () {
+        yield { type: 'started', runtimeTurnId: 'test-turn' };
+        yield {
+          type: 'test-result',
+          runtimeTurnId: 'test-turn',
+          command: 'pnpm test',
+          result: {
+            exitCode: 0,
+            timedOut: false,
+            isolation: 'workspace',
+            stdout: 'ok',
+            stderr: '',
+          },
+        };
+        yield { type: 'returned', runtimeTurnId: 'test-turn', output: 'Test report.' };
+      }),
+      undefined,
+      () => new Date('2026-08-27T14:00:00.000Z'),
+      () => 'test-run',
+    );
+    const passed = await runtime.launch({
+      projectId: graph.id,
+      taskId: 'task-1',
+      agentId: 'agent-1',
+    });
+    expect(passed.status).toBe('awaiting-review');
+    expect(passed.testResult).toMatchObject({
+      command: 'pnpm test',
+      runtimeTurnId: 'test-turn',
+      isolation: 'workspace',
+      exitCode: 0,
+    });
+
+    const failedState = repositories(graph);
+    const failedRuntime = new ProjectWorkflowRuntime(
+      failedState.projects,
+      failedState.runs,
+      workerExecutor(async function* () {
+        yield { type: 'started', runtimeTurnId: 'failed-test-turn' };
+        yield {
+          type: 'test-result',
+          runtimeTurnId: 'failed-test-turn',
+          command: 'pnpm test',
+          result: {
+            exitCode: 1,
+            timedOut: false,
+            isolation: 'workspace',
+            stdout: '',
+            stderr: 'failed',
+          },
+        };
+        yield {
+          type: 'returned',
+          runtimeTurnId: 'failed-test-turn',
+          output: 'Claimed tests passed.',
+        };
+      }),
+      undefined,
+      () => new Date('2026-08-27T14:00:00.000Z'),
+      () => 'failed-test-run',
+    );
+    const failed = await failedRuntime.launch({
+      projectId: graph.id,
+      taskId: 'task-1',
+      agentId: 'agent-1',
+    });
+    expect(failed).toMatchObject({
+      status: 'needs-attention',
+      stopReason: 'test-failed',
+      testResult: { exitCode: 1 },
+    });
+    expect(validateProjectTaskRun(failed)).toBe(true);
+  });
+
   it('keeps dependencies blocked when a worker returns even a confident success claim', async () => {
     const graph = graphWithDependency();
     const state = repositories(graph);

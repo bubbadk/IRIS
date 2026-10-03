@@ -7,14 +7,11 @@ import {
   sendDiscordWebhookMessage,
   loadDurableChannelInbox,
   loadChannelAttention,
-  pollChannelOnce,
-  ChannelEffectCompletedError,
-  ChannelEffectRetryableError,
   type IncomingChannelMessage,
   type ChannelUpdateAttention,
   type ChannelsConfig,
 } from './bridgeGateway';
-import { resolveRemoteApproval } from './channelApprovals';
+import { channelRuntimeStatus, subscribeChannelRuntime } from './channelRuntime';
 
 export function ChannelsWindow() {
   const [config, setConfig] = useState<ChannelsConfig>(() =>
@@ -33,6 +30,7 @@ export function ChannelsWindow() {
    * restart, and disabling Telegram would hide it again.
    */
   const [attention, setAttention] = useState<ChannelUpdateAttention[]>([]);
+  const [runtimeStatus, setRuntimeStatus] = useState(channelRuntimeStatus);
 
   function handleSave(next: ChannelsConfig) {
     setConfig(next);
@@ -69,72 +67,8 @@ export function ChannelsWindow() {
   }, []);
 
   useEffect(() => {
-    if (
-      !loaded ||
-      !config.telegram.enabled ||
-      !config.telegram.botToken ||
-      !config.telegram.allowedChatIds.length
-    )
-      return;
-    let active = true;
-    const poll = async () => {
-      try {
-        const result = await pollChannelOnce({
-          config,
-          isActive: () => active,
-          handle: async (message) => {
-            // The semantic effect is the approval settlement. When it throws, its outcome may be
-            // unknown, and the kernel classifies that truthfully. It is declared replayable only
-            // because the authoritative layer is idempotent (durable compare-and-set settlement
-            // plus Phase 2I.2 execution admission), so a bounded replay cannot duplicate a result.
-            let outcome: string | null;
-            try {
-              outcome = await resolveRemoteApproval(message.text);
-            } catch {
-              throw new ChannelEffectRetryableError();
-            }
-            if (outcome) {
-              const sent = await sendTelegramMessage({
-                botToken: config.telegram.botToken,
-                chatId: message.chatId,
-                text: outcome,
-              });
-              // The approval is already durably settled. A refused acknowledgement must never
-              // replay the settlement or block every later inbound update.
-              if (!sent.ok) throw new ChannelEffectCompletedError();
-            }
-          },
-        });
-        if (!active || result.status === 'skipped') return;
-        // A completed poll can still carry needs-attention truth for an update that did not
-        // complete semantically; the existing status surface reports it rather than hiding it.
-        const notice =
-          result.error ?? (result.status !== 'completed' ? `Channel polling ${result.status}.` : null);
-        if (notice) setTestStatus(notice);
-        // Additive: a failed refresh must not masquerade as an inbox failure or discard the notice.
-        try {
-          const records = await loadChannelAttention();
-          if (active) setAttention(records);
-        } catch {
-          if (active) setTestStatus('Channel attention records could not be read.');
-        }
-        setInbox(await loadDurableChannelInbox());
-      } catch {
-        if (active) setTestStatus('Channel inbox could not be loaded. Existing data was retained.');
-      }
-    };
-    void poll();
-    const timer = window.setInterval(() => void poll(), 12_000);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [
-    loaded,
-    config.telegram.enabled,
-    config.telegram.botToken,
-    config.telegram.allowedChatIds.join(','),
-  ]);
+    return subscribeChannelRuntime(setRuntimeStatus);
+  }, []);
 
   async function saveConnection() {
     setSaving(true);
@@ -205,8 +139,11 @@ export function ChannelsWindow() {
         <div>
           <h3>Messaging Connections</h3>
           <p>
-            Telegram accepts approval decisions only from explicitly allowed chats. Automatic
-            completion and failure notifications are not available yet.
+            Telegram accepts approval decisions only from explicitly allowed chats. Project status
+            messages are sent only when you enable them for a channel below.
+          </p>
+          <p role="status" aria-live="polite">
+            {runtimeStatus.message}
           </p>
         </div>
       </div>
@@ -274,6 +211,19 @@ export function ChannelsWindow() {
                 />{' '}
                 Receive messages from allowed chats
               </label>
+              <label className="channel-field">
+                <input
+                  type="checkbox"
+                  checked={config.telegram.notifyOnProjectUpdates}
+                  onChange={(e) =>
+                    handleSave({
+                      ...config,
+                      telegram: { ...config.telegram, notifyOnProjectUpdates: e.target.checked },
+                    })
+                  }
+                />{' '}
+                Send project status updates to these allowed chats
+              </label>
               <div className="channel-field">
                 <label>Bot Token (from @BotFather)</label>
                 <div className="channel-input-group">
@@ -338,14 +288,27 @@ export function ChannelsWindow() {
               <div className="channel-card-brand">
                 <span className="channel-icon">🎮</span>
                 <div>
-                  <h4>Discord Test Connection</h4>
-                  <p className="channel-subtitle">Outgoing webhook test messages only</p>
+                  <h4>Discord Webhook</h4>
+                  <p className="channel-subtitle">Test messages and optional project updates</p>
                 </div>
               </div>
-              <span className="truth-pill">Test messages only</span>
+              <span className="truth-pill">Outgoing messages</span>
             </div>
 
             <div className="channel-card-body">
+              <label className="channel-field">
+                <input
+                  type="checkbox"
+                  checked={config.discord.notifyOnProjectUpdates}
+                  onChange={(e) =>
+                    handleSave({
+                      ...config,
+                      discord: { ...config.discord, notifyOnProjectUpdates: e.target.checked },
+                    })
+                  }
+                />{' '}
+                Send project status updates to this webhook
+              </label>
               <div className="channel-field">
                 <label>Discord Webhook URL</label>
                 <input

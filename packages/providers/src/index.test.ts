@@ -388,9 +388,7 @@ describe('provider configuration', () => {
             statusText: 'Access denied due to invalid subscription key',
           }),
       ),
-    ).rejects.toThrow(
-      'Model discovery failed with 401. Access denied due to invalid subscription key',
-    );
+    ).rejects.toThrow('Model discovery failed with HTTP 401.');
   });
 
   it('discovers Ollama model names and keeps an existing valid selection', async () => {
@@ -423,7 +421,7 @@ describe('provider configuration', () => {
       fetchProviderModels(provider, async () =>
         Promise.resolve(new Response(null, { status: 401, statusText: 'Unauthorized' })),
       ),
-    ).rejects.toThrow('Model discovery failed with 401. Unauthorized');
+    ).rejects.toThrow('Model discovery failed with HTTP 401.');
 
     await expect(
       fetchProviderModels(provider, async () => new Response(JSON.stringify({ data: [] }))),
@@ -452,7 +450,7 @@ describe('provider configuration', () => {
           return { ok: false, status: 503, statusText: 'Unavailable' };
         },
       ),
-    ).rejects.toThrow('Provider responded with 503. Unavailable');
+    ).rejects.toThrow('Provider responded with HTTP 503.');
   });
 
   it('keeps provider registration replaceable and isolated from the UI', () => {
@@ -501,7 +499,7 @@ describe('provider configuration', () => {
       async () => new Response(null, { status: 503, statusText: 'Unavailable' }),
     );
     await expect(unavailable.embed(['query'])).rejects.toThrow(
-      'Embedding request failed with 503 Unavailable',
+      'Embedding request failed with HTTP 503.',
     );
 
     const malformed = createOllamaEmbeddingProvider(
@@ -1662,7 +1660,7 @@ describe('provider configuration', () => {
     expect(attempts).toBe(1);
   });
 
-  it('surfaces a gateway rate-limit body instead of a generic status line', async () => {
+  it('does not copy provider-controlled error bodies into the model error', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const providerInstance = createModelProvider(
       provider,
@@ -1675,16 +1673,18 @@ describe('provider configuration', () => {
         ),
     );
 
-    await expect(async () => {
+    const failure = await (async () => {
       for await (const _chunk of providerInstance.stream({
         model: provider.model,
         messages: [{ role: 'user', content: 'Hi' }],
       })) {
         void _chunk;
       }
-    }).rejects.toThrow(
-      'Model request failed with 429: Rate limit exceeded: free-tier limit is 20 requests per minute.',
-    );
+    })().catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain('HTTP 429');
+    expect((failure as Error).message).not.toContain('Rate limit exceeded');
+    expect((failure as Error).message).not.toContain('free-tier');
   });
 
   it('surfaces a bare Retry-After header when a rate limit carries no error body at all', async () => {
@@ -1706,6 +1706,8 @@ describe('provider configuration', () => {
       })) {
         void _chunk;
       }
-    }).rejects.toThrow('Model request failed with 429: Retry after 0.');
+    }).rejects.toThrow(
+      'Model request failed (HTTP 429). Check the provider connection and request settings. Retry after 0 seconds.',
+    );
   });
 });

@@ -5,7 +5,7 @@
   <h3>A local-first desktop environment for AI agents that do durable work</h3>
   <p>Agents, projects, tools, browser sessions, memory, documents and schedules — as real objects on a spatial desktop, under permissions you can see.</p>
 
-[![Version](https://img.shields.io/badge/Version-0.3.3-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
+[![Version](https://img.shields.io/badge/Version-0.3.4-blue.svg?style=flat-square)](https://github.com/bubbadk/IRIS/releases)
 [![Verify](https://github.com/bubbadk/IRIS/actions/workflows/verify.yml/badge.svg)](https://github.com/bubbadk/IRIS/actions/workflows/verify.yml)
 [![FP-AMB Memory Benchmark](<https://img.shields.io/badge/FP--AMB%20(measured)-70.1%25%20(155%2F221%20gradeable)-success.svg?style=flat-square>)](#memory-benchmark-measured)
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg?style=flat-square)](LICENSE)
@@ -31,15 +31,14 @@ IRIS is **local-first**. Conversations, memory, project state, documents and kno
 
 IRIS does not fabricate activity to look busy. If a provider is unreachable, a tool is unconfigured or a capability is missing, the interface says so. Empty state is preferred over simulated state.
 
-## New in 0.3.3
+## Key Features in v0.3.4
 
-v0.3.3 is a correctness patch. Nothing else changed.
+- **Project test checks.** A task can declare one exact test command. IRIS requests approval before running it in workspace isolation, records the command and result, and requires a successful result before the task can be applied.
+- **Opt-in project status notifications.** Telegram sends generic updates to configured allowed chats, and Discord sends them to its webhook. Notifications omit task output; Discord remains outgoing only.
+- **Safer credentials and exports.** Legacy provider keys migrate to the operating system credential store before plaintext configuration is removed. Provider errors are scrubbed of credentials, and exports handle XML-invalid characters while preserving PPTX headings and code fences.
+- **More bounded recovery.** Project loading reports recoverable failures, and browser DNS lookup uses bounded workers and deadlines so slow resolution fails with a clear error.
 
-- **An offline tool provider no longer hides your agents.** Since 0.3.0, an agent or permission rule that referenced a tool whose provider was not connected made the whole agent workspace fail to read — with no visible reason, and with your stored data intact the entire time. An assigned tool whose provider is unreachable is now kept and reported as unavailable, and the Agents window names how many assignments are unavailable right now.
-- **A failed read explains itself.** If the agent workspace cannot be read at all, the window shows the actual error with a "Try again" action, instead of an empty list that reads as lost data.
-- **Nothing is rewritten to match a temporary outage.** A tool identity already stored for an agent survives its provider being offline and works again once that provider registers the tool; only a newly assigned identity has to exist at save time.
-
-The 0.3.x line as a whole introduced durable projects and schedules, cross-process execution ownership, documents and human-approved durable knowledge, a visible browser session, and native test coverage that builds and passes on Linux, macOS and Windows; 0.3.2 added the CSV export round-trip, the Documents error reset and visible dropped channel updates. See the [0.3.3 release notes](dist-release/RELEASE_NOTES_v0.3.3.md) for the full implemented / limited / not-verified breakdown.
+Earlier 0.3.x releases introduced durable projects and schedules, cross-process execution ownership, documents and human-approved knowledge, a visible browser session, and agent workspace recovery when an MCP provider is offline. See the [v0.3.4 release notes](dist-release/RELEASE_NOTES_v0.3.4.md) for compatibility, verification and limitations.
 
 ## What IRIS can do
 
@@ -100,7 +99,7 @@ The 0.3.x line as a whole introduced durable projects and schedules, cross-proce
 ### Channels
 
 - **Telegram (inbox and approvals).** Optional polling from an allowlisted chat delivers approval requests and routes your approve/deny decision back to the exact pending agent, project or schedule request.
-- **Discord (outgoing only).** Discord is an outgoing webhook sender for notifications. It has no inbound listener and is not equivalent to the Telegram integration.
+- **Project status notifications (opt-in).** When enabled for a saved Telegram or Discord connection, IRIS sends generic task status updates without including task output. Telegram has no inbound bot listener beyond the allowlisted approval poll; Discord has no inbound listener.
 - **Visible failure.** Channel updates IRIS could not apply are recorded and listed in the Channels window.
 
 ### Desktop shell & updates
@@ -199,12 +198,11 @@ The request path is roughly: desktop UI → agent runtime (`@iris/cortex`) → p
 
 ### Download a release
 
-Prebuilt Linux binaries are attached to [published GitHub releases](https://github.com/bubbadk/IRIS/releases) when a release exists:
+The latest published release is [IRIS v0.3.3](https://github.com/bubbadk/IRIS/releases/latest). The v0.3.4 source candidate is not published yet; its Linux download will be:
 
-- `iris-linux-x86_64-vX.Y.Z.tar.gz` — standalone binary bundle
-- `IRIS_<version>_amd64.AppImage` — AppImage bundle
+- `IRIS_0.3.4_amd64.AppImage` — AppImage bundle (when v0.3.4 is published)
 
-Source tags and downloadable releases are separate: a tag can exist without a published asset. Check the Releases page before relying on a binary. In-app updates require a package signed with the matching production key, and IRIS refuses unsigned metadata.
+Other platform installers and the signed updater manifest are attached to the release. Source tags and downloadable releases are separate: a tag can exist without a published asset. Check the Releases page for current files. In-app updates require a package signed with the matching production key, and IRIS refuses unsigned metadata.
 
 ### Build from source
 
@@ -233,8 +231,8 @@ The same commands the Verify workflow runs:
 ```bash
 pnpm typecheck                                                    # 0 type errors
 pnpm lint                                                         # --max-warnings=0
-pnpm test                                                         # 134 files / 1416 tests
-cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml      # 128 passed / 13 ignored
+pnpm test                                                         # 138 files / 1437 tests (v0.3.4 candidate, Linux)
+cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml      # native Rust suite
 pnpm build
 pnpm build:binary
 ```
@@ -249,7 +247,7 @@ pnpm build:binary
 
 ## Verification
 
-For the IRIS v0.3.3 candidate, verified on Linux:
+For the published IRIS v0.3.3 release, verification recorded on Linux and hosted CI runners:
 
 | Suite                                   | Result                                      |
 | :-------------------------------------- | :------------------------------------------ |

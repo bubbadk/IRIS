@@ -959,8 +959,7 @@ export async function testProviderConnection(
     headers: providerRequestHeaders(config),
   });
   if (!response.ok) {
-    const detail = response.statusText ? ` ${response.statusText}` : '';
-    throw new Error(`Provider responded with ${response.status}.${detail}`);
+    throw new Error(`Provider responded with HTTP ${response.status}.`);
   }
 }
 
@@ -973,8 +972,7 @@ export async function fetchProviderModels(
     headers: providerRequestHeaders(config),
   });
   if (!response.ok) {
-    const detail = response.statusText ? ` ${response.statusText}` : '';
-    throw new Error(`Model discovery failed with ${response.status}.${detail}`);
+    throw new Error(`Model discovery failed with HTTP ${response.status}.`);
   }
 
   let payload: unknown;
@@ -1083,9 +1081,7 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
       signal,
     });
     if (!response.ok) {
-      throw new Error(
-        `Embedding request failed with ${response.status} ${response.statusText}`.trim(),
-      );
+      throw new Error(`Embedding request failed with HTTP ${response.status}.`);
     }
     const payload = (await response.json()) as OllamaEmbeddingPayload;
     if (
@@ -1148,9 +1144,7 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
       signal,
     });
     if (!response.ok) {
-      throw new Error(
-        `Embedding request failed with ${response.status} ${response.statusText}`.trim(),
-      );
+      throw new Error(`Embedding request failed with HTTP ${response.status}.`);
     }
     const payload = (await response.json()) as OpenAiEmbeddingPayload;
     const rows = Array.isArray(payload.data) ? payload.data : [];
@@ -1423,46 +1417,13 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-/** Pulls a human-readable message out of a provider's JSON error body, matching the common
- * `{error: {message}}` and `{error: "..."}` shapes without assuming one specific provider. */
-function errorMessageFromPayload(payload: unknown): string | undefined {
-  const record = asRecord(payload);
-  if (!record) return undefined;
-  if (typeof record.error === 'string' && record.error.trim()) return record.error.trim();
-  const errorRecord = asRecord(record.error);
-  if (typeof errorRecord?.message === 'string' && errorRecord.message.trim()) {
-    return errorRecord.message.trim();
-  }
-  if (typeof record.message === 'string' && record.message.trim()) return record.message.trim();
-  return undefined;
-}
-
-/**
- * Describes a failed streaming response using the provider's own error body when it sent one
- * (OpenRouter and most OpenAI-compatible gateways return real detail — a rate limit reason, a
- * quota message — behind a generic status line), falling back to the bare status otherwise.
- */
+/** Never relay provider-controlled response bodies into the UI, model context, or saved transcript. */
 async function describeFailedModelResponse(response: Response): Promise<string> {
-  const raw = await response
-    .text()
-    .then((text) => text.trim())
-    .catch(() => '');
-  let detail: string | undefined;
-  if (raw) {
-    try {
-      detail = errorMessageFromPayload(JSON.parse(raw)) ?? raw.slice(0, 300);
-    } catch {
-      detail = raw.slice(0, 300);
-    }
-  }
-  // A rate-limit gateway commonly sends this header even with an empty body, so it is worth
-  // surfacing on its own — it is the only real, verifiable detail some 429 responses carry.
+  await response.body?.cancel().catch(() => undefined);
   const retryAfter = response.headers.get('retry-after')?.trim();
-  const retryDetail = retryAfter ? `Retry after ${retryAfter}.` : undefined;
-  const combinedDetail = [detail, retryDetail].filter(Boolean).join(' ');
-  if (combinedDetail) return `Model request failed with ${response.status}: ${combinedDetail}`;
-  const statusText = response.statusText ? ` ${response.statusText}` : '';
-  return `Model request failed with ${response.status}${statusText}`.trim();
+  const retryDetail =
+    retryAfter && /^\d{1,7}$/.test(retryAfter) ? ` Retry after ${retryAfter} seconds.` : '';
+  return `Model request failed (HTTP ${response.status}). Check the provider connection and request settings.${retryDetail}`;
 }
 
 function usageNumber(value: unknown): number | undefined {
@@ -1650,10 +1611,7 @@ async function* streamAnthropic(
     const event = asRecord(eventPayload(line));
     if (!event) continue;
     if (event.type === 'error') {
-      const error = asRecord(event.error);
-      throw new Error(
-        typeof error?.message === 'string' ? error.message : 'Anthropic stream failed.',
-      );
+      throw new Error('The model provider reported an error while streaming. Retry the request.');
     }
     if (event.type === 'message_start') {
       const usage = asRecord(asRecord(event.message)?.usage);
@@ -1821,9 +1779,8 @@ async function* streamGemini(
   for await (const line of readLines(response.body)) {
     const event = asRecord(eventPayload(line));
     if (!event) continue;
-    const error = asRecord(event.error);
-    if (error) {
-      throw new Error(typeof error.message === 'string' ? error.message : 'Gemini stream failed.');
+    if (asRecord(event.error)) {
+      throw new Error('The model provider reported an error while streaming. Retry the request.');
     }
     const usageMetadata = asRecord(event.usageMetadata);
     if (usageMetadata) {
