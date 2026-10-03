@@ -8,6 +8,7 @@ export type ChannelPlatform = 'telegram' | 'discord' | 'slack';
 
 export type TelegramConfig = {
   enabled: boolean;
+  notifyOnProjectUpdates: boolean;
   botToken: string;
   allowedChatIds: string[];
   lastUpdateId: number;
@@ -15,6 +16,7 @@ export type TelegramConfig = {
 
 export type DiscordConfig = {
   enabled: boolean;
+  notifyOnProjectUpdates: boolean;
   webhookUrl: string;
   botToken?: string;
   channelId?: string;
@@ -28,12 +30,14 @@ export type ChannelsConfig = {
 export const defaultChannelsConfig: ChannelsConfig = {
   telegram: {
     enabled: false,
+    notifyOnProjectUpdates: false,
     botToken: '',
     allowedChatIds: [],
     lastUpdateId: 0,
   },
   discord: {
     enabled: false,
+    notifyOnProjectUpdates: false,
     webhookUrl: '',
   },
 };
@@ -51,12 +55,16 @@ function decodeConfig(value: unknown): ChannelsConfig | null {
   if (!isPlainRecord(telegram) || !isPlainRecord(discord)) return null;
   if (
     (telegram.enabled !== undefined && typeof telegram.enabled !== 'boolean') ||
+    (telegram.notifyOnProjectUpdates !== undefined &&
+      typeof telegram.notifyOnProjectUpdates !== 'boolean') ||
     (telegram.allowedChatIds !== undefined &&
       (!Array.isArray(telegram.allowedChatIds) ||
         !telegram.allowedChatIds.every((id: unknown) => typeof id === 'string'))) ||
     (telegram.lastUpdateId !== undefined && !validOffset(telegram.lastUpdateId)) ||
     (telegram.botToken !== undefined && typeof telegram.botToken !== 'string') ||
     (discord.enabled !== undefined && typeof discord.enabled !== 'boolean') ||
+    (discord.notifyOnProjectUpdates !== undefined &&
+      typeof discord.notifyOnProjectUpdates !== 'boolean') ||
     ['webhookUrl', 'botToken', 'channelId'].some(
       (key) => discord[key] !== undefined && typeof discord[key] !== 'string',
     )
@@ -100,10 +108,15 @@ export function saveChannelsConfig(
     JSON.stringify({
       telegram: {
         enabled: config.telegram.enabled,
+        notifyOnProjectUpdates: config.telegram.notifyOnProjectUpdates,
         allowedChatIds: config.telegram.allowedChatIds,
         lastUpdateId: config.telegram.lastUpdateId,
       },
-      discord: { enabled: config.discord.enabled, channelId: config.discord.channelId },
+      discord: {
+        enabled: config.discord.enabled,
+        notifyOnProjectUpdates: config.discord.notifyOnProjectUpdates,
+        channelId: config.discord.channelId,
+      },
     }),
   );
 }
@@ -484,9 +497,14 @@ export function createChannelRepository(storage: Storage = globalThis.localStora
       const metadata = {
         telegram: {
           enabled: config.telegram.enabled,
+          notifyOnProjectUpdates: config.telegram.notifyOnProjectUpdates,
           allowedChatIds: config.telegram.allowedChatIds,
         },
-        discord: { enabled: config.discord.enabled, channelId: config.discord.channelId },
+        discord: {
+          enabled: config.discord.enabled,
+          notifyOnProjectUpdates: config.discord.notifyOnProjectUpdates,
+          channelId: config.discord.channelId,
+        },
       };
       readPersistedValue({
         repository: 'channel config',
@@ -499,7 +517,11 @@ export function createChannelRepository(storage: Storage = globalThis.localStora
     async append(messages: IncomingChannelMessage[]) {
       return appendChannelInbox(messages, storage);
     },
-    async claim(updateId: number, message: IncomingChannelMessage | undefined, owner: ChannelClaimOwner) {
+    async claim(
+      updateId: number,
+      message: IncomingChannelMessage | undefined,
+      owner: ChannelClaimOwner,
+    ) {
       const runtime = loadRuntime(storage);
       if (!runtime) throw new Error('Channel storage has not been migrated.');
       if (runtime.pending || updateId < runtime.lastUpdateId) return false;
@@ -552,10 +574,7 @@ export function createChannelRepository(storage: Storage = globalThis.localStora
         ownerPid: owner.pid,
         ownerAt: Date.now(),
       };
-      storage.setItem(
-        CHANNEL_RUNTIME_STORAGE_KEY,
-        JSON.stringify({ ...runtime, pending: next }),
-      );
+      storage.setItem(CHANNEL_RUNTIME_STORAGE_KEY, JSON.stringify({ ...runtime, pending: next }));
       return next;
     },
     /** Ownership heartbeat: keeps a live claim valid while its effect runs. */
@@ -1125,7 +1144,8 @@ async function recoverPendingUpdate(
     );
     return { status: 'resolved' };
   }
-  if (Date.now() - pending.attemptedAt < CHANNEL_EFFECT_RETRY_BACKOFF_MS) return { status: 'waiting' };
+  if (Date.now() - pending.attemptedAt < CHANNEL_EFFECT_RETRY_BACKOFF_MS)
+    return { status: 'waiting' };
   const message = (await channelRepository.inbox()).find((entry) => entry.id === `tg-${updateId}`);
   if (!message) {
     // Without the original message the effect cannot be replayed; record the truth and move on.
@@ -1204,9 +1224,7 @@ export async function pollChannelOnce(options: {
       if (options.isActive && !options.isActive()) return { status: 'skipped' };
       const updateId = Number(message.id.slice(3));
       const accepted = options.config.telegram.allowedChatIds.includes(message.chatId);
-      if (
-        !(await channelRepository.claim(updateId, accepted ? message : undefined, identity))
-      ) {
+      if (!(await channelRepository.claim(updateId, accepted ? message : undefined, identity))) {
         const current = await channelRepository.runtime();
         if (current?.pending)
           return {
@@ -1234,7 +1252,8 @@ export async function pollChannelOnce(options: {
         return {
           status: 'uncertain',
           updateId,
-          error: 'Another IRIS runtime assumed this channel update; it is reconciled on the next poll.',
+          error:
+            'Another IRIS runtime assumed this channel update; it is reconciled on the next poll.',
         };
       if (outcome === 'attention') {
         const current = await channelRepository.runtime();

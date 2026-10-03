@@ -36,6 +36,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: () => false }
 vi.mock('./credentials', () => ({
   deleteProviderSecrets: vi.fn(),
   isTauriRuntime: () => false,
+  migrateLegacyProviderSecrets: async (configs: unknown[]) => configs,
   loadProviderSecrets: async () => null,
   resolveProviderConnection: async (config: unknown) => config,
   saveProviderSecrets: async () => false,

@@ -103,7 +103,10 @@ describe('fresh install creates and can re-read the default agent team', () => {
     saveProviderSecrets.mockResolvedValue(true);
     mountWorkspace.mockResolvedValue(undefined);
     resolveProviderConnection.mockImplementation(async (config: unknown) => config);
-    refreshProviderModels.mockImplementation(async (config: unknown) => config);
+    refreshProviderModels.mockImplementation(async (config: unknown) => ({
+      ...(config as Record<string, unknown>),
+      model: 'test-chat-model',
+    }));
   });
   afterEach(() => {
     vi.clearAllMocks();
@@ -121,6 +124,7 @@ describe('fresh install creates and can re-read the default agent team', () => {
     await clickNamed(container, 'Next: Workspace');
     await clickNamed(container, 'Next: Agent Team');
     await clickNamed(container, 'Launch IRIS');
+    await clickNamed(container, 'Finish setup');
 
     expect(onFinish).toHaveBeenCalledOnce();
     expect(globalThis.localStorage.getItem(ONBOARDING_COMPLETED_KEY)).toBe('true');

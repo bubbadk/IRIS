@@ -153,8 +153,7 @@ export function DocumentsState() {
     } catch (failure) {
       setAlert({
         source: 'action',
-        message:
-          failure instanceof Error ? failure.message : 'The document operation failed.',
+        message: failure instanceof Error ? failure.message : 'The document operation failed.',
       });
     } finally {
       setBusy(false);
@@ -283,7 +282,9 @@ export function DocumentsState() {
           ) : !selected ? (
             <div className="document-empty">
               <h3>
-                {loadFailed ? 'Saved documents could not be read.' : 'A home for your deliverables.'}
+                {loadFailed
+                  ? 'Saved documents could not be read.'
+                  : 'A home for your deliverables.'}
               </h3>
               <p>
                 {loadFailed
@@ -433,9 +434,11 @@ export function DocumentsState() {
                 HTML/SVG previews block scripts and external resources. Word export supports text,
                 headings and bullet lists. PDF preserves Latin-1 plain text across as many pages as
                 the document needs. XLSX exports quoted comma-separated rows. Slide export creates
-                plain text slides; Markdown headings begin a new slide. CSV export writes
-                spreadsheet-safe rows and neutralizes leading =, +, - and @. A conversion the source
-                format cannot represent is not offered and is refused by the exporter.
+                plain text slides; Markdown headings begin a new slide, with fenced code preserved.
+                Unsupported XML control characters are refused instead of silently dropped. CSV
+                export writes spreadsheet-safe rows and neutralizes leading =, +, - and @. A
+                conversion the source format cannot represent is not offered and is refused by the
+                exporter.
               </small>
             </>
           )}

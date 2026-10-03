@@ -24,13 +24,80 @@ use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 #[cfg(test)]
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::mpsc::{self, SyncSender, TrySendError};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
 const HEAD_LIMIT: usize = 64 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const IO_TIMEOUT: Duration = Duration::from_secs(120);
+const DNS_LOOKUP_TIMEOUT: Duration = Duration::from_secs(8);
+const DNS_WORKERS: usize = 4;
+const DNS_QUEUE_CAPACITY: usize = 16;
+
+type ResolverTask = Box<dyn FnOnce() + Send + 'static>;
+
+/// A fixed, bounded pool keeps slow OS DNS calls from hanging proxy connections or spawning
+/// unbounded resolver threads. A lookup that outlives its deadline consumes one bounded worker;
+/// saturation fails closed until a worker becomes available.
+struct BoundedResolver {
+    sender: SyncSender<ResolverTask>,
+    timeout: Duration,
+}
+
+impl BoundedResolver {
+    fn new(worker_count: usize, queue_capacity: usize, timeout: Duration) -> Result<Self, String> {
+        let (sender, receiver) = mpsc::sync_channel::<ResolverTask>(queue_capacity);
+        let receiver = Arc::new(Mutex::new(receiver));
+        for index in 0..worker_count {
+            let receiver = Arc::clone(&receiver);
+            std::thread::Builder::new()
+                .name(format!("iris-browser-dns-{index}"))
+                .spawn(move || loop {
+                    let task = match receiver.lock() {
+                        Ok(queue) => queue.recv(),
+                        Err(_) => return,
+                    };
+                    match task {
+                        Ok(task) => task(),
+                        Err(_) => return,
+                    }
+                })
+                .map_err(|error| format!("Could not start bounded browser DNS worker: {error}"))?;
+        }
+        Ok(Self { sender, timeout })
+    }
+
+    fn resolve<F>(&self, lookup: F) -> Result<Vec<SocketAddr>, String>
+    where
+        F: FnOnce() -> Result<Vec<SocketAddr>, String> + Send + 'static,
+    {
+        let (reply, result) = mpsc::sync_channel(1);
+        let task: ResolverTask = Box::new(move || {
+            let _ = reply.send(lookup());
+        });
+        self.sender.try_send(task).map_err(|error| match error {
+            TrySendError::Full(_) => "The browser DNS service is busy. Try again shortly.".to_string(),
+            TrySendError::Disconnected(_) => "The browser DNS service is unavailable.".to_string(),
+        })?;
+        result.recv_timeout(self.timeout).map_err(|error| match error {
+                mpsc::RecvTimeoutError::Timeout => {
+                    format!("The web address lookup timed out after {} seconds.", self.timeout.as_secs())
+                }
+                mpsc::RecvTimeoutError::Disconnected => "The web address lookup failed.".to_string(),
+            })?
+    }
+}
+
+static DNS_RESOLVER: OnceLock<Result<BoundedResolver, String>> = OnceLock::new();
+
+fn browser_dns_resolver() -> Result<&'static BoundedResolver, String> {
+    DNS_RESOLVER
+        .get_or_init(|| BoundedResolver::new(DNS_WORKERS, DNS_QUEUE_CAPACITY, DNS_LOOKUP_TIMEOUT))
+        .as_ref()
+        .map_err(Clone::clone)
+}
 
 /// Deterministic test hooks for the proxy's own suite.
 ///
@@ -250,14 +317,27 @@ fn parse_proxy_request(head: &[u8]) -> Result<ProxyRequest, String> {
 }
 
 fn response(status: &str, body: &str) -> String {
+    let policy_header = if status == "403 Forbidden" {
+        "X-IRIS-Network-Policy: blocked\r\n"
+    } else {
+        ""
+    };
     format!(
-        "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nX-IRIS-Network-Policy: blocked\r\n\r\n{body}",
-        body.len()
+        "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n{policy_header}\r\n{body}",
+        body.len(),
     )
 }
 
 fn policy_refusal() -> String {
     response("403 Forbidden", BLOCKED_DESTINATION)
+}
+
+fn connection_failure(reason: &str) -> String {
+    if reason == BLOCKED_DESTINATION {
+        policy_refusal()
+    } else {
+        response("502 Bad Gateway", reason)
+    }
 }
 
 fn resolve_overrides(host: &str, port: u16, overrides: &ProxyOverrides) -> Option<Vec<SocketAddr>> {
@@ -294,7 +374,11 @@ fn connect_pinned(
         // Deterministic fake DNS for the proxy's own tests: still fully policy-checked.
         return connect_first(&validate_public_addresses(addresses)?);
     }
-    connect_first(&crate::web_policy::resolve_public_addresses(host, port)?)
+    let host = host.to_string();
+    let addresses = browser_dns_resolver()?.resolve(move || {
+        crate::web_policy::resolve_public_addresses(&host, port)
+    })?;
+    connect_first(&addresses)
 }
 
 fn connect_first(addresses: &[SocketAddr]) -> Result<TcpStream, String> {
@@ -328,9 +412,12 @@ fn serve_connection(mut client: TcpStream, overrides: &ProxyOverrides) {
     let head_text = String::from_utf8_lossy(&head).to_string();
     match request {
         ProxyRequest::Tunnel { host, port } => {
-            let Ok(upstream) = connect_pinned(&host, port, overrides) else {
-                let _ = client.write_all(policy_refusal().as_bytes());
-                return;
+            let upstream = match connect_pinned(&host, port, overrides) {
+                Ok(upstream) => upstream,
+                Err(reason) => {
+                    let _ = client.write_all(connection_failure(&reason).as_bytes());
+                    return;
+                }
             };
             if client
                 .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
@@ -347,9 +434,12 @@ fn serve_connection(mut client: TcpStream, overrides: &ProxyOverrides) {
             let port = parse_authority(&authority, 80)
                 .map(|(_, port)| port)
                 .unwrap_or(80);
-            let Ok(mut upstream) = connect_pinned(&host, port, overrides) else {
-                let _ = client.write_all(policy_refusal().as_bytes());
-                return;
+            let mut upstream = match connect_pinned(&host, port, overrides) {
+                Ok(upstream) => upstream,
+                Err(reason) => {
+                    let _ = client.write_all(connection_failure(&reason).as_bytes());
+                    return;
+                }
             };
             // Rebuild the request in origin form for the upstream server, pinning the connection to
             // the validated address. `Connection: close` binds one validated destination to one
@@ -441,6 +531,28 @@ mod tests {
     }
 
     #[test]
+    fn dns_lookup_deadlines_and_queue_saturation_fail_closed() {
+        let resolver = Arc::new(BoundedResolver::new(1, 1, Duration::from_millis(25)).unwrap());
+        let (started, started_rx) = mpsc::sync_channel(1);
+        let (release, release_rx) = mpsc::sync_channel(1);
+        let worker_resolver = Arc::clone(&resolver);
+        let first = std::thread::spawn(move || {
+            worker_resolver.resolve(move || {
+                let _ = started.send(());
+                let _ = release_rx.recv();
+                Ok(vec![])
+            })
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let queued = resolver.resolve(|| Ok(vec![]));
+        assert!(queued.unwrap_err().contains("timed out"));
+        assert!(resolver.resolve(|| Ok(vec![])).unwrap_err().contains("busy"));
+        release.send(()).unwrap();
+        assert!(first.join().unwrap().unwrap_err().contains("timed out"));
+    }
+
+    #[test]
     fn parses_tunnel_and_absolute_form_targets() {
         assert_eq!(
             parse_proxy_request(b"CONNECT example.com:443 HTTP/1.1\r\n\r\n").unwrap(),
@@ -509,7 +621,12 @@ mod tests {
                 &format!("GET {target} HTTP/1.1\r\nHost: x\r\n\r\n"),
             );
             assert!(response.contains("403"), "{target} => {response}");
-            let authority = target.trim_start_matches("http://").trim_end_matches('/');
+            let authority = target
+                .strip_prefix("http://")
+                .unwrap()
+                .split('/')
+                .next()
+                .unwrap();
             let tunnel = send_raw(
                 proxy.port(),
                 &format!("CONNECT {authority}:443 HTTP/1.1\r\n\r\n"),

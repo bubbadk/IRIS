@@ -168,6 +168,12 @@ pub fn resolve_public_addresses(host: &str, port: u16) -> Result<Vec<SocketAddr>
     if host.is_empty() || reserved_host_name(&host) {
         return Err(BLOCKED_DESTINATION.into());
     }
+    // IP literals need no name lookup. Besides avoiding an unnecessary DNS call, validating
+    // literals directly keeps special destinations blocked even on systems whose resolver
+    // treats numeric addresses inconsistently (for example, some macOS resolver paths).
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return validate_public_addresses(vec![SocketAddr::new(ip, port)]);
+    }
     let addresses = (host.as_str(), port)
         .to_socket_addrs()
         .map_err(|_| "The web address could not be resolved. Check your network connection.")?
@@ -221,6 +227,15 @@ mod tests {
         }
         assert!(public_ip("1.1.1.1".parse().unwrap()));
         assert!(public_ip("2606:4700:4700::1111".parse().unwrap()));
+    }
+
+    #[test]
+    fn resolves_ip_literals_without_dns_and_rejects_private_destinations() {
+        let blocked = resolve_public_addresses("169.254.169.254", 80).unwrap_err();
+        assert_eq!(blocked, BLOCKED_DESTINATION);
+
+        let addresses = resolve_public_addresses("1.1.1.1", 443).unwrap();
+        assert_eq!(addresses, vec!["1.1.1.1:443".parse().unwrap()]);
     }
 
     #[test]

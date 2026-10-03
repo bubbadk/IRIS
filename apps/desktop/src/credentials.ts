@@ -61,6 +61,63 @@ export async function loadProviderSecrets(
   return stored === null ? null : parseStoredSecrets(stored);
 }
 
+/** Move legacy plaintext provider credentials into the OS keyring before config autosave can strip them. */
+export async function migrateLegacyProviderSecrets(
+  configs: readonly ProviderConfig[],
+): Promise<ProviderConfig[]> {
+  const migrated: ProviderConfig[] = [];
+  for (const config of configs) {
+    const secretFields = providerConnectionFields(config).filter((field) => field.secret);
+    const values = config.connectionValues ?? {};
+    const legacy = Object.fromEntries(
+      secretFields.flatMap((field) => {
+        const value = values[field.id] ?? (field.id === 'apiKey' ? config.apiKey : undefined);
+        return typeof value === 'string' && value.trim() ? [[field.id, value] as const] : [];
+      }),
+    );
+    if (!Object.keys(legacy).length) {
+      migrated.push(config);
+      continue;
+    }
+    if (!isTauriRuntime()) {
+      throw new Error('IRIS cannot safely migrate a saved provider key outside the desktop app.');
+    }
+
+    const stored = (await loadProviderSecrets(config.id)) ?? {};
+    const trusted = Object.fromEntries(
+      Object.entries(stored).filter(([, value]) => typeof value === 'string' && value.length > 0),
+    );
+    const secrets = { ...legacy, ...trusted };
+    if (Object.keys(legacy).some((fieldId) => !trusted[fieldId])) {
+      const persisted = await saveProviderSecrets(config.id, secrets);
+      if (!persisted) throw new Error('The OS credential store is unavailable.');
+    }
+    const verified = await loadProviderSecrets(config.id);
+    if (Object.entries(secrets).some(([fieldId, value]) => verified?.[fieldId] !== value)) {
+      throw new Error('The OS credential store did not retain a legacy provider key.');
+    }
+
+    const connectionValues = { ...values };
+    for (const field of secretFields) {
+      if (verified?.[field.id]) delete connectionValues[field.id];
+    }
+    const safeConfig = { ...config };
+    delete safeConfig.apiKey;
+    delete safeConfig.secretStored;
+    migrated.push({
+      ...safeConfig,
+      connectionValues,
+      storedSecretFields: [
+        ...new Set([
+          ...(config.storedSecretFields ?? []),
+          ...secretFields.filter((field) => verified?.[field.id]).map((field) => field.id),
+        ]),
+      ],
+    });
+  }
+  return migrated;
+}
+
 /**
  * Merges persisted provider configuration with the trusted credential store. The stored secrets are
  * applied last on purpose: a stale plaintext `apiKey` left behind in legacy configuration must never
@@ -84,7 +141,10 @@ export function mergeTrustedConnectionValues(
 
 /** Whether a provider config can carry secrets that must be read from the trusted store. */
 export function providerConfigHasSecretFields(
-  config: Pick<ProviderConfig, 'connectionFields' | 'credentialMode' | 'kind' | 'storedSecretFields'>,
+  config: Pick<
+    ProviderConfig,
+    'connectionFields' | 'credentialMode' | 'kind' | 'storedSecretFields'
+  >,
 ): boolean {
   const fields = providerConnectionFields(config);
   return fields.some((field) => field.secret) || Boolean(config.storedSecretFields?.length);

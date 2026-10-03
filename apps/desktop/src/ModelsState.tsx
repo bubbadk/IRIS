@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   createProviderConfig,
   dedupeModelIds,
@@ -20,6 +20,7 @@ import {
 import {
   deleteProviderSecrets,
   isTauriRuntime,
+  migrateLegacyProviderSecrets,
   resolveProviderConnection as resolveConnection,
   saveProviderSecrets,
 } from './credentials';
@@ -28,6 +29,11 @@ import { displayProviderModelName, selectableAgentModels } from './agentModelSel
 
 export function ModelsState() {
   const [providers, setProviders] = useState<ProviderConfig[]>(() => loadProviderConfigs());
+  const providersRef = useRef(providers);
+  providersRef.current = providers;
+  const [providerSecretsReady, setProviderSecretsReady] = useState(false);
+  const [providerMigrationError, setProviderMigrationError] = useState('');
+  const [providerMigrationAttempt, setProviderMigrationAttempt] = useState(0);
   const [catalog, setCatalog] = useState<ProviderCatalogEntry[]>(() => loadProviderCatalog());
   const [catalogSync, setCatalogSync] = useState<'syncing' | 'current' | 'offline'>('syncing');
   const [draft, setDraft] = useState<ProviderConfig | null>(null);
@@ -52,7 +58,32 @@ export function ModelsState() {
       )
     : [];
 
-  useEffect(() => saveProviderConfigs(providers), [providers]);
+  useEffect(() => {
+    let active = true;
+    setProviderSecretsReady(false);
+    setProviderMigrationError('');
+    void migrateLegacyProviderSecrets(providersRef.current)
+      .then((migrated) => {
+        if (!active) return;
+        setProviders(migrated);
+        setProviderSecretsReady(true);
+      })
+      .catch((failure: unknown) => {
+        if (!active) return;
+        setProviderMigrationError(
+          failure instanceof Error && failure.message
+            ? failure.message
+            : 'IRIS could not secure an existing provider key. Your saved provider data was kept.',
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, [providerMigrationAttempt]);
+
+  useEffect(() => {
+    if (providerSecretsReady) saveProviderConfigs(providers);
+  }, [providers, providerSecretsReady]);
 
   useEffect(() => {
     let active = true;
@@ -71,7 +102,7 @@ export function ModelsState() {
   }, []);
 
   function startAdding() {
-    if (!selectedCatalogEntry?.supported) return;
+    if (!providerSecretsReady || !selectedCatalogEntry?.supported) return;
     setErrors([]);
     setDraft(createProviderConfig(selectedCatalogEntry));
   }
@@ -110,7 +141,7 @@ export function ModelsState() {
   }
 
   async function saveDraft() {
-    if (!draft) return;
+    if (!draft || !providerSecretsReady) return;
     const nextErrors = validateProviderConfig(draft, {
       requireModel: draft.kind === 'azure-openai',
     });
@@ -217,6 +248,7 @@ export function ModelsState() {
   }
 
   async function testConnection(provider: ProviderConfig) {
+    if (!providerSecretsReady) return;
     setActivityStates((current) => ({ ...current, [provider.id]: 'testing' }));
     setActivityMessages((current) => ({ ...current, [provider.id]: 'Testing connection…' }));
     try {
@@ -241,6 +273,7 @@ export function ModelsState() {
   }
 
   async function refreshModels(provider: ProviderConfig) {
+    if (!providerSecretsReady) return;
     setActivityStates((current) => ({ ...current, [provider.id]: 'refreshing' }));
     setActivityMessages((current) => ({ ...current, [provider.id]: 'Refreshing model list…' }));
     try {
@@ -273,6 +306,7 @@ export function ModelsState() {
   }
 
   async function removeProvider(provider: ProviderConfig) {
+    if (!providerSecretsReady) return;
     try {
       if (provider.storedSecretFields?.length || provider.secretStored) {
         await deleteProviderSecrets(provider.id);
@@ -332,13 +366,25 @@ export function ModelsState() {
           </label>
           <button
             className="soft-button primary-button"
-            disabled={!selectedCatalogEntry?.supported}
+            disabled={!providerSecretsReady || !selectedCatalogEntry?.supported}
             onClick={startAdding}
           >
             ＋ Add provider
           </button>
         </div>
       </div>
+
+      {providerMigrationError && (
+        <p className="provider-error" role="alert">
+          {providerMigrationError}{' '}
+          <button
+            className="row-button"
+            onClick={() => setProviderMigrationAttempt((attempt) => attempt + 1)}
+          >
+            Try again
+          </button>
+        </p>
+      )}
 
       <div className="provider-catalog-note">
         <strong>{selectedCatalogEntry?.name ?? 'Provider directory'}</strong>
@@ -380,7 +426,8 @@ export function ModelsState() {
                         provider.model,
                         provider.modelMetadata?.[provider.model],
                       )
-                    : provider.availableModels?.length && selectableAgentModels(provider).length === 0
+                    : provider.availableModels?.length &&
+                        selectableAgentModels(provider).length === 0
                       ? NO_COMPATIBLE_CHAT_MODEL
                       : 'No model selected'}{' '}
                   · {provider.endpoint}
@@ -421,14 +468,18 @@ export function ModelsState() {
               </div>
               <button
                 className="row-button"
-                disabled={activity === 'testing' || activity === 'refreshing'}
+                disabled={
+                  !providerSecretsReady || activity === 'testing' || activity === 'refreshing'
+                }
                 onClick={() => void refreshModels(provider)}
               >
                 Models
               </button>
               <button
                 className="row-button"
-                disabled={activity === 'testing' || activity === 'refreshing'}
+                disabled={
+                  !providerSecretsReady || activity === 'testing' || activity === 'refreshing'
+                }
                 onClick={() => void testConnection(provider)}
               >
                 Test
@@ -444,6 +495,7 @@ export function ModelsState() {
               </button>
               <button
                 className="row-button danger-button"
+                disabled={!providerSecretsReady}
                 onClick={() => void removeProvider(provider)}
               >
                 Remove
@@ -581,7 +633,7 @@ export function ModelsState() {
           )}
           <button
             className="soft-button primary-button save-provider"
-            disabled={saving}
+            disabled={saving || !providerSecretsReady}
             onClick={() => void saveDraft()}
           >
             {saving ? 'Saving and refreshing…' : 'Save provider'}

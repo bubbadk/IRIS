@@ -336,7 +336,7 @@ describe('M-18 CSV parsing and generation', () => {
 });
 
 describe('M-18 XLSX structural validity', () => {
-  const hostile = '&<>"\' Ünïcödé\u0001\u000b';
+  const hostile = '&<>"\' Ünïcödé';
 
   it('escapes and truncates in an order that always yields valid XML', async () => {
     const title = `${'&'.repeat(28)}&amp;&amp;&amp;`;
@@ -361,6 +361,15 @@ describe('M-18 XLSX structural validity', () => {
     const cell = sheet.getElementsByTagName('t')[0]!;
     expect(cell.textContent).toBe('&<>"\' Ünïcödé');
     expect(cell.getAttribute('xml:space')).toBe('preserve');
+  });
+
+  it('refuses to silently discard XML-illegal control characters in spreadsheet and slide exports', async () => {
+    await expect(
+      spreadsheetDocument(makeDocument('a', 'csv'), 'before\u0001after'),
+    ).rejects.toThrow('cannot represent');
+    await expect(
+      presentationDocument(makeDocument('a'), '# Title\nbody\u000btext'),
+    ).rejects.toThrow('cannot represent');
   });
 
   it('preserves quoted newlines and tabs inside a single cell', async () => {
@@ -493,6 +502,24 @@ describe('M-18 PPTX structural validity', () => {
     expect(await text(1)).toContain('FIRST-SLIDE');
     expect(await text(3)).toContain('LAST-SLIDE');
     expect(await text(3)).toContain('closing');
+  });
+
+  it('keeps headings inside fenced code as body text and starts slides for every heading level', async () => {
+    const content =
+      '# Opening\n```markdown\n# Not a slide\n```\n## Section\nsection text\n#### Deep heading\nlast';
+    const { zip, presentation } = await readPresentation(
+      await presentationDocument(makeDocument(content), content),
+    );
+    const slideIds = [...presentation.getElementsByTagName('p:sldId')];
+    expect(slideIds).toHaveLength(3);
+    const slides = await Promise.all(
+      slideIds.map(async (_, index) =>
+        parseXml(await zip.file(`ppt/slides/slide${index + 1}.xml`)!.async('string')),
+      ),
+    );
+    const titles = slides.map((slide) => slide.getElementsByTagName('a:t')[0]!.textContent);
+    expect(titles).toEqual(['Opening', 'Section', 'Deep heading']);
+    expect(slides[0]!.getElementsByTagName('a:t')[1]!.textContent).toBe('# Not a slide');
   });
 });
 

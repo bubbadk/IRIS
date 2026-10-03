@@ -63,7 +63,11 @@ describe('onboarding persistence', () => {
     saveProviderSecrets.mockResolvedValue(true);
     mountWorkspace.mockResolvedValue(undefined);
     resolveProviderConnection.mockImplementation(async (config: unknown) => config);
-    refreshProviderModels.mockImplementation(async (config: unknown) => config);
+    refreshProviderModels.mockImplementation(async (config: Record<string, unknown>) => ({
+      ...config,
+      model: 'provider-real-chat',
+      availableModels: ['provider-real-chat'],
+    }));
   });
   afterEach(() => {
     vi.clearAllMocks();
@@ -88,6 +92,10 @@ describe('onboarding persistence', () => {
         .find((button) => button.textContent?.includes('Launch IRIS'))!
         .click(),
     );
+    const openFirstTask = [...container.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Open first task'),
+    );
+    if (openFirstTask) await act(async () => openFirstTask.click());
   }
 
   it('stores a cloud key before saving the public provider configuration', async () => {
@@ -96,6 +104,7 @@ describe('onboarding persistence', () => {
     const root = createRoot(container);
     await act(async () => root.render(<OnboardingWizard darkMode={false} onFinish={onFinish} />));
     await complete(container);
+    expect(refreshProviderModels).toHaveBeenCalledOnce();
     expect(saveProviderSecrets).toHaveBeenCalledWith(expect.stringMatching(/^openrouter-/), {
       apiKey: 'test-key',
     });
@@ -106,7 +115,7 @@ describe('onboarding persistence', () => {
         connectionValues: undefined,
       }),
     ]);
-    expect(onFinish).toHaveBeenCalledOnce();
+    expect(onFinish).toHaveBeenCalledWith('Help me plan my first project.');
     await act(async () => root.unmount());
   });
 
@@ -133,7 +142,7 @@ describe('onboarding persistence', () => {
     await act(async () => root.unmount());
   });
 
-  it('never fabricates a model name when discovery is unavailable', async () => {
+  it('does not claim setup is ready when provider model discovery fails', async () => {
     refreshProviderModels.mockRejectedValue(new Error('offline'));
     const onFinish = vi.fn();
     const container = document.createElement('div');
@@ -141,9 +150,10 @@ describe('onboarding persistence', () => {
     await act(async () => root.render(<OnboardingWizard darkMode={false} onFinish={onFinish} />));
     await complete(container);
 
-    const saved = (saveProviderConfigs.mock.calls[0] as unknown[][])[0][0] as { model: string };
-    expect(saved.model).toBe('');
-    expect(onFinish).toHaveBeenCalledOnce();
+    expect(saveProviderSecrets).not.toHaveBeenCalled();
+    expect(saveProviderConfigs).not.toHaveBeenCalled();
+    expect(onFinish).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('offline');
     await act(async () => root.unmount());
   });
 

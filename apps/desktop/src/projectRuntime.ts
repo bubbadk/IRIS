@@ -28,6 +28,7 @@ import { providerResolver } from './agentRuntime';
 import { agentToolRuntime } from './tooling';
 import { agentWorkspaceContext } from './workspace';
 import { agentExecutionLeases, projectWorkerReservations } from './agentExecution';
+import { redactInlineSecrets } from '@iris/tools';
 
 type ProjectRuntimeListener = (projectId: string) => void;
 
@@ -90,6 +91,12 @@ export function projectWorkerPrompt({
           ) ?? []),
         ]
       : []),
+    ...(run.testCommand
+      ? [
+          `Required test command (must run exactly once using shell_exec with isolation set to workspace):\n${run.testCommand}`,
+          'Wait for the normal user approval before running it. Do not claim the test passed unless its actual tool result shows exit code 0, no timeout, and workspace isolation. If it fails, report that accurately.',
+        ]
+      : []),
     ...(previousRun
       ? [
           'Continue from the saved report below. This is a new turn, not a replay of previous tools. Inspect current state before acting. Do not repeat external actions whose outcome is unknown. Ask for help when the report is insufficient.',
@@ -118,6 +125,7 @@ export async function currentProjectWorkerPrompt(
 export async function* mapAgentWorkerEvents(
   events: AsyncIterable<AgentEvent>,
   initialTurnId?: string,
+  testCommand?: string,
 ): AsyncGenerator<ProjectWorkerEvent> {
   let runtimeTurnId = initialTurnId;
   let announcedTurnId = Boolean(initialTurnId);
@@ -134,6 +142,37 @@ export async function* mapAgentWorkerEvents(
         type: 'approval-required',
         runtimeTurnId,
         approval: { ...event.approval },
+      };
+    }
+    if (
+      event.type === 'tool-complete' &&
+      testCommand &&
+      event.call.name === 'shell_exec' &&
+      event.call.input &&
+      typeof event.call.input === 'object' &&
+      !Array.isArray(event.call.input) &&
+      (event.call.input as Record<string, unknown>).command === testCommand
+    ) {
+      if (!runtimeTurnId) throw new Error('Project test result has no runtime turn identity.');
+      const output =
+        event.output && typeof event.output === 'object'
+          ? (event.output as Record<string, unknown>)
+          : {};
+      yield {
+        type: 'test-result',
+        runtimeTurnId,
+        command: testCommand,
+        result: {
+          ...output,
+          stdout:
+            typeof output.stdout === 'string'
+              ? redactInlineSecrets(output.stdout).slice(0, 20000)
+              : '',
+          stderr:
+            typeof output.stderr === 'string'
+              ? redactInlineSecrets(output.stderr).slice(0, 20000)
+              : '',
+        },
       };
     }
     if (event.type === 'assistant-complete') {
@@ -155,8 +194,9 @@ async function* checkpointWorkerEvents(
   agentId: string,
   events: AsyncIterable<AgentEvent>,
   turnId?: string,
+  testCommand?: string,
 ): AsyncGenerator<ProjectWorkerEvent> {
-  for await (const event of mapAgentWorkerEvents(events, turnId)) {
+  for await (const event of mapAgentWorkerEvents(events, turnId, testCommand)) {
     if (event.type === 'returned') {
       await projectCheckpointRepository.save(
         runId,
@@ -212,6 +252,8 @@ const projectWorkerExecutor: ProjectWorkerExecutor = {
       input.run.id,
       input.run.agentId,
       projectAgentRuntime.send(input.run.agentId, await currentProjectWorkerPrompt(input), signal),
+      undefined,
+      input.run.testCommand,
     );
   },
 
@@ -221,6 +263,7 @@ const projectWorkerExecutor: ProjectWorkerExecutor = {
       input.run.agentId,
       projectAgentRuntime.resolveApproval(approvalId, decision, signal),
       input.run.runtimeTurnId,
+      input.run.testCommand,
     );
   },
 
@@ -243,6 +286,8 @@ const projectWorkerExecutor: ProjectWorkerExecutor = {
         ].join('\n\n'),
         signal,
       ),
+      undefined,
+      input.run.testCommand,
     );
   },
 

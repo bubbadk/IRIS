@@ -82,7 +82,10 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-async function mount(entries: ProjectQueueEntry[], runs: ProjectTaskRun[] = []): Promise<HTMLElement> {
+async function mount(
+  entries: ProjectQueueEntry[],
+  runs: ProjectTaskRun[] = [],
+): Promise<HTMLElement> {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   mocks.graphs.mockResolvedValue([graph]);
   mocks.runs.mockResolvedValue(runs);
@@ -116,6 +119,16 @@ function queueEntry(overrides: Partial<ProjectQueueEntry>): ProjectQueueEntry {
     ...overrides,
   };
 }
+
+it('loads saved project data and reports a transient reconciliation failure', async () => {
+  mocks.reconcile.mockRejectedValueOnce(new Error('temporary lease lookup failure'));
+  const container = await mount([]);
+
+  expect(container.textContent).toContain('Export');
+  expect(container.textContent).toContain('Project recovery could not finish');
+  expect(container.textContent).toContain('temporary lease lookup failure');
+  expect(container.textContent).not.toContain('Loading local projects');
+});
 
 function run(overrides: Partial<ProjectTaskRun> = {}): ProjectTaskRun {
   return {

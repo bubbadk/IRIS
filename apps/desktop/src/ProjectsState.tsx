@@ -162,12 +162,15 @@ export function ProjectsState({
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [loadFailure, setLoadFailure] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [showProjectEditor, setShowProjectEditor] = useState(false);
   const [title, setTitle] = useState('');
   const [objective, setObjective] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
   const [acceptanceCriteria, setAcceptanceCriteria] = useState('');
+  const [testCommand, setTestCommand] = useState('');
   const [resultChecks, setResultChecks] = useState<ProjectResultCheck[]>([]);
   const [turnLimit, setTurnLimit] = useState(4);
   const [timeLimitMinutes, setTimeLimitMinutes] = useState<number | ''>('');
@@ -214,8 +217,15 @@ export function ProjectsState({
 
   useEffect(() => {
     let active = true;
+    setLoadFailure('');
     void (async () => {
-      await projectWorkflowRuntime.reconcile();
+      let recoveryFailure = '';
+      try {
+        await projectWorkflowRuntime.reconcile();
+      } catch (failure) {
+        recoveryFailure =
+          failure instanceof Error ? failure.message : 'Saved project recovery could not finish.';
+      }
       const stored = await projectGraphRepository.list();
       const storedRuns = await projectTaskRunRepository.list();
       const storedQueue = await projectQueueRepository.list();
@@ -228,8 +238,21 @@ export function ProjectsState({
       setSelectedId(stored[0]?.id ?? null);
       setSelectedAgentId(storedAgents[0]?.id ?? '');
       setShowProjectEditor(stored.length === 0);
+      setError(
+        recoveryFailure
+          ? `Project recovery could not finish. Saved projects are shown, but active runs may need attention. ${recoveryFailure}`
+          : '',
+      );
       setLoaded(true);
-    })();
+    })().catch((failure: unknown) => {
+      if (!active) return;
+      setLoadFailure(
+        failure instanceof Error && failure.message
+          ? `Saved project data could not be read: ${failure.message}`
+          : 'Saved project data could not be read. Your local data was not changed.',
+      );
+      setLoaded(true);
+    });
     const unsubscribe = subscribeProjectRuntime(() => {
       void Promise.all([projectGraphRepository.list(), projectTaskRunRepository.list()]).then(
         ([stored, storedRuns]) => {
@@ -249,7 +272,7 @@ export function ProjectsState({
       unsubscribe();
       unsubscribeQueue();
     };
-  }, []);
+  }, [loadAttempt]);
 
   const selected = projects.find((project) => project.id === selectedId) ?? null;
   const progress = selected ? projectProgress(selected) : null;
@@ -300,6 +323,7 @@ export function ProjectsState({
         title: taskTitle,
         description: taskDescription,
         acceptanceCriteria,
+        testCommand,
         resultChecks,
         turnLimit,
         ...(timeLimitMinutes === '' ? {} : { timeLimitMinutes }),
@@ -311,6 +335,7 @@ export function ProjectsState({
       setTaskTitle('');
       setTaskDescription('');
       setAcceptanceCriteria('');
+      setTestCommand('');
       setResultChecks([]);
       setTimeLimitMinutes('');
       setDependencyId('');
@@ -506,6 +531,20 @@ export function ProjectsState({
 
       {!loaded ? (
         <div className="projects-empty">Loading local projects…</div>
+      ) : loadFailure ? (
+        <div className="projects-empty" role="alert">
+          <strong>Project data could not be loaded</strong>
+          <p>{loadFailure}</p>
+          <button
+            className="row-button"
+            onClick={() => {
+              setLoaded(false);
+              setLoadAttempt((attempt) => attempt + 1);
+            }}
+          >
+            Try again
+          </button>
+        </div>
       ) : projects.length === 0 ? (
         <div className="projects-empty">
           <strong>No project graphs yet</strong>
@@ -650,6 +689,15 @@ export function ProjectsState({
                     onChange={(event) => setAcceptanceCriteria(event.target.value)}
                     rows={2}
                     placeholder="One required criterion per line."
+                  />
+                </label>
+                <label>
+                  Test command <span>optional · requires approval</span>
+                  <input
+                    value={testCommand}
+                    onChange={(event) => setTestCommand(event.target.value)}
+                    maxLength={8000}
+                    placeholder="pnpm test"
                   />
                 </label>
                 <ProjectCheckEditor checks={resultChecks} onChange={setResultChecks} />

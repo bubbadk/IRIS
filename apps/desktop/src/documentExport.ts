@@ -54,19 +54,25 @@ export function assertExportSupported(format: DocumentExportFormat, source: Docu
   );
 }
 
-/** XML 1.0 forbids most C0 controls, the surrogate range and U+FFFE/U+FFFF. */
+/** Refuse content XML cannot represent; silently deleting characters corrupts exported documents. */
 function xmlCharacters(value: string): string {
-  return Array.from(value)
-    .filter((character) => {
-      const code = character.codePointAt(0)!;
-      return (
-        code === 9 ||
-        code === 10 ||
-        code === 13 ||
-        (code >= 32 && code !== 0xfffe && code !== 0xffff)
-      );
-    })
-    .join('');
+  const invalid = Array.from(value).some((character) => {
+    const code = character.codePointAt(0)!;
+    return !(
+      code === 9 ||
+      code === 10 ||
+      code === 13 ||
+      (code >= 0x20 && code <= 0xd7ff) ||
+      (code >= 0xe000 && code <= 0xfffd) ||
+      (code >= 0x10000 && code <= 0x10ffff)
+    );
+  });
+  if (invalid) {
+    throw new Error(
+      'This content contains characters that spreadsheet and slide formats cannot represent. Remove the unsupported control characters and try again.',
+    );
+  }
+  return value;
 }
 
 function xmlText(value: string): string {
@@ -531,12 +537,32 @@ export async function presentationDocument(doc: IrisDocument, content: string): 
   // silently removed.
   let current: Slide = { title: doc.title, lines: [] };
   let isHeading = false;
+  let codeFence: { marker: '`' | '~'; length: number } | null = null;
   const meaningful = (slide: Slide) => isHeading || slide.lines.some((value) => value.trim());
   for (const line of content.split(/\r?\n/)) {
-    const heading = doc.format === 'markdown' ? /^#{1,3}\s+(.+)$/.exec(line) : null;
+    const fence = doc.format === 'markdown' ? /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line) : null;
+    if (codeFence) {
+      if (
+        fence &&
+        fence[1]![0] === codeFence.marker &&
+        fence[1]!.length >= codeFence.length &&
+        !fence[2]!.trim()
+      ) {
+        codeFence = null;
+      } else {
+        current.lines.push(line);
+      }
+      continue;
+    }
+    if (fence) {
+      codeFence = { marker: fence[1]![0] as '`' | '~', length: fence[1]!.length };
+      continue;
+    }
+    const heading =
+      doc.format === 'markdown' ? /^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line) : null;
     if (heading) {
       if (meaningful(current)) slides.push(current);
-      current = { title: heading[1]!, lines: [] };
+      current = { title: heading[2]!, lines: [] };
       isHeading = true;
     } else {
       current.lines.push(line);
