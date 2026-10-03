@@ -621,7 +621,12 @@ mod tests {
                 &format!("GET {target} HTTP/1.1\r\nHost: x\r\n\r\n"),
             );
             assert!(response.contains("403"), "{target} => {response}");
-            let authority = target.trim_start_matches("http://").trim_end_matches('/');
+            let authority = target
+                .strip_prefix("http://")
+                .unwrap()
+                .split('/')
+                .next()
+                .unwrap();
             let tunnel = send_raw(
                 proxy.port(),
                 &format!("CONNECT {authority}:443 HTTP/1.1\r\n\r\n"),
