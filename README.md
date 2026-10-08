@@ -198,11 +198,7 @@ The request path is roughly: desktop UI → agent runtime (`@iris/cortex`) → p
 
 ### Download a release
 
-The latest published release is [IRIS v0.3.3](https://github.com/bubbadk/IRIS/releases/latest). The v0.3.4 source candidate is not published yet; its Linux download will be:
-
-- `IRIS_0.3.4_amd64.AppImage` — AppImage bundle (when v0.3.4 is published)
-
-Other platform installers and the signed updater manifest are attached to the release. Source tags and downloadable releases are separate: a tag can exist without a published asset. Check the Releases page for current files. In-app updates require a package signed with the matching production key, and IRIS refuses unsigned metadata.
+The latest published release is [IRIS v0.3.4](https://github.com/bubbadk/IRIS/releases/latest). Download the [Linux AppImage](https://github.com/bubbadk/IRIS/releases/download/v0.3.4/IRIS_0.3.4_amd64.AppImage), [Windows installer](https://github.com/bubbadk/IRIS/releases/download/v0.3.4/IRIS_0.3.4_x64-setup.exe), or [macOS universal disk image](https://github.com/bubbadk/IRIS/releases/download/v0.3.4/IRIS_0.3.4_universal.dmg). The release also includes signed updater packages, `latest.json` and per-platform SHA-256 checksums. In-app updates require a package signed with the matching production key, and IRIS refuses unsigned metadata.
 
 ### Build from source
 
@@ -247,19 +243,9 @@ pnpm build:binary
 
 ## Verification
 
-For the published IRIS v0.3.3 release, verification recorded on Linux and hosted CI runners:
+The v0.3.4 release workflow ([run #25](https://github.com/bubbadk/IRIS/actions/runs/37762389070)) passed on Linux, macOS and Windows. Each platform job ran `pnpm typecheck`, zero-warning `pnpm lint`, `pnpm test`, and its Rust test suite before building signed release assets. Linux produced an AppImage; macOS produced a universal disk image and updater archive; Windows produced MSI and NSIS installers. The release includes `latest.json` and per-platform SHA-256 files.
 
-| Suite                                   | Result                                      |
-| :-------------------------------------- | :------------------------------------------ |
-| TypeScript (`pnpm test`)                | **137 test files · 1428 passed · 0 failed** |
-| Rust, Linux (`cargo test`)              | **128 passed · 0 failed · 13 ignored**      |
-| Rust, `macos-14` runner                 | **123 passed · 0 failed · 10 ignored**      |
-| Rust, `windows-latest` runner (`--lib`) | **107 passed · 0 failed · 9 ignored**       |
-
-The Rust totals differ because Unix-only cases run only where the platform supports them; ignored tests are listed separately and are not counted as passed. The Windows step runs the library target because the manifest that lets a Windows test binary load cannot be applied to the binary target in the same invocation, and that target contains no tests.
-
-Also verified: `pnpm typecheck`, zero-warning `pnpm lint`, `pnpm build`, `pnpm build:binary`, isolated native startup with no panic, browser and web safety paths (the visible browser runtime, the enforcing proxy and the native public-web reader), and persistence and recovery paths (revision-checked SQLite writes and content-checked restore points).
-
+Hosted CI builds and tests do not establish installation or runtime behavior on every end-user machine.
 ## Known limitations
 
 IRIS states its gaps as plainly as its capabilities. Current product-scope limits:
