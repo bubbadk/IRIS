@@ -1,177 +1,19 @@
 # IRIS Current State
 
-Updated 2026-10-04. **Source candidate: 0.3.4; latest published release: 0.3.3.** The working tree
-contains follow-up fixes and the synchronized 0.3.4 version bump on `codex/release-v0.3.4`. This
-candidate has not been pushed, tagged or published.
-Local source, generated artifacts and published releases are separate. `main` and the base commit
-both point to `7f23c89`, the commit tagged and published as `v0.3.3`. This branch contains the
-unreleased 0.3.4 candidate on top of that base: the 0.3.0 foundation plus the
-post-0.2.11 work that passed the Phase 2J final adversarial release gate — plus the
-platform-portability repairs of 0.3.1, the three truthfulness repairs of 0.3.2 and the agent
-workspace availability repair of 0.3.3. Phase 2K.1 applied
-the 0.3.0 version decision across all version metadata and committed the candidate on `main`; Phase 2L
-tagged and pushed that commit as `v0.3.0`, and its `Release` run then failed on all three platform
-workers. Phase 2L.1 repaired the platform defects, applied 0.3.1, and tagged `v0.3.1`; its `Release`
-run passed the native suite on Linux, macOS and Windows and then stopped at updater signing, because
-the configured signing key and password were not a matching pair, producing no release object,
-artifact, checksum, signature or updater metadata. That signing configuration has since been
-corrected. **`v0.3.0` and `v0.3.1` are source tags with no published releases**. `v0.3.2` and
-`v0.3.3` are published GitHub releases; `v0.3.3` is marked Latest and includes signed platform
-artifacts and the updater manifest.
+Updated 2026-10-08. **Latest published release: v0.3.4.** GitHub release `v0.3.4` is marked Latest and points to commit `0fc6b8e6a88083ae572483c4c86363edc810914f` (merged PR #11). The manual Release workflow run [#25](https://github.com/bubbadk/IRIS/actions/runs/37762389070) completed successfully on Linux, macOS and Windows. It ran TypeScript and Rust checks, built signed installers/updater packages, and uploaded `latest.json` plus SHA-256 checksums.
 
-Phase 2M.1 repairs the three remaining Medium truthfulness findings in this tree — a CSV export that
-refused valid content ending in a blank record, a Documents window that kept denying data it was
-displaying after a successful reload, and durable channel-attention records that no part of the
-application read — and published these repairs as 0.3.2. Phase 2M.2 applies 0.3.3 and repairs
-the agent workspace availability defect introduced with the 0.3.0 configuration guard: an agent or
-permission rule naming a tool identity the registry did not publish (an MCP server that has not
-connected yet, or is simply offline) aborted the whole agent and permission read, so the Agent
-workspace stayed on "Loading agents…" with no explanation while the stored data remained intact.
-Configured identities are now resolved without requiring a reachable provider, an existing assignment
-is kept and reported as unavailable, a newly assigned identity must still exist when it is saved, and
-a failed read names itself with a retry action. Publication still requires a fresh, explicit human
-approval for that exact invocation. Whether a release object exists for a tag is observable on the
-GitHub Releases page; this file describes the source tree.
+The public updater manifest reports version `0.3.4`; all listed Linux, Windows and macOS targets have signed package URLs. The updater public key remains configured in `apps/desktop/src-tauri/tauri.conf.json`.
 
-## Release gate status
+## Release highlights
 
-**Phase 2J (post-2J.2) Final Adversarial Release Gate: PASS.** No open Critical or High finding
-remains. Report: [PHASE-2J-POST-2J2-FINAL-RELEASE-GATE.md](.audit-release/PHASE-2J-POST-2J2-FINAL-RELEASE-GATE.md)
-(local audit evidence, intentionally untracked like every other `.audit-*`/`.phase2*` directory).
+- Project tasks can require an approved, isolated test command whose successful result is required before applying the task.
+- Opt-in Telegram and Discord project status notifications send generic status only.
+- Legacy provider credentials migrate to the OS credential store when retention is verified; provider errors redact credentials.
+- Document exports handle XML-invalid characters and preserve Markdown headings and code fences in PowerPoint output.
+- Project loading reports recoverable errors; browser DNS lookups use bounded workers and deadlines.
 
-Phase 2K prepared this tree for a release-candidate commit: reconciled this file, drafted release
-notes, preserved the finding backlog, reviewed the release workflow and signing prerequisites, and
-re-ran full verification. Phase 2K.1 then committed the candidate as a single atomic commit.
-Neither phase pushed, tagged or published anything.
+## Verification and limits
 
-## Verification recorded for the current release
+Release workflow #25 passed `pnpm typecheck`, `pnpm lint`, `pnpm test`, and the native Rust suite on its hosted Linux, macOS and Windows runners. Signed release assets were produced for all three platforms. Hosted runner success does not establish installer or runtime behavior on end-user machines; Linux CachyOS/Arch remains the primary verified desktop environment.
 
-The published 0.3.3 release notes record these checks. They are release evidence, not a fresh run
-performed during this documentation correction:
-
-- **TypeScript** (`pnpm test`): **137 files / 1428 passed / 0 failed**.
-- **Rust, Linux** (`cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml`): **128 passed /
-  0 failed / 13 ignored**. Twelve of the 13 ignored tests were additionally executed explicitly and
-  passed; the thirteenth is a child-process fixture, not a standalone assertion.
-- **Rust, macOS** (`macos-14` runner): **123 passed / 0 failed / 10 ignored**.
-- **Rust, Windows** (`windows-latest` runner, `--lib`): **107 passed / 0 failed / 9 ignored**. The
-  counts differ per platform because Unix-only cases run only where the platform supports them, and
-  the Windows step is scoped to the lib target because the manifest that lets a Windows test binary
-  load cannot be applied to a bin target in the same invocation. The bin and doc test targets contain
-  no tests.
-- `pnpm typecheck` and `pnpm lint` (`--max-warnings=0`): 0 errors, 0 warnings.
-- `pnpm build` and `pnpm build:binary`: success. Isolated native boots: no panic, repository and
-  scheduler initialise, no `PluginInitialization`.
-- Controlled workers/adapters do not establish real model or external-service operation.
-
-## Closed release-blocking findings
-
-`F-1S` (native reader SSRF / canonical authority), `F-1H` (stale tool-ID compatibility), `F-2J2-SCH-01`
-(provisional scheduler reservation release) and its `reconcile()` counterpart, `H1` (credential/origin
-binding), `H2` (channel recovery), `H3` (secret temp file), `H4` (cancellation terminal truth),
-`H5a` (reconcile authority), `H5b` (local reservation cleanup), `H6` (approval resume authority) and
-channel fencing are all closed and were re-verified against the current tree. Detail remains in the
-audit reports; user-facing context is summarised in the release notes draft.
-
-## Remaining audit debt (not release-blocking)
-
-- The three Medium truthfulness findings F1 (CSV trailing blank record), F2 (stale Documents load
-  error) and F2C (channel-attention observability) were repaired in 0.3.2 and are covered by
-  regression tests; they are closed, not open backlog items.
-- **Low** — 18 reproduced historical Lows plus 3 static-only observations, one new `ProjectsState`
-  reconcile availability observation (`F-2J3-1`), and the Tauri ACL observation (the app declares 67
-  native commands but no application-level ACL entries; in-command runtime checks and a strict
-  window CSP remain). Full technical detail is in the audit reports.
-
-The Phase 2J gate found no open Critical or High finding. The 2026-09-18 low-finding counts below
-are historical. The 0.3.4 candidate includes legacy credential migration, safer XLSX/PPTX export,
-Projects load recovery, bounded browser DNS resolution, provider-error redaction, opt-in project
-status notifications, and approval-gated project test checks. Fresh local verification on 2026-10-04:
-typecheck and lint pass; 138 TypeScript test files / 1437 tests pass. Rust/native verification and a
-desktop binary build remain outstanding because Cargo is unavailable in this environment. This
-candidate is not release-ready.
-Remaining Low observations and the Tauri ACL observation remain recorded in the historical audit
-reports.
-
-## Implemented foundations and partial work
-
-- **Product and architecture:** Local-first graphical agent environment with movable/resizable
-  windows, named layouts, provider contracts, tools, skills, projects, schedules and inspectable
-  context. Domain workflow logic stays independent of React/Tauri; UI and native adapters perform
-  I/O. No fabricated runtime activity.
-- **Project execution:** Acceptance criteria, bounded 1–10-turn runs and optional 1–1,440-minute
-  deadlines; saved tool-result checkpoints, pause/manual resume, original provider/model retention,
-  durable task queues and atomic claims. Interrupted side effects with unknown outcomes are not
-  replayed automatically. Failed configured checks can trigger bounded repair. Natural reports require
-  human review before dependencies unlock. Cross-process ownership uses real OS processes, a shared
-  SQLite database and fail-closed reconciliation of live, dead and unknown owners.
-- **Quality control (QC-1 / QC-2):** Every non-empty criterion line requires a saved human Met
-  assessment with rationale/evidence. Reviews bind the task definition, exact criterion text,
-  run/turn, worker report and configured artifact snapshot. Open blocking findings survive later runs
-  until explicitly resolved. Acceptance re-reads targets and commits the receipt with task completion
-  atomically in SQLite. Saved rejection reasons and bounded proposals are visible in both project
-  surfaces. These are human observations and snapshot checks, not independent semantic verification or
-  filesystem locks.
-- **Storage and permissions:** SQLite repositories use revision-checked atomic commits; legacy
-  localStorage is retained as migration backup. Failed persistence is reported. Mandatory
-  shell/publication approvals remain enforced and cannot be bypassed through YOLO mode, an explicit
-  allow rule, delegation, schedules, channels, resumed runs or legacy tool aliases. Execution claims
-  prevent automatic replay after interruption.
-- **Linux background runtime:** The System panel can install a per-user systemd unit launching the
-  hidden graphical app with exclusive queue ownership. Live inspection found the service **not
-  installed**. Full install/restart/crash/log/upgrade/removal lifecycle is unverified; removal ignores
-  stop failures. No launchd/Windows service implementation.
-- **Channels:** Telegram inbox polling, chat allowlisting and approve/deny routing to pending
-  agent/project/schedule approvals exist with controlled-adapter tests. Polling is tied to the
-  Channels window. Live remote identity/lifecycle remains unverified. Discord is an outgoing webhook
-  sender only; automatic completion/failure notifications and reusable durable channel operation are
-  missing.
-- **Memory:** Ordinary memories have lexical/embedding/hybrid retrieval. Approved global/project
-  knowledge has provenance, expiry, immutable revisions, atomic conflict replacement, project
-  precedence and a conservative lexical related-entry signal that asks for human review. New turns
-  select up to 20 active entries; the approved-knowledge tool can search up to 100 matching current
-  entries when given a query. Semantic cross-topic contradiction handling remains missing. Retrieval
-  coverage and final-answer benchmark accuracy are distinct.
-- **Documents:** Durable Markdown/text/HTML/SVG/JSON/CSV revisions; agent create/read/list/revise
-  tools; static previews; original-format and real DOCX, plain-text PDF, basic comma-separated-row
-  XLSX and plain-text PPTX export with overwrite refusal. Rich editing, presentation
-  themes/images/tables and comprehensive rendered-artifact validation remain missing.
-- **Browser and workspace safety:** A separate visible Chrome session, screenshot view,
-  permission-controlled address navigation, takeover, tab switching and stale-target refusal exist;
-  discovery is Linux-specific. Embedded live view and persistent profiles are missing. The workspace
-  shell defaults to probed offline Bubblewrap isolation on Linux with no silent host fallback. Text
-  write/patch restore points enforce current-content checks; shell changes, moves/deletes and binaries
-  have no automatic undo.
-- **Onboarding:** The three-step wizard has a native workspace chooser, verifies a selected workspace
-  rather than saving a fallback mount, and writes cloud provider keys to the credential store before
-  the public provider configuration. Provider connectivity is not tested in the wizard; use Models to
-  test it. Shared chat sessions retain streaming/approvals across views. Subtitle translation
-  checkpoints support manual restart recovery. Telemetry absence is reported as unavailable. GitHub
-  local scaffolding is distinct from publication.
-- **Updater:** Readable target-version notes and signature/target/install-error checks are integrated.
-  AppImage tooling handles Arch with `NO_STRIP`; the manual signing-required draft-release workflow
-  attaches per-platform SHA-256 manifests. Historical signed-install/tamper/rollback evidence is not
-  verification of this session's binary. The local `dist-release/latest.json` was refreshed from the
-  published 0.3.3 updater manifest on 2026-09-30.
-
-## Debt, blockers and next work
-
-- **Release candidate: 0.3.4 — not published.** Workspace manifests, Tauri config, Cargo.toml and
-  the IRIS Cargo.lock entry are bumped. Cargo tests and the native binary build remain unverified.
-  The published 0.3.3 artifacts and updater manifest remain the latest available. Signed 0.3.4
-  platform assets and updater metadata must be produced by the release workflow after native
-  verification.
-- An unintended partial QC-3 expansion was removed from active source and preserved separately in
-  `/mnt/ai/IRIS-deferred/QC3-2026-09-12-z290fbrp`. It is unfinished and is not accepted evidence.
-- Independent semantic review and permission-gated test-command execution (QC-3) remain missing.
-  QC-2 proposes bounded task repairs; automatic project replanning is not implemented. See
-  [IRIS_GAP_PLAN.md](docs/IRIS_GAP_PLAN.md) for every remaining requirement; all eight areas remain
-  in scope.
-- Repository-wide formatting still fails in other files; edited TypeScript/Markdown is formatted.
-  Existing build chunk-size warnings remain. Ignored native integration tests require dedicated live
-  fixtures.
-- Onboarding does not validate provider connections or save entered secrets through the credential
-  store during setup; unified account/channel/profile/security onboarding remains partial.
-- macOS/Windows runtime acceptance remains limited to the evidence recorded for the release; asset
-  publication alone is not a user-machine installation test. A future publication still requires
-  fresh, explicit human approval for that exact invocation.
+Project test commands still require explicit approval. Project status notifications default to off; disconnected channels cannot deliver them, and Discord has no inbound listener.
